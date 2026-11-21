@@ -375,6 +375,12 @@ const state = {
   invites: [],
   staffLoading: false,
   lastInviteUrl: '',
+  inviteDraft: {
+    email: '',
+    department: 'Trust & Safety',
+    role: 'l1_moderator',
+    expiresHours: '48',
+  },
   // Audit
   audit: [],
   auditQuery: '',
@@ -2418,6 +2424,8 @@ function renderStaffPanel() {
                 name="email"
                 required
                 placeholder="employee@quantzing.com"
+                value="${esc(state.inviteDraft.email)}"
+                data-input="invite-email"
                 data-testid="staffInviteEmail"
               />
             </div>
@@ -2431,7 +2439,8 @@ function renderStaffPanel() {
                 name="department"
                 required
                 placeholder="Trust & Safety"
-                value="Trust & Safety"
+                value="${esc(state.inviteDraft.department)}"
+                data-input="invite-dept"
                 data-testid="staffInviteDept"
               />
             </div>
@@ -2442,10 +2451,11 @@ function renderStaffPanel() {
                 id="staff-invite-role"
                 class="ops-select"
                 name="role"
+                data-input="invite-role"
                 data-testid="staffInviteRole"
               >
                 ${ASSIGNABLE_STAFF_ROLES.map(
-                  r => `<option value="${r.value}">${esc(r.label)}</option>`,
+                  r => `<option value="${r.value}" ${state.inviteDraft.role === r.value ? 'selected' : ''}>${esc(r.label)}</option>`,
                 ).join('')}
               </select>
             </div>
@@ -2459,7 +2469,8 @@ function renderStaffPanel() {
                 name="expiresHours"
                 min="1"
                 max="720"
-                value="48"
+                value="${esc(state.inviteDraft.expiresHours)}"
+                data-input="invite-expiry"
               />
             </div>
 
@@ -3195,6 +3206,7 @@ async function handleStaffInviteSubmit(form) {
     })
     const url = buildInviteUrl(data.invite, data)
     state.lastInviteUrl = url
+    state.inviteDraft.email = ''
     showToast(`Staff invite generated for ${email}`, 'success')
     await loadStaff()
   } catch (err) {
@@ -3465,11 +3477,26 @@ function wireEvents() {
 
   document.addEventListener('input', event => {
     const target = event.target
-    if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return
+    if (
+      !(
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement
+      )
+    )
+      return
     const kind = target.dataset.input
     if (!kind) return
 
-    if (kind === 'report-note') {
+    if (kind === 'invite-email') {
+      state.inviteDraft.email = target.value
+    } else if (kind === 'invite-dept') {
+      state.inviteDraft.department = target.value
+    } else if (kind === 'invite-role') {
+      state.inviteDraft.role = target.value
+    } else if (kind === 'invite-expiry') {
+      state.inviteDraft.expiresHours = target.value
+    } else if (kind === 'report-note') {
       state.reportNotes[target.dataset.id] = target.value
     } else if (kind === 'appeal-note') {
       state.appealNotes[target.dataset.id] = target.value
@@ -3490,6 +3517,14 @@ function wireEvents() {
     } else if (kind === 'audit-search') {
       state.auditQuery = target.value
       renderAuditListSlot()
+    }
+  })
+
+  document.addEventListener('change', event => {
+    const target = event.target
+    if (!(target instanceof HTMLSelectElement)) return
+    if (target.dataset.input === 'invite-role') {
+      state.inviteDraft.role = target.value
     }
   })
 
