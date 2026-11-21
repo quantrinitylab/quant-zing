@@ -6,7 +6,10 @@
   },
   "build": {
     "base": {
-      "node": "24.22.1"
+      "node": "24.22.1",
+      "env": {
+        "EXPO_PUBLIC_QUANTZING_DOMAIN": "quantzing.com"
+      }
     },
     "development": {
       "extends": "base",
@@ -18,13 +21,15 @@
         "resourceClass": "large"
       },
       "env": {
-        "EXPO_PUBLIC_ENV": "production"
+        "EXPO_PUBLIC_ENV": "development",
+        "EXPO_PUBLIC_QUANTZING_DOMAIN": "quantzing.com"
       }
     },
     "development-simulator": {
       "extends": "development",
       "env": {
-        "DISABLE_UPDATES": "1"
+        "DISABLE_UPDATES": "1",
+        "EXPO_PUBLIC_QUANTZING_DOMAIN": "quantzing.com"
       }
     },
     "e2e": {
@@ -34,6 +39,7 @@
       },
       "env": {
         "EXPO_PUBLIC_ENV": "e2e",
+        "EXPO_PUBLIC_QUANTZING_DOMAIN": "quantzing.com",
         "NODE_ENV": "development",
         "RN_SRC_EXT": "e2e.ts,e2e.tsx"
       }
@@ -41,12 +47,16 @@
     "preview": {
       "extends": "base",
       "distribution": "internal",
-      "channel": "production",
+      "channel": "preview",
       "ios": {
         "resourceClass": "large"
       },
+      "android": {
+        "buildType": "apk"
+      },
       "env": {
-        "EXPO_PUBLIC_ENV": "production"
+        "EXPO_PUBLIC_ENV": "production",
+        "EXPO_PUBLIC_QUANTZING_DOMAIN": "quantzing.com"
       }
     },
     "production": {
@@ -57,11 +67,13 @@
         "buildArtifactPaths": ["ios/build/*"]
       },
       "android": {
+        "buildType": "app-bundle",
         "autoIncrement": true
       },
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_ENV": "production"
+        "EXPO_PUBLIC_ENV": "production",
+        "EXPO_PUBLIC_QUANTZING_DOMAIN": "quantzing.com"
       }
     },
     "testflight": {
@@ -75,7 +87,8 @@
       },
       "channel": "testflight",
       "env": {
-        "EXPO_PUBLIC_ENV": "testflight"
+        "EXPO_PUBLIC_ENV": "testflight",
+        "EXPO_PUBLIC_QUANTZING_DOMAIN": "quantzing.com"
       }
     },
     "testflight-android": {
@@ -89,21 +102,24 @@
       },
       "channel": "testflight",
       "env": {
-        "EXPO_PUBLIC_ENV": "testflight"
+        "EXPO_PUBLIC_ENV": "testflight",
+        "EXPO_PUBLIC_QUANTZING_DOMAIN": "quantzing.com"
       }
     }
   },
   "submit": {
     "production": {
       "ios": {
-        "ascAppId": "6444370199"
+        "bundleIdentifier": "com.quantzing.app"
       },
       "android": {
+        "serviceAccountKeyPath": "./google-play-service-account.json",
         "track": "production"
       }
     },
     "testflight-android": {
       "android": {
+        "serviceAccountKeyPath": "./google-play-service-account.json",
         "track": "internal"
       }
     }

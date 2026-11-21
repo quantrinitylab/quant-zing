@@ -315,7 +315,7 @@ export function ModerationScreenInner({
           t.atoms.bg_contrast_25,
         ]}>
         <Link
-          label={l`View your default post interaction settings`}
+          label={l`View your default Zing interaction settings`}
           testID="interactionSettingsBtn"
           to="/moderation/interaction-settings">
           {state => (
@@ -465,14 +465,14 @@ export function ModerationScreenInner({
                     <Trans>
                       Adult content can only be enabled via the Web at{' '}
                       <InlineLinkText
-                        label={l`The Bluesky web application`}
+                        label={l`The QuantZing web application`}
                         to=""
                         onPress={evt => {
                           evt.preventDefault()
-                          void Linking.openURL('https://bsky.app/')
+                          void Linking.openURL('https://quantzing.com/')
                           return false
                         }}>
-                        bsky.app
+                        quantzing.com
                       </InlineLinkText>
                       .
                     </Trans>

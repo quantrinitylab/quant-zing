@@ -62,7 +62,7 @@ function TrendingTopicsWidget(
    * Explore, tagged for `trendingWidget:explore:click` (see links.ts). Small
    * widgets can't contain links, so this is their only tap target.
    */
-  const rootDestination = `https://bsky.app/search?ref_src=widget&ref_size=${environment.widgetFamily}`
+  const rootDestination = `https://quantzing.com/search?ref_src=widget&ref_size=${environment.widgetFamily}`
 
   function TopicRow({
     topic,
@@ -155,7 +155,7 @@ function TrendingTopicsWidget(
         {/* from the extension's asset catalog, see plugins/withTrendingWidget.js */}
         <Image
           assetName="BlueskyButterfly"
-          color="#0085FF"
+          color="#1D9BF0"
           modifiers={[
             resizable(),
             frame({width: leadingWidth, height: leadingWidth}),
@@ -169,7 +169,7 @@ function TrendingTopicsWidget(
           ]}>
           {isSmall
             ? (props.shortTitle ?? 'Trending')
-            : (props.title ?? 'Trending on Bluesky')}
+            : (props.title ?? 'Trending on QuantZing')}
         </Text>
         <Spacer minLength={0} />
       </HStack>
@@ -198,7 +198,7 @@ function TrendingTopicsWidget(
               foregroundStyle(secondaryTextColor),
               lineLimit(3),
             ]}>
-            {props.emptyMessage ?? 'Open Bluesky to load trending topics.'}
+            {props.emptyMessage ?? 'Open QuantZing to load trending topics.'}
           </Text>
           {/* the whole widget opens the app, this just makes that obvious */}
           {props.topics ? null : (
@@ -207,11 +207,11 @@ function TrendingTopicsWidget(
                 font({size: 13, weight: 'semibold'}),
                 foregroundStyle('#FFFFFF'),
                 padding({horizontal: 14, vertical: 7}),
-                background('#0085FF'),
+                background('#1D9BF0'),
                 clipShape('capsule'),
                 padding({top: 6}),
               ]}>
-              Open Bluesky
+              Open QuantZing
             </Text>
           )}
         </VStack>

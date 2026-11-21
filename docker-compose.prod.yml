@@ -1,0 +1,75 @@
+name: quantzing-prod
+
+services:
+  quantzing:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        EXPO_PUBLIC_ENV: production
+        EXPO_PUBLIC_QUANTZING_DOMAIN: quantzing.com
+    image: quantos/quantzing:latest
+    container_name: quantzing-server
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3008:3008"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3008"
+      QUANTZING_DATA_DIR: /data/.quantzing-data
+      QUANTZING_PDS_DATA_DIR: /data/.quantzing-data
+      QUANT_AI_HOST: ${QUANT_AI_HOST:-host.docker.internal}
+      QUANT_AI_PORT: ${QUANT_AI_PORT:-4240}
+      QUANT_AI_URL: ${QUANT_AI_URL:-http://host.docker.internal:4240}
+      QUANT_ROUTER_HOST: ${QUANT_ROUTER_HOST:-host.docker.internal}
+      QUANT_ROUTER_PORT: ${QUANT_ROUTER_PORT:-4003}
+      QUANT_ROUTER_URL: ${QUANT_ROUTER_URL:-http://host.docker.internal:4003}
+      QUANT_PAY_HOST: ${QUANT_PAY_HOST:-host.docker.internal}
+      QUANT_PAY_PORT: ${QUANT_PAY_PORT:-4002}
+      QUANT_PAY_URL: ${QUANT_PAY_URL:-http://host.docker.internal:4002}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - quantzing_pds_data:/data/.quantzing-data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3008/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - quantos-net
+
+  caddy:
+    image: caddy:2.9-alpine
+    container_name: quantzing-caddy
+    restart: unless-stopped
+    depends_on:
+      quantzing:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      QUANTZING_UPSTREAM: quantzing:3008
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - quantos-net
+
+volumes:
+  quantzing_pds_data:
+    name: quantzing_pds_data
+  caddy_data:
+    name: quantzing_caddy_data
+  caddy_config:
+    name: quantzing_caddy_config
+
+networks:
+  quantos-net:
+    name: quantos-net
+    driver: bridge

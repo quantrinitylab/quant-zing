@@ -83,11 +83,11 @@ function EmbedDialogInner({
     // DO NOT ADD ANY NEW INTERPOLATIONS BELOW WITHOUT ESCAPING THEM!
     // Also, keep this code synced with the bskyembed code in landing.tsx.
     // x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x-x
-    return `<blockquote class="bluesky-embed" data-bluesky-uri="${escapeHtml(
+    return `<blockquote class="quantzing-embed" data-quantzing-uri="${escapeHtml(
       postUri,
-    )}" data-bluesky-cid="${escapeHtml(
+    )}" data-quantzing-cid="${escapeHtml(
       postCid,
-    )}" data-bluesky-embed-color-mode="${escapeHtml(
+    )}" data-quantzing-embed-color-mode="${escapeHtml(
       colorMode,
     )}"><p lang="${escapeHtml(lang)}">${escapeHtml(record.text)}${
       record.embed
@@ -103,16 +103,16 @@ function EmbedDialogInner({
   }, [i18n, postUri, postCid, record, timestamp, postAuthor, colorMode])
 
   return (
-    <Dialog.Inner label={_(msg`Embed post`)} style={[web({maxWidth: 500})]}>
+    <Dialog.Inner label={_(msg`Embed Zing`)} style={[web({maxWidth: 500})]}>
       <View style={[a.gap_lg]}>
         <View style={[a.gap_sm]}>
           <Text style={[a.text_2xl, a.font_bold]}>
-            <Trans>Embed post</Trans>
+            <Trans>Embed Zing</Trans>
           </Text>
           <Text
             style={[a.text_md, t.atoms.text_contrast_medium, a.leading_snug]}>
             <Trans>
-              Embed this post in your website. Simply copy the following snippet
+              Embed this Zing in your website. Simply copy the following snippet
               and paste it into the HTML code of your website.
             </Trans>
           </Text>

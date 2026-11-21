@@ -5,7 +5,7 @@ import {msg} from '@lingui/core/macro'
 import {useLingui} from '@lingui/react'
 import {Trans} from '@lingui/react/macro'
 
-import {urls} from '#/lib/constants'
+// import {urls} from '#/lib/constants'
 import {atoms as a, useBreakpoints, useTheme, web} from '#/alf'
 import {Button, ButtonText} from '#/components/Button'
 import * as Dialog from '#/components/Dialog'
@@ -36,7 +36,7 @@ export function InitialVerificationAnnouncement() {
       <Dialog.Handle />
 
       <Dialog.ScrollableInner
-        label={_(msg`Announcing verification on Bluesky`)}
+        label={_(msg`Announcing verification on QuantZing`)}
         style={[
           a.w_full,
           gtMobile && web({width: 'auto', maxWidth: 400, minWidth: 200}),
@@ -84,7 +84,7 @@ export function InitialVerificationAnnouncement() {
                 },
               ]}
               alt={_(
-                msg`An illustration showing that Bluesky selects trusted verifiers, and trusted verifiers in turn verify individual user accounts.`,
+                msg`An illustration showing that QuantZing selects trusted verifiers, and trusted verifiers in turn verify individual user accounts.`,
               )}
               useAppleWebpCodec
             />
@@ -96,7 +96,7 @@ export function InitialVerificationAnnouncement() {
             </Text>
             <Text style={[a.leading_snug, a.text_md]}>
               <Trans>
-                We’re introducing a new layer of verification on Bluesky — an
+                We’re introducing a new layer of verification on QuantZing — an
                 easy-to-see checkmark.
               </Trans>
             </Text>
@@ -119,7 +119,7 @@ export function InitialVerificationAnnouncement() {
                 },
               ]}
               alt={_(
-                msg`An mockup of a iPhone showing the Bluesky app open to the profile of a verified user with a blue checkmark next to their display name.`,
+                msg`An mockup of a iPhone showing the QuantZing app open to the profile of a verified user with a blue checkmark next to their display name.`,
               )}
               useAppleWebpCodec
             />
@@ -135,7 +135,7 @@ export function InitialVerificationAnnouncement() {
             <View style={[a.gap_sm]}>
               <Text style={[a.leading_snug, a.text_md]}>
                 <Trans>
-                  Bluesky will proactively verify notable and authentic
+                  QuantZing will proactively verify notable and authentic
                   accounts.
                 </Trans>
               </Text>
@@ -159,7 +159,7 @@ export function InitialVerificationAnnouncement() {
           <View style={[a.w_full, a.gap_md]}>
             <Link
               overridePresentation
-              to={urls.website.blog.initialVerificationAnnouncement}
+              to="https://quantzing.com"
               label={_(msg`Read blog post`)}
               size="small"
               variant="solid"

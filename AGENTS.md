@@ -1,10 +1,16 @@
-# AGENTS.md – Bluesky Social App Development Guide
+# AGENTS.md – QuantZing Development Guide
 
-This document provides guidance for working effectively in the Bluesky Social app codebase.
+This document provides guidance for working effectively in the **QuantZing** (`quantzing.com` · `quantzing.in`) codebase (`https://github.com/quantrinitylab/quant-zing`).
 
 ## Project Overview
 
-Bluesky Social is a cross-platform social media application built with React Native and Expo. It runs on iOS, Android, and Web, connecting to the AT Protocol (atproto) decentralized social network.
+**QuantZing** is a cross-platform real-time social media, live audio (**ZingSpaces**), long-form publishing (**Articles Studio**), creator monetization (**Creator Studio** 70/30 split), and AI (**Quanty** + inline `@quanty` thread replies) application built with React Native and Expo. It runs on Web, iOS, and Android, powered by the QuantZing Sovereign ATProto Hybrid PDS (`scripts/quantzing-pds.mjs`) and the open AT Protocol (atproto) network.
+
+**QuantZing Vocabulary & Design Invariants:**
+- **Brand:** QuantZing (`quantzing.com` / `quantzing.in`)
+- **Post:** Zing · **Repost:** Rezing · **Quote Post:** Quote Zing · **Composer Prompt:** `"What's zinging?"`
+- **Live Audio:** ZingSpaces (`/spaces`) · **Long-Form:** Articles Studio (`/articles`) · **Analytics & Payouts:** Creator Studio (`/studio`) · **Subscriptions:** QuantZing Pro (`/pro`) · **AI:** Quanty (`/quanty` and `@quanty` inline thread mentions)
+- **Palette:** X.com True Dark (`#000000` canvas, `#16181C` cards, `#202327` inputs, `#2F3336` borders, `#E7E9EA` text, `#71767B` muted, `#1D9BF0` electric blue accent, `#EFF3F4`/`#0F1419` primary CTA pills, `#F91880` like, `#00BA7C` Rezing). Zero emojis in UI labels/headers/badges/buttons, and zero amber/orange accents.
 
 **Tech Stack:**
 
@@ -14,16 +20,17 @@ Bluesky Social is a cross-platform social media application built with React Nat
 - React Navigation 7 for routing
 - TanStack Query (React Query) for data fetching
 - Lingui 5 for internationalization
-- Custom design system called ALF (Application Layout Framework)
+- Custom design system called ALF (Application Layout Framework) + `getQuantZingColors` (`src/lib/quantos/client.ts`)
 
 Prefer using the latest features available for each of these libraries (exact versions are found in `package.json`). For example, prefer `@lingui/react/macro` over `@lingui/react`. Suggest refactoring legacy or deprecated uses.
 
 ## Essential Commands
 
 ```bash
-# Development
+# Development & Production Sovereign Web Server
+pnpm serve:web          # Start QuantZing Sovereign Gateway + Hybrid PDS on http://localhost:3008
 pnpm start              # Start Expo dev server
-pnpm web                # Start web version
+pnpm web                # Start Expo web dev server
 pnpm android            # Run on Android
 pnpm ios                # Run on iOS
 
@@ -40,30 +47,33 @@ pnpm intl:extract       # Extract translation strings (nightly CI job)
 pnpm intl:compile       # Compile translations for runtime (nightly CI job)
 
 # Build
-pnpm build-web          # Build web version
-pnpm prebuild           # Generate native projects
+pnpm build-web          # Build production web bundle into dist/
+pnpm prebuild           # Generate native Android & iOS projects
 ```
 
 ## Project Structure
 
 ```
 src/
-├── alf/                    # Design system (ALF) - themes, atoms, tokens
-├── components/             # Shared UI components (Button, Dialog, Menu, etc.)
-├── screens/                # Full-page screen components (newer pattern)
+├── alf/                    # Design system (ALF) - X-Dark / X-Light themes, atoms, tokens
+├── components/             # Shared UI components (Button, Dialog, Menu, QuantyDock, etc.)
+├── screens/                # Full-page screen components (including src/screens/QuantZing/*)
 ├── features/               # Macro-features that bridge components/screens
 ├── view/
-│   ├── screens/            # Full-page screens (legacy location)
+│   ├── screens/            # Full-page screens (legacy location + legal screens)
 │   ├── com/                # Reusable view components
-│   └── shell/              # App shell (navigation bars, tabs)
+│   └── shell/              # App shell (navigation bars, tabs, Composer)
 ├── state/
 │   ├── queries/            # TanStack Query hooks
 │   ├── preferences/        # User preferences (React Context)
 │   ├── session/            # Authentication state
 │   └── persisted/          # Persistent storage layer
-├── lib/                    # Utilities, constants, helpers
+├── lib/                    # Utilities, constants, QuantOS client (src/lib/quantos/client.ts)
 ├── locale/                 # i18n configuration and language files
 └── Navigation.tsx          # Main navigation configuration
+scripts/
+├── serve-quantzing.mjs     # Production web server + QuantOS proxy (:3008)
+└── quantzing-pds.mjs       # Sovereign ATProto Hybrid PDS + @quanty auto-reply engine
 ```
 
 ### Project Structure in Depth
@@ -78,8 +88,8 @@ these in `/components` if they are shared across screens.
 
 **Screens** are full-page components that represent a route in the app. They
 often contain multiple components and handle layout for a page. New screens
-should go in `/screens` (not `/view/screens`) to encourage better organization
-and separation from legacy code.
+should go in `/screens` (and QuantZing domain screens in `/screens/QuantZing`)
+to encourage better organization and separation from legacy code.
 
 For complex screens that have specific components or data needs that _are not
 shared by other screens_, we encourage subdirectories within `/screens/<name>`
@@ -95,100 +105,43 @@ features.
 #### Legacy Directories
 
 For the most part, avoid writing new files into the `/view` directory and
-subdirectories. This is the older pattern for organizing screens and components,
-and it has become a bit disorganized over time. New development should go into
-`/screens`, `/components`, and `/features`.
+subdirectories. This is the older pattern for organizing screens and components.
+New development should go into `/screens`, `/components`, and `/features`.
 
 #### State
 
-The `/state` directory is where we've historically put all our data fetching and
-state management logic. This is perfectly fine, but for new features, consider
-organizing state logic closer to the components that use it, either within a
-feature directory or co-located with a screen. The key is to keep related code
-together and avoid having "god files" with too much unrelated logic.
+The `/state` directory is where we put data fetching and state management logic.
+For new features, consider organizing state logic closer to the components that
+use it, either within a feature directory or co-located with a screen.
 
 #### Lib
 
 The `/lib` directory is for utilities and helpers that don't fit into other
-categories. This can include things like API clients, formatting functions,
-constants, and other shared logic.
-
-#### Top Level Directories
-
-Avoid writing new top-level subdirectories within `/src`. We've done this for a
-few things in the past that, but we have stronger patterns now. Examples:
-`/logger` should probably have been written into `/lib`. And `ageAssurance` is
-better classified within `/features`. We will probably migrate these things
-eventually.
+categories, including `src/lib/quantos/client.ts` for QuantZing colors, Quanty
+AI helpers, Articles persistence, Creator Studio telemetry, and QuantPay checkout.
 
 ### File and Directory Naming Conventions
 
 Typically JS style for variables, functions, etc. We use ProudCamelCase for
 components, and camelCase directories and files.
 
-For "macro" cases in `/features`, `/screens`, or `/components`, co-locate related
-code in a directory with an `index.tsx` main component plus sibling
-components/hooks/utils (e.g. `screens/ProfileScreen/index.tsx` +
-`screens/ProfileScreen/components/`). Keep related code together so it lives where
-someone would look for it. Don't overdo it: a component that fits in one file
-should just be `Component.tsx`, not `Component/index.tsx`.
-
-Platform-specific files are covered under "Platform-Specific Code" below.
-
 ### Comments
 
-Comment code when necessary to explain the “why” behind something; avoid
+Comment code when necessary to explain the "why" behind something; avoid
 comments that simply describe the code. Avoid Unicode characters in comments,
 e.g., use `-` not `—`.
 
 Always use docblock (`/** */`) syntax for comments that document a type, type
-member, method, function, or variable. These are the comments a reader expects
-to find attached to a named declaration, and the docblock form makes that intent
-clear and surfaces nicely in editor tooltips.
+member, method, function, or variable.
 
-```tsx
-type DateFieldProps = {
-  /**
-   * An empty string renders the placeholder and opens the picker at today (or
-   * maximumDate, if earlier).
-   */
-  value: string | Date
-}
+## Styling System (ALF & QuantZing X-Dark Tokens)
 
-/**
- * Date-only input. Accepts a string in the format YYYY-MM-DD, or a Date object.
- */
-export function DateField() {}
-```
-
-More generally, any multiline comment should use the `/* */` block syntax rather
-than stacked `//` lines. Reserve `//` for short, single-line comments.
-
-```tsx
-/*
- * The picker requires a valid date, so when value is empty we fall back to
- * maximumDate (if set) or today.
- */
-const fallbackDate = maximumDate ? toSimpleDateString(maximumDate) : today
-```
-
-### Documentation and Tests Within Features
-
-For larger features or components, co-locate documentation and tests with the
-code. A `README.md` in the directory (the `/Component/index.tsx` pattern lends
-itself well to this) can document the whole feature, and feature-specific tests
-belong alongside it as `Component.test.tsx` or in a `__tests__/` subdirectory.
-Both are optional.
-
-## Styling System (ALF)
-
-ALF is the custom design system. Tailwind-inspired naming with underscores
-instead of hyphens. Static atoms (`atoms as a`) are theme-independent; theme
-atoms/palette come from `useTheme()` (`t.atoms.bg`, `t.palette.primary_500`).
-Style props take an array of atoms + theme atoms + raw styles.
+ALF is the custom design system. Static atoms (`atoms as a`) are theme-independent;
+theme atoms/palette come from `useTheme()` (`t.atoms.bg`, `t.palette.primary_500`)
+and `getQuantZingColors(t.scheme === 'dark')` from `#/lib/quantos/client`.
 
 Order atoms by: flexbox (`a.flex_row`), spacing (`a.px_md`), text (`a.font_bold`),
-themes (`t.atoms.text`), then raw styles (`{backgroundColor: t.palette.primary_500}`).
+themes (`t.atoms.text`), then raw styles (`{backgroundColor: colors.card}`).
 
 ```tsx
 import {atoms as a, useTheme} from '#/alf'
@@ -197,25 +150,11 @@ const t = useTheme()
 <View style={[a.flex_row, a.gap_md, a.p_lg, t.atoms.bg]} />
 ```
 
-### Key Concepts
-
-Static atoms live in `a.*` (e.g. `a.flex_row`, `a.p_md`, `a.rounded_md`,
-`a.text_lg`). Theme atoms/palette come from `useTheme()` (`t.atoms.bg`,
-`t.atoms.text`, `t.atoms.border_contrast_low`, `t.palette.primary_500`).
-
 **Platform utilities** (`import {web, native, ios, android, platform} from '#/alf'`)
 return conditional styles inline in a style array: `web({cursor: 'pointer'})`,
-`native({paddingBottom: 20})`, `platform({ios: {...}, android: {...}, web: {...}})`.
+`native({paddingBottom: 20})`.
 
 **Breakpoints:** `const {gtPhone, gtMobile, gtTablet} = useBreakpoints()` from `#/alf`.
-
-### Naming Conventions
-
-- Spacing: `2xs`, `xs`, `sm`, `md`, `lg`, `xl`, `2xl` (t-shirt sizes)
-- Text: `text_xs`, `text_sm`, `text_md`, `text_lg`, `text_xl`
-- Gaps/Padding: `gap_sm`, `p_md`, `px_lg`, `py_xl`
-- Flex: `flex_row`, `flex_1`, `align_center`, `justify_between`
-- Borders: `border`, `border_t`, `rounded_md`, `rounded_full`
 
 ## Component Patterns
 
@@ -226,175 +165,54 @@ return conditional styles inline in a style array: `web({cursor: 'pointer'})`,
 - Set reasonable defaults for optional props.
 - Prefer the implicit global `React` for types over `type` imports.
 
-```tsx
-import {Fragment} from 'react'
-import {View} from 'react-native'
-import {Trans} from '@lingui/react/macro'
-
-import {Text} from '#/components/Typography'
-
-function MyComponent({
-  items = [],
-  children,
-}: {
-  items?: string[]
-  children: React.ReactNode
-}) {
-  return (
-    <>
-      <View>
-        <Text>
-          <Trans>Example</Trans>
-        </Text>
-      </View>
-      <View>
-        {items.map((item, index) => (
-          <Fragment key={item}>
-            <Text>{index}</Text>
-            <Text>{item}</Text>
-          </Fragment>
-        ))}
-        {children}
-      </View>
-    </>
-  )
-}
-```
-
 ### Dialog Component
 
 Lives in `#/components/Dialog`. Bottom sheet on native, modal on web. Manage
 state with `useDialogControl()`. `Dialog.Handle` renders native-only, `Dialog.Close`
 web-only. CRITICAL: run any post-close action inside the `control.close(() => ...)`
-callback (see Footguns). Compound-component usage; canonical example in any dialog
-under `#/components`.
+callback.
 
 ### Menu Component
 
 Lives in `#/components/Menu`. Dropdown on web, bottom sheet dialog on native.
-`Menu.Divider` is web-only, `Menu.ContainerItem` native-only. Compound API
-(`Menu.Root` / `Menu.Trigger` / `Menu.Outer` / `Menu.Group` / `Menu.Item`); grep
-existing usages across the app for a canonical example.
+`Menu.Divider` is web-only, `Menu.ContainerItem` native-only.
 
 ### Button Component
 
-`import {Button, ButtonText, ButtonIcon} from '#/components/Button'`. Props:
-
-- `color`: `'primary'` | `'secondary'` | `'negative'` | `'primary_subtle'` | `'negative_subtle'` | `'secondary_inverted'`
-- `size`: `'tiny'` | `'small'` | `'large'`
-- `shape`: `'default'` (pill) | `'round'` | `'square'` | `'rectangular'`
-- `variant`: `'solid'` | `'outline'` | `'ghost'` (deprecated, prefer `color`)
+`import {Button, ButtonText, ButtonIcon} from '#/components/Button'`.
 
 ### TextField
 
 Compound component at `#/components/forms/TextField` (`TextField.LabelText`,
-`TextField.Root`, `TextField.Icon`, `TextField.Input`). Controlled inputs
-(`value` + `onChangeText`) are fine and are usually what you want - the old
-advice to reach for `defaultValue` was a New Architecture migration concern and
-no longer applies. Reach for `defaultValue` only when nothing outside the input
-needs to read the text.
+`TextField.Root`, `TextField.Icon`, `TextField.Input`).
 
 ### Typography
 
-`import {Text, H1, H2, P} from '#/components/Typography'`. The `Text` default style
-is `[a.text_sm, a.leading_snug, t.atoms.text]`. Pass the `emoji` prop to any `Text`
-that may contain emoji - user-generated text (display names etc.) almost always
-does, so only omit it for static, emoji-free strings: `<Text emoji>Hello!</Text>`.
+`import {Text, H1, H2, P} from '#/components/Typography'`.
 
 ### Haptics
 
-`const haptics = useHaptics()` from `#/lib/haptics`. Call the method that
-describes what happened, not how strong it should feel. Each method maps to the
-matching haptic on each platform: iOS feedback generators, and Android
-`performHapticFeedback` constants with fallbacks for older API levels. Haptics
-do nothing on web or when the user has disabled them.
-
-- `tap()` - light acknowledgement of a tap (like, reply, opening a card)
-- `confirm()` - the user committed a change (follow, pin, send a message)
-- `longPress()` - a long-press did something (opened a menu or share sheet)
-- `toggle(on)` - a switch, checkbox or radio changed; pass the new value
-- `selection()` - the highlighted option changed (segmented control, drag slot)
-- `threshold()` - a gesture crossed its activation point (swipe-to-reply)
-- `dragStart()` - an item was picked up to be dragged
-- `success()` / `error()` - something the user was waiting on finished
-
-Only reach for `haptics.platform({ios, android})` when no intent fits, and never
-import `expo-haptics` directly. In worklets, destructure the method you need
-(`const {threshold} = useHaptics()`) and pass it to `scheduleOnRN`; don't
-capture the whole object. The emulator/simulator can't play haptics, so test on
-a physical device via the haptics section of the Storybook.
+`const haptics = useHaptics()` from `#/lib/haptics`. Never import `expo-haptics` directly.
 
 ## Internationalization (i18n)
 
-All user-facing strings must be wrapped for translation using Lingui. Include `comment` and/or `context` props when necessary to avoid ambiguity, e.g., “Post” as a noun vs a verb.
-
-Do not mark debug-only strings as translatable. This includes anything only
-developers or internal testers see: debug menus, dev-only screens, logs, and all
-strings in Storybook (`src/view/screens/Storybook`). Use plain string literals
-there.
-
-Prefer using `t` via `import {useLingui} '@lingui/react/macro'` vs `_` via `import {useLingui} from '@lingui/react'`. Alias `t` to `l` to avoid collisions with `const t = useTheme()`. Refactor existing uses of ``_(msg`foo`)`` to use `` l`foo` ``.
-
-Prefer Unicode punctuation over keyboard punctuation, e.g., `“quote”` over `"quote"`. Prefer en dashes preceded by a non-breaking space over em dashes, e.g., `one – two` over `one—two`.
+All user-facing strings must be wrapped for translation using Lingui (`@lingui/react/macro`).
 
 ```tsx
-import {plural} from '@lingui/core/macro'
 import {Trans, useLingui} from '@lingui/react/macro'
 
 function MyComponent() {
   const {t: l} = useLingui()
-
-  // Simple strings - use the l macro
   const title = l`Settings`
-  const errorMessage = l({
-    message: 'Something went wrong',
-    comment: 'Generic error message for unknown/unhandled errors.',
-    context: 'Toast',
-  })
 
-  // Strings with variables
-  const greeting = l`Hello, ${name}!`
-
-  // Pluralization
-  const countLabel = plural(count, {
-    one: '# item',
-    other: '# items',
-  })
-
-  // JSX content - use Trans component
   return (
     <Text>
       <Trans>
-        Welcome to <Text style={a.font_bold}>Bluesky</Text>, {name}!
+        Welcome to <Text style={a.font_bold}>QuantZing</Text>!
       </Trans>
     </Text>
   )
 }
-```
-
-Prefer `i18n.date` for date and time formatting. This ensures formatting is re-applied when the language changes at runtime. Refactor existing uses of `Intl.DateTimeFormat` to use `i18n.date`.
-
-```tsx
-import {useLingui} from '@lingui/react/macro'
-
-function MyComponent() {
-  const {i18n} = useLingui()
-
-  const createdAt = new Date()
-
-  return i18n.date(createdAt, {
-    dateStyle: 'medium',
-    timeStyle: 'medium',
-  })
-}
-```
-
-**Commands:**
-
-```bash
-# DO NOT run these commands - extraction and compilation are handled by a nightly CI job
-pnpm intl:extract    # Extract new strings to locale files
-pnpm intl:compile    # Compile translations for runtime
 ```
 
 ## State Management
@@ -402,29 +220,7 @@ pnpm intl:compile    # Compile translations for runtime
 ### TanStack Query (Data Fetching)
 
 Follow the established pattern in `src/state/queries/`; `src/state/queries/feed.ts`
-is a good canonical reference (it uses `createQueryKey`, matching key roots,
-`useInfiniteQuery`, and `persistedVersion`).
-
-- Build query keys with `createQueryKey(root, args)` (from `#/state/queries/util`)
-  using an object for `args`. The key root variable should match the hook name.
-- Naming conventions: `use[Name]Query` for queries, `use[Name]Mutation` for
-  mutations, `use[Name]CacheMutation` for helpers that mutate cached data directly.
-- Stale times come from `STALE` in `src/state/queries/index.ts`: `STALE.SECONDS.FIFTEEN`,
-  `STALE.MINUTES.ONE`, `STALE.MINUTES.FIVE`, `STALE.HOURS.ONE`, `STALE.INFINITY`.
-- Paginated atproto APIs (those returning a `cursor`) use `useInfiniteQuery` with
-  `getNextPageParam: page => page.cursor`; flatten results with
-  `data?.pages.flatMap(page => page.items) ?? []`.
-- Persist a query across restarts by passing options:
-  `createQueryKey(root, args, {persistedVersion: n})`. Bumping `n` clears the old
-  persisted data and refetches - do this whenever the data shape changes.
-- Error handling in mutations: don't log network errors (just inform the user),
-  handle typed XRPC errors specifically (e.g. `err instanceof SomeNsid.SomeError`),
-  and send unexpected errors to `logger.error('...', {safeMessage: error})`.
-
-### Preferences (React Context)
-
-Boolean/simple UI preferences are exposed as paired hooks from `#/state/preferences`,
-e.g. `useAutoplayDisabled()` / `useSetAutoplayDisabled()`.
+is a canonical reference.
 
 ### Session State
 
@@ -433,177 +229,51 @@ e.g. `useAutoplayDisabled()` / `useSetAutoplayDisabled()`.
 
 ## Navigation
 
-React Navigation with type-safe route params. Type a screen with
-`NativeStackScreenProps<CommonNavigatorParams, 'X'>` (`route`/`navigation` come
-from props; params via `route.params`). Navigate programmatically with
-`useNavigation()`, or the `navigate` helper from `#/Navigation`. Config lives in
-`src/Navigation.tsx`, routes in `src/routes.ts`, types in `src/lib/routes/types.ts`.
+React Navigation with type-safe route params. Config lives in `src/Navigation.tsx`,
+routes in `src/routes.ts`, types in `src/lib/routes/types.ts`.
 
 ## Platform-Specific Code
 
-Use file extensions for platform-specific implementations. The bundler resolves
-them automatically - just import the base path normally, never a conditional
-`require()`.
+Use file extensions for platform-specific implementations (`Component.tsx`,
+`Component.web.tsx`, `Component.native.tsx`, `Component.ios.tsx`, `Component.android.tsx`).
 
-```
-Component.tsx          # Shared/default
-Component.web.tsx      # Web-only
-Component.native.tsx   # iOS + Android
-Component.ios.tsx      # iOS-only
-Component.android.tsx  # Android-only
-```
-
-Prefer grouping variants into a `Component/` directory (`index.tsx`,
-`index.web.tsx`, `index.native.tsx`) rather than sibling `Component.web.tsx` files,
-so the shared surface reads as one "macro" module (e.g. `src/components/Dialog/index.tsx`
-native vs `index.web.tsx` web). The app has both patterns; the directory form is
-preferred for new code.
-
-```tsx
-// CORRECT - bundler picks storage.ts or storage.web.ts automatically
-import * as storage from '#/state/drafts/storage'
-
-// WRONG - don't use require() or conditional imports for platform files
-const storage = IS_NATIVE
-  ? require('#/state/drafts/storage')
-  : require('#/state/drafts/storage.web')
-```
-
-Runtime platform detection (not for imports): `import {IS_WEB, IS_NATIVE, IS_IOS, IS_ANDROID} from '#/env'`.
+Runtime platform detection: `import {IS_WEB, IS_NATIVE, IS_IOS, IS_ANDROID} from '#/env'`.
 
 ## Import Aliases
 
 Always use the `#/` alias for absolute imports:
 
 ```tsx
-// Good
 import {useSession} from '#/state/session'
 import {atoms as a, useTheme} from '#/alf'
-import {Button} from '#/components/Button'
-
-// Avoid
-import {useSession} from '../../../state/session'
+import {getQuantZingColors} from '#/lib/quantos/client'
 ```
 
 ## Footguns
 
-Common pitfalls to avoid in this codebase:
-
 ### Dialog Close Callback (Critical)
 
-**Always use `control.close(() => ...)` when performing actions after closing a dialog.** The callback ensures the action runs after the dialog's close animation completes. Failing to do this causes race conditions with React state updates.
-
-```tsx
-// WRONG - causes bugs with state updates, navigation, opening other dialogs
-const onConfirm = () => {
-  control.close()
-  navigation.navigate('Home') // May race with dialog animation
-}
-
-// WRONG - same problem
-const onConfirm = () => {
-  control.close()
-  otherDialogControl.open() // Will likely fail or cause visual glitches
-}
-
-// CORRECT - action runs after dialog fully closes
-const onConfirm = () => {
-  control.close(() => {
-    navigation.navigate('Home')
-  })
-}
-
-// CORRECT - opening another dialog after close
-const onConfirm = () => {
-  control.close(() => {
-    otherDialogControl.open()
-  })
-}
-
-// CORRECT - state updates after close
-const onConfirm = () => {
-  control.close(() => {
-    setSomeState(newValue)
-    onCallback?.()
-  })
-}
-```
-
-This applies to:
-
-- Navigation (`navigation.navigate()`, `navigation.push()`)
-- Opening other dialogs or menus
-- State updates that affect UI (`setState`, `queryClient.invalidateQueries`)
-- Callbacks passed from parent components
-
-The Menu component on iOS specifically uses this pattern – see `src/components/Menu/index.tsx:151`.
-
-### Platform-Specific Behavior
-
-Some components behave differently across platforms:
-
-- `Dialog.Handle` – Only renders on native (drag handle for bottom sheet)
-- `Dialog.Close` – Only renders on web (X button)
-- `Menu.Divider` – Only renders on web
-- `Menu.ContainerItem` – Only works on native
-
-Always test on multiple platforms when using these components.
+**Always use `control.close(() => ...)` when performing actions after closing a dialog.**
 
 ### React Compiler is Enabled
 
-This codebase uses React Compiler, so **don't proactively add `useMemo` or `useCallback`**. The compiler handles memoization automatically.
-
-```tsx
-// UNNECESSARY - React Compiler handles this
-const handlePress = useCallback(() => {
-  doSomething()
-}, [doSomething])
-
-// JUST WRITE THIS
-const handlePress = () => {
-  doSomething()
-}
-```
-
-Only use `useMemo`/`useCallback` when you have a specific reason, such as:
-
-- The value is immediately used in an effect's dependency array
-- You're passing a callback to a non-React library that needs referential stability
+This codebase uses React Compiler, so **don't proactively add `useMemo` or `useCallback`** unless required for effect dependency stability or external non-React libraries.
 
 ### Patching react-native
 
-`patches/react-native@<version>.patch` is generated - don't edit it or use
-`pnpm patch react-native` directly. Each change lives in `patches/react-native/`
-as its own patch against pristine react-native, with a `.patch.md` explaining
-it. After adding or changing one, run `pnpm patch:react-native` to rebuild the
-combined patch. See `patches/react-native/README.md`.
-
-## Best Practices
-
-1. **Accessibility**: Always provide `label` prop for interactive elements, use `accessibilityHint` where helpful
-
-2. **Translations**: Wrap ALL user-facing strings with the `` l`…` `` macro or the `<Trans>` component
-
-3. **Styling**: Combine static atoms with theme atoms, use platform utilities for platform-specific styles
-
-4. **State**: Use TanStack Query for server state, React Context for UI preferences
-
-5. **Components**: Check if a component exists in `#/components/` before creating new ones
-
-6. **Types**: Define explicit types for props, use `NativeStackScreenProps` for screens
-
-7. **Testing**: Components should have `testID` props for E2E testing
+`patches/react-native@<version>.patch` is generated - don't edit it directly. Use `patches/react-native/` and run `pnpm patch:react-native`.
 
 ## Key Files Reference
 
-| Purpose           | Location                                     |
-| ----------------- | -------------------------------------------- |
-| Theme definitions | `src/alf/themes.ts`                          |
-| Design tokens     | `src/alf/tokens.ts`                          |
-| Static atoms      | `src/alf/atoms.ts` (extends `@bsky.app/alf`) |
-| Navigation config | `src/Navigation.tsx`                         |
-| Route definitions | `src/routes.ts`                              |
-| Route types       | `src/lib/routes/types.ts`                    |
-| Query hooks       | `src/state/queries/*.ts`                     |
-| Session state     | `src/state/session/index.tsx`                |
-| i18n setup        | `src/locale/i18n.ts`                         |
+| Purpose                     | Location                                     |
+| --------------------------- | -------------------------------------------- |
+| Theme definitions           | `src/alf/themes.ts`                          |
+| QuantZing colors & adapters | `src/lib/quantos/client.ts`                  |
+| QuantZing domain screens    | `src/screens/QuantZing/*.tsx`                |
+| Sovereign ATProto PDS       | `scripts/quantzing-pds.mjs`                  |
+| Production Web Gateway      | `scripts/serve-quantzing.mjs`                |
+| Navigation config           | `src/Navigation.tsx`                         |
+| Route definitions           | `src/routes.ts`                              |
+| Route types                 | `src/lib/routes/types.ts`                    |
+| Query hooks                 | `src/state/queries/*.ts`                     |
+| Session state               | `src/state/session/index.tsx`                |

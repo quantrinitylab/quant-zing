@@ -27,27 +27,27 @@ export function Content({state}: {state: PolicyUpdateState}) {
   const links = {
     terms: {
       overridePresentation: false,
-      to: `https://bsky.social/about/support/tos`,
+      to: `/terms`,
       label: _(msg`Terms of Service`),
     },
     privacy: {
       overridePresentation: false,
-      to: `https://bsky.social/about/support/privacy-policy`,
+      to: `/privacy`,
       label: _(msg`Privacy Policy`),
     },
     copyright: {
       overridePresentation: false,
-      to: `https://bsky.social/about/support/copyright`,
+      to: `/terms`,
       label: _(msg`Copyright Policy`),
     },
     guidelines: {
       overridePresentation: false,
-      to: `https://bsky.social/about/support/community-guidelines`,
+      to: `/terms`,
       label: _(msg`Community Guidelines`),
     },
     blog: {
       overridePresentation: false,
-      to: `https://bsky.social/about/blog/08-14-2025-updated-terms-and-policies`,
+      to: `https://quantzing.com`,
       label: _(msg`Our blog post`),
     },
   }
@@ -71,7 +71,7 @@ export function Content({state}: {state: PolicyUpdateState}) {
         {screenReaderEnabled ? (
           <View style={[a.gap_sm]}>
             <Text emoji style={[a.text_2xl, a.font_semi_bold, a.leading_snug]}>
-              <Trans>Hey there 👋</Trans>
+              <Trans>Hey there</Trans>
             </Text>
             <Text style={[a.leading_snug, a.text_md]}>
               <Trans>
@@ -117,7 +117,7 @@ export function Content({state}: {state: PolicyUpdateState}) {
         ) : (
           <View style={[a.gap_sm]}>
             <Text emoji style={[a.text_2xl, a.font_semi_bold, a.leading_snug]}>
-              <Trans>Hey there 👋</Trans>
+              <Trans>Hey there</Trans>
             </Text>
             <Text style={[a.leading_snug, a.text_md]}>
               <Trans>
@@ -162,7 +162,7 @@ export function Content({state}: {state: PolicyUpdateState}) {
           <Button
             label={_(msg`Continue`)}
             accessibilityHint={_(
-              msg`Tap to acknowledge that you understand and agree to these updates and continue using Bluesky`,
+              msg`Tap to acknowledge that you understand and agree to these updates and continue using QuantZing`,
             )}
             color="primary"
             size="large"

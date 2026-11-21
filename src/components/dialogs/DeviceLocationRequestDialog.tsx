@@ -84,7 +84,7 @@ function DeviceLocationRequestDialogInner({onLocationAcquired}: Props) {
       } else {
         setError(
           _(
-            msg`Unable to access location. You'll need to visit your system settings to enable location services for Bluesky.`,
+            msg`Unable to access location. You'll need to visit your system settings to enable location services for QuantZing.`,
           ),
         )
       }
@@ -108,7 +108,7 @@ function DeviceLocationRequestDialogInner({onLocationAcquired}: Props) {
       <View style={[a.gap_sm, a.pb_xs]}>
         <Text style={[a.text_md, a.leading_snug, t.atoms.text_contrast_medium]}>
           <Trans>
-            Tap below to allow Bluesky to access your approximate location via
+            Tap below to allow QuantZing to access your approximate location via
             GPS. We will then use that data to more accurately determine the
             content and features available in your region.
           </Trans>

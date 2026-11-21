@@ -4,7 +4,7 @@ import {msg} from '@lingui/core/macro'
 import {useLingui} from '@lingui/react'
 import {Trans} from '@lingui/react/macro'
 
-import {urls} from '#/lib/constants'
+// import {urls} from '#/lib/constants'
 import {getUserDisplayName} from '#/lib/getUserDisplayName'
 import {useSession} from '#/state/session'
 import {atoms as a, useBreakpoints, useTheme, web} from '#/alf'
@@ -86,7 +86,7 @@ function Inner({
               },
             ]}
             alt={_(
-              msg`An illustration showing that Bluesky selects trusted verifiers, and trusted verifiers in turn verify individual user accounts.`,
+              msg`An illustration showing that QuantZing selects trusted verifiers, and trusted verifiers in turn verify individual user accounts.`,
             )}
             useAppleWebpCodec
           />
@@ -104,7 +104,7 @@ function Inner({
                 <VerifierCheck width={14} />
               </RNText>{' '}
               can verify others. These trusted verifiers are selected by
-              Bluesky.
+              QuantZing.
             </Trans>
           </Text>
         </View>
@@ -118,10 +118,10 @@ function Inner({
           ]}>
           <Link
             overridePresentation
-            to={urls.website.blog.initialVerificationAnnouncement}
+            to="https://quantzing.com"
             label={_(
               msg({
-                message: `Learn more about verification on Bluesky`,
+                message: `Learn more about verification on QuantZing`,
                 context: `english-only-resource`,
               }),
             )}

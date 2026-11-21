@@ -1,12 +1,12 @@
 {
   "name": "dev-env",
+  "description": "QuantZing Dev Environment",
   "license": "MIT",
   "version": "0.0.0",
   "type": "module",
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
-  "license": "MIT",
       "version": "12.16.1",
       "onFail": "warn"
     }

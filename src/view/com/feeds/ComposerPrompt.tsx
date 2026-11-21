@@ -116,10 +116,18 @@ export function ComposerPrompt() {
 
   const onPressAskQuanty = useCallback(() => {
     const prompt = draftText.trim()
-      ? `Refine and fact-check this Wave draft: ${draftText.trim()}`
-      : 'Help me draft a high-signal Wave about trending topics today'
+      ? `Refine and fact-check this Zing draft: ${draftText.trim()}`
+      : 'Help me draft a high-signal Zing about trending topics today'
     navigation.navigate('Quanty', {prompt})
   }, [draftText, navigation])
+
+  const onPressTagQuanty = useCallback(() => {
+    setDraftText(prev => {
+      if (/(?:^|\s)@quanty\b/i.test(prev)) return prev
+      const trimmed = prev.trim()
+      return trimmed ? `@quanty ${trimmed}` : '@quanty '
+    })
+  }, [])
 
   const onPressImage = useCallback(async () => {
     ax.metric('composerPrompt:gallery:press', {})
@@ -435,6 +443,33 @@ export function ComposerPrompt() {
                 style={{width: 34, height: 34, padding: 0}}>
                 <SparkleIcon width={19} style={{color: '#1D9BF0'}} />
               </Button>
+              <Pressable
+                testID="composerTagQuantyBtn"
+                onPress={onPressTagQuanty}
+                accessibilityRole="button"
+                accessibilityLabel="Mention @quanty in Zing"
+                style={({pressed}) => [
+                  a.align_center,
+                  a.justify_center,
+                  a.rounded_full,
+                  {
+                    paddingHorizontal: 10,
+                    height: 28,
+                    backgroundColor: 'rgba(29, 155, 240, 0.12)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(29, 155, 240, 0.35)',
+                    opacity: pressed ? 0.78 : 1,
+                  },
+                ]}>
+                <Text
+                  style={[
+                    a.text_xs,
+                    a.font_bold,
+                    {color: '#1D9BF0', lineHeight: 14},
+                  ]}>
+                  @quanty
+                </Text>
+              </Pressable>
             </View>
 
             <View style={[a.flex_row, a.align_center, a.gap_md]}>

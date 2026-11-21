@@ -216,7 +216,7 @@ function Inner() {
                   process. If your email address has already been used to verify
                   your age for another game or service that uses KWS, you won’t
                   need to do it again. When you’re done, you'll be brought back
-                  to continue using Bluesky.
+                  to continue using QuantZing.
                 </Trans>
               </Text>
               <Text style={[a.text_sm, a.leading_snug]}>
@@ -286,7 +286,7 @@ function Inner() {
                   <Admonition type="tip" style={[a.mt_sm]}>
                     <Trans>
                       Use your account email address, or another real email
-                      address you control, in case KWS or Bluesky needs to
+                      address you control, in case KWS or QuantZing needs to
                       contact you.
                     </Trans>
                   </Admonition>

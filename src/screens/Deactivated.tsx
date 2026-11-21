@@ -128,7 +128,7 @@ export function Deactivated() {
             <Text style={[a.text_sm, a.leading_snug, a.pb_md]}>
               <Trans>
                 You can reactivate your account to continue logging in. Your
-                profile and posts will be visible to other users.
+                profile and Zings will be visible to other users.
               </Trans>
             </Text>
 

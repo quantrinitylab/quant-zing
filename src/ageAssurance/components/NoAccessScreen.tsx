@@ -175,7 +175,7 @@ export function NoAccessScreen() {
                         </Text>
                         <Text style={[textStyles]}>
                           <Trans>
-                            You are accessing Bluesky from a region that legally
+                            You are accessing QuantZing from a region that legally
                             requires us to verify your age before allowing you
                             to access the app.
                           </Trans>
@@ -250,7 +250,7 @@ export function NoAccessScreen() {
                           <Text style={[textStyles]}>
                             <Trans>
                               Unfortunately, your declared age indicates that
-                              you are not old enough to access Bluesky in your
+                              you are not old enough to access QuantZing in your
                               region.
                             </Trans>
                           </Text>
@@ -266,7 +266,7 @@ export function NoAccessScreen() {
                       <Text style={[textStyles]}>
                         <Trans>
                           Unfortunately, the birthdate you have saved to your
-                          profile makes you too young to access Bluesky.
+                          profile makes you too young to access QuantZing.
                         </Trans>
                       </Text>
 
@@ -288,7 +288,7 @@ export function NoAccessScreen() {
                   </Text>
                   <Text style={[textStyles]}>
                     <Trans>
-                      Set your birthdate below and we'll get you back to posting
+                      Set your birthdate below and we'll get you back to zinging
                       and exploring in no time!
                     </Trans>
                   </Text>
@@ -402,7 +402,7 @@ function AccessSection() {
         {isBlocked ? (
           <Admonition type="warning">
             <Trans>
-              You are currently unable to access Bluesky's Age Assurance flow.
+              You are currently unable to access QuantZing's Age Assurance flow.
               Please{' '}
               <SimpleInlineLinkText
                 label={l`Contact our moderation team`}

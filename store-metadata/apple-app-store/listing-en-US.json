@@ -1,0 +1,38 @@
+{
+  "bundleIdentifier": "com.quantzing.app",
+  "sku": "QUANTZING-IOS-PROD",
+  "primaryLocale": "en-US",
+  "name": "QuantZing",
+  "subtitle": "Zings, ZingSpaces & Quanty AI",
+  "promotionalText": "Experience real-time Zings, sovereign @handle.quantzing.com identity, live ZingSpaces audio rooms, and Quanty AI in a True Dark OLED interface.",
+  "description": "QuantZing is the sovereign real-time social platform built on the open AT Protocol and integrated with QuantOS.\n\nWhy QuantZing:\n- Zings, Rezings & Quote Zings: Fast, expressive real-time conversations with media, threads, and custom algorithmic feeds.\n- Portable Sovereign Handle: Claim your @handle.quantzing.com or @handle.quantzing.in identity backed by cryptographic ATProto repositories.\n- Quanty: Ask Quanty to analyze breaking news, synthesize long threads, or draft high-signal Zings.\n- ZingSpaces: Host and join live audio rooms with real-time speaker controls.\n- QuantZing Pro: Access verified badges, creator monetization, and advanced feed controls.\n- True Dark Interface: High-contrast OLED #000000 canvas built for effortless reading day or night.",
+  "keywords": [
+    "QuantZing",
+    "Zing",
+    "Quanty",
+    "ZingSpaces",
+    "ATProto",
+    "Social Network",
+    "News",
+    "Live Audio",
+    "QuantOS"
+  ],
+  "primaryCategory": "SOCIAL_NETWORKING",
+  "secondaryCategory": "NEWS",
+  "ageRating": "12+",
+  "urls": {
+    "marketingUrl": "https://quantzing.com",
+    "supportUrl": "https://quantzing.com/support",
+    "privacyPolicyUrl": "https://quantzing.com/privacy",
+    "termsOfUseUrl": "https://quantzing.com/terms"
+  },
+  "associatedDomains": [
+    "applinks:quantzing.com",
+    "applinks:www.quantzing.com",
+    "applinks:quantzing.in"
+  ],
+  "appGroups": [
+    "group.com.quantzing.app"
+  ],
+  "iconPath": "assets/app-icons/ios_icon_default_next.png"
+}

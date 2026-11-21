@@ -1,5 +1,6 @@
 {
   "name": "bskyembed",
+  "description": "QuantZing Embed",
   "license": "MIT",
   "version": "0.0.0",
   "type": "module",
@@ -9,13 +10,11 @@
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
-  "license": "MIT",
       "version": "12.16.1",
       "onFail": "error"
     },
     "runtime": {
       "name": "node",
-  "license": "MIT",
       "version": "^24.22.1",
       "onFail": "download"
     }

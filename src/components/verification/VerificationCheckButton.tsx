@@ -99,8 +99,8 @@ function Badge({
       <Button
         label={
           state.profile.isViewer
-            ? l`View your verifications`
-            : l`View this user's verifications`
+            ? l`View your QuantZing verifications`
+            : l`View this user's QuantZing verifications`
         }
         hitSlop={hitSlop}
         onPress={evt => {

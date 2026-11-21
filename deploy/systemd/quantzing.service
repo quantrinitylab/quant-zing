@@ -1,0 +1,30 @@
+[Unit]
+Description=QuantZing Sovereign ATProto Social Network & QuantOS Web/PDS Server
+Documentation=https://quantzing.com
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=quantzing
+Group=quantzing
+WorkingDirectory=/opt/quant-os/quant-zing
+Environment=NODE_ENV=production
+Environment=HOST=0.0.0.0
+Environment=PORT=3008
+Environment=QUANTZING_PDS_DATA_DIR=/var/lib/quantzing/.quantzing-data
+Environment=QUANTZING_DATA_DIR=/var/lib/quantzing/.quantzing-data
+Environment=QUANT_AI_URL=http://127.0.0.1:4240
+Environment=QUANT_ROUTER_URL=http://127.0.0.1:4003
+Environment=QUANT_PAY_URL=http://127.0.0.1:4002
+ExecStart=/usr/bin/node /opt/quant-os/quant-zing/deploy/quantzing-adapter.mjs
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+ReadWritePaths=/var/lib/quantzing
+
+[Install]
+WantedBy=multi-user.target

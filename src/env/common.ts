@@ -66,7 +66,7 @@ export const LOG_LEVEL = (process.env.EXPO_PUBLIC_LOG_LEVEL || 'info') as
 export const LOG_DEBUG: string = process.env.EXPO_PUBLIC_LOG_DEBUG || ''
 
 /**
- * The DID of the Bluesky appview to proxy to
+ * The DID of the QuantZing appview to proxy to
  */
 export const BLUESKY_PROXY_DID: DidString =
   process.env.EXPO_PUBLIC_BLUESKY_PROXY_DID || 'did:web:api.bsky.app'
@@ -87,7 +87,7 @@ export const MOD_PROXY_DID: DidString | undefined =
  * Metrics API host
  */
 export const METRICS_API_HOST: string =
-  process.env.EXPO_PUBLIC_METRICS_API_HOST || 'https://events.bsky.app'
+  process.env.EXPO_PUBLIC_METRICS_API_HOST || 'https://events.quantzing.com'
 
 /**
  * Growthbook API host
@@ -114,7 +114,7 @@ export const SENTRY_DSN: string | undefined = process.env.EXPO_PUBLIC_SENTRY_DSN
  * name. Source map uploads must use the same name, see `SENTRY_RELEASE` in
  * the CI workflows, `Dockerfile` and `scripts/post-web-build.js`.
  */
-export const SENTRY_RELEASE = `xyz.blueskyweb.app@${RELEASE_VERSION}`
+export const SENTRY_RELEASE = `com.quantzing.app@${RELEASE_VERSION}`
 
 /**
  * Bitdrift API key. If undefined, Bitdrift should be disabled.
@@ -136,7 +136,7 @@ export const GCP_PROJECT_ID: number =
  * locally running server, see `env.example` for more.
  */
 export const GEOLOCATION_DEV_URL = process.env.GEOLOCATION_DEV_URL
-export const GEOLOCATION_PROD_URL = `https://ip.bsky.app`
+export const GEOLOCATION_PROD_URL = `https://ip.quantzing.com`
 export const GEOLOCATION_URL = IS_DEV
   ? (GEOLOCATION_DEV_URL ?? GEOLOCATION_PROD_URL)
   : GEOLOCATION_PROD_URL
@@ -146,7 +146,7 @@ export const GEOLOCATION_URL = IS_DEV
  * locally running server, see `env.example` for more.
  */
 export const LIVE_EVENTS_DEV_URL = process.env.LIVE_EVENTS_DEV_URL
-export const LIVE_EVENTS_PROD_URL = `https://live-events.workers.bsky.app`
+export const LIVE_EVENTS_PROD_URL = `https://live-events.workers.quantzing.com`
 export const LIVE_EVENTS_URL = IS_DEV
   ? (LIVE_EVENTS_DEV_URL ?? LIVE_EVENTS_PROD_URL)
   : LIVE_EVENTS_PROD_URL
@@ -156,7 +156,7 @@ export const LIVE_EVENTS_URL = IS_DEV
  * locally running server, see `env.example` for more.
  */
 export const APP_CONFIG_DEV_URL = process.env.APP_CONFIG_DEV_URL
-export const APP_CONFIG_PROD_URL = `https://app-config.workers.bsky.app`
+export const APP_CONFIG_PROD_URL = `https://app-config.workers.quantzing.com`
 export const APP_CONFIG_URL = IS_DEV
   ? (APP_CONFIG_DEV_URL ?? APP_CONFIG_PROD_URL)
   : APP_CONFIG_PROD_URL

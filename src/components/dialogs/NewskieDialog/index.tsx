@@ -54,7 +54,7 @@ export function NewskieDialog({
         {({hovered, pressed}) => (
           <Newskie
             size="lg"
-            fill={t.palette.yellow}
+            fill={t.palette.primary_500}
             style={{
               opacity: hovered || pressed ? 0.5 : 1,
             }}
@@ -111,7 +111,7 @@ function DialogInner({
             <Newskie
               width={64}
               height={64}
-              fill={t.palette.yellow}
+              fill={t.palette.primary_500}
               style={[a.absolute, a.inset_0]}
             />
           </View>

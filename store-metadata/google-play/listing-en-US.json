@@ -1,0 +1,28 @@
+{
+  "packageName": "com.quantzing.app",
+  "defaultLanguage": "en-US",
+  "title": "QuantZing",
+  "shortDescription": "Real-time social network, ZingSpaces audio rooms, and Quanty AI on ATProto.",
+  "fullDescription": "QuantZing is the sovereign real-time social network built on the open AT Protocol and powered by QuantOS.\n\nKEY FEATURES:\n- Share What's Zinging: Publish Zings, Rezing breaking updates, Quote Zing conversations, and attach high-resolution photos, video, and threads.\n- Sovereign Identity: Own your portable @handle.quantzing.com or @handle.quantzing.in identity on the QuantZing Personal Data Server (PDS).\n- Quanty AI: Built-in real-time intelligence to summarize threads, research market signals, and draft sharp Zings directly inside your timeline.\n- ZingSpaces Live Audio: Host or join low-latency audio rooms with speakers, listeners, and instant reactions.\n- QuantZing Pro & Wallet: Unlock verified creator badges, custom themes, priority feeds, and seamless creator tipping.\n- True Dark OLED Design: Engineered for speed, clarity, and zero visual clutter across mobile and web.",
+  "category": "SOCIAL",
+  "contentRating": "Teen",
+  "contactDetails": {
+    "website": "https://quantzing.com",
+    "email": "support@quantzing.com",
+    "phone": "+91-80-4000-3008"
+  },
+  "privacyPolicyUrl": "https://quantzing.com/privacy",
+  "termsOfServiceUrl": "https://quantzing.com/terms",
+  "appAccess": {
+    "freeToDownload": true,
+    "inAppPurchases": true,
+    "accountRequired": false
+  },
+  "graphics": {
+    "hiResIcon": "assets/app-icons/android_icon_default_next.png",
+    "adaptiveForeground": "assets/icon-android-foreground.png",
+    "adaptiveMonochrome": "assets/icon-android-monochrome.png",
+    "notificationIcon": "assets/icon-android-notification.png",
+    "adaptiveBackgroundColor": "#000000"
+  }
+}

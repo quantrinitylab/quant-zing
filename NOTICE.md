@@ -1,8 +1,21 @@
-# Third-party notices
+# QuantZing Third-Party Notices
 
-This file collects the attribution and license notices that third-party components in this repository require us to carry. It is separate from [`ASSETS.md`](./ASSETS.md), which describes which assets our [MIT license](./LICENSE) does and does not cover.
+This file collects the attribution and license notices for third-party and upstream open-source components included in **QuantZing** (`https://github.com/quantrinitylab/quant-zing` · `quantzing.com`). It is separate from [`ASSETS.md`](./ASSETS.md), which describes which static assets the [MIT License](./LICENSE) does and does not cover.
 
-If you distribute this software or a fork of it, these notices need to travel with it.
+If you distribute QuantZing or a derivative work, these notices must remain intact.
+
+---
+
+## Upstream ATProto Client Foundation (`bluesky-social/social-app`)
+
+**Repository:** `https://github.com/bluesky-social/social-app`
+**License:** MIT License — see [`LICENSE`](./LICENSE)
+
+```
+Portions Copyright (c) 2023-2026 Bluesky Social PBC
+```
+
+QuantZing (`Copyright (c) 2026 QuantZing / Quantrinity Lab / QuantOS`) is built on the open-source AT Protocol React Native / Expo client foundation originally developed by Bluesky Social PBC under the MIT License, and extended with the QuantZing True-Black X-Dark design system, Sovereign ATProto Hybrid PDS (`scripts/quantzing-pds.mjs`), Quanty (`@quanty.quantzing.com`), ZingSpaces, Articles Studio, Creator Studio (70/30 revenue split), and QuantZing Pro.
 
 ---
 
@@ -23,6 +36,8 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 *This font is emitted into the web build by `@expo/vector-icons`, which the Expo toolchain pulls in transitively. It is a distributed artifact rather than a source asset, which is why the notice lives here rather than beside the file.*
 
+---
+
 ## Inter
 
 **Paths:** `assets/fonts/inter/`, `bskyogcard/src/assets/fonts/Inter-*.ttf`, and compiled copies under `bskyweb/static/media/`
@@ -33,6 +48,8 @@ Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
 ```
 
 Inter is licensed under the SIL Open Font License, Version 1.1. The bundled license does not designate a Reserved Font Name.
+
+---
 
 ## Noto Sans
 
@@ -48,6 +65,8 @@ Copyright 2022 The Noto Project Authors (https://github.com/notofonts/thai)
 
 The OG card build downloads Noto Sans Arabic, Hebrew, HK, JP, KR, SC, TC, and Thai from Fontsource. All are licensed under OFL 1.1. The CJK families reserve the name "Source."
 
+---
+
 ## country-flag-icons
 
 **Path:** `assets/icons/flags/`
@@ -59,4 +78,4 @@ Copyright (c) 2020 @catamphetamine <purecatamphetamine@gmail.com>
 
 ---
 
-For the licensing position of assets that are **not** covered by our MIT license — commissioned artwork, the licensed icon system, Bluesky trademarks, third-party marks, and the product imagery in `assets/images/` — see [`ASSETS.md`](./ASSETS.md), which names known rights holders and identifies the product imagery whose provenance is still being documented.
+For the licensing position of static assets that are carved out from the MIT source code license, see [`ASSETS.md`](./ASSETS.md) and [`QUANTZING_ARCHITECTURE.md`](./QUANTZING_ARCHITECTURE.md).

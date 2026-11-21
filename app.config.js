@@ -25,15 +25,12 @@ module.exports = function (_config) {
   const IS_DEV = !IS_TESTFLIGHT && !IS_PRODUCTION
 
   const ASSOCIATED_DOMAINS = [
-    'applinks:bsky.app',
-    'applinks:staging.bsky.app',
-    'appclips:bsky.app',
-    'appclips:go.bsky.app', // Allows App Clip to work when scanning QR codes
-    // Password AutoFill offers credentials saved for either site (bsky.social
-    // is the account host). Both serve a matching apple-app-site-association.
-    'webcredentials:bsky.app',
-    'webcredentials:bsky.social',
-    // When testing local services, enter an ngrok (et al) domain here. It must use a standard HTTP/HTTPS port.
+    'applinks:quantzing.com',
+    'applinks:www.quantzing.com',
+    'applinks:quantzing.in',
+    'appclips:quantzing.com',
+    'webcredentials:quantzing.com',
+    'webcredentials:quantzing.in',
     ...(IS_DEV || IS_TESTFLIGHT ? [] : []),
   ]
 
@@ -148,7 +145,7 @@ module.exports = function (_config) {
         entitlements: {
           'com.apple.developer.kernel.increased-memory-limit': true,
           'com.apple.developer.kernel.extended-virtual-addressing': true,
-          'com.apple.security.application-groups': ['group.app.bsky'],
+          'com.apple.security.application-groups': ['group.com.quantzing.app'],
           'com.apple.developer.usernotifications.communication': true,
           // 'com.apple.developer.device-information.user-assigned-device-name': true,
           'com.apple.developer.declared-age-range': true,
@@ -210,7 +207,7 @@ module.exports = function (_config) {
         adaptiveIcon: {
           foregroundImage: './assets/icon-android-foreground.png',
           monochromeImage: './assets/icon-android-monochrome.png',
-          backgroundColor: '#006AFF',
+          backgroundColor: '#000000',
         },
         googleServicesFile: './google-services.json',
         package: 'com.quantzing.app',
@@ -223,6 +220,10 @@ module.exports = function (_config) {
               {
                 scheme: 'https',
                 host: 'quantzing.com',
+              },
+              {
+                scheme: 'https',
+                host: 'quantzing.in',
               },
               ...(IS_DEV
                 ? [
@@ -242,7 +243,7 @@ module.exports = function (_config) {
         favicon: './assets/favicon.png',
       },
       updates: {
-        url: 'https://updates.bsky.app/manifest',
+        url: 'https://updates.quantzing.com/manifest',
         enabled: UPDATES_ENABLED,
         fallbackToCacheTimeout: 30000,
         codeSigningCertificate: UPDATES_ENABLED
@@ -380,8 +381,8 @@ module.exports = function (_config) {
               /** @type {[string, any]} */ ([
                 '@sentry/react-native/expo',
                 {
-                  organization: 'blueskyweb',
-                  project: 'app',
+                  organization: 'quantzing',
+                  project: 'quant-zing',
                   url: 'https://sentry.io',
                   experimental_android: {
                     enableAndroidGradlePlugin: true,
@@ -419,7 +420,7 @@ module.exports = function (_config) {
           'expo-notifications',
           {
             icon: './assets/icon-android-notification.png',
-            color: '#1185fe',
+            color: '#1D9BF0',
             sounds: PLATFORM === 'ios' ? ['assets/dm.aiff'] : ['assets/dm.mp3'],
           },
         ],
@@ -479,22 +480,22 @@ module.exports = function (_config) {
           {
             ios: {
               enableFullScreenImage_legacy: true, // iOS only
-              backgroundColor: '#006AFF', // primary_500
+              backgroundColor: '#000000',
               image: './assets/splash/splash.png',
               resizeMode: 'cover',
               dark: {
                 enableFullScreenImage_legacy: true, // iOS only
-                backgroundColor: '#002861', // primary_900
+                backgroundColor: '#000000',
                 image: './assets/splash/splash-dark.png',
                 resizeMode: 'cover',
               },
             },
             android: {
-              backgroundColor: '#006AFF', // primary_500
+              backgroundColor: '#000000',
               image: './assets/splash/android-splash-logo-white.png',
               imageWidth: 102, // even division of 306px
               dark: {
-                backgroundColor: '#002861', // primary_900
+                backgroundColor: '#000000',
                 image: './assets/splash/android-splash-logo-white.png',
                 imageWidth: 102,
               },
@@ -519,7 +520,7 @@ module.exports = function (_config) {
             },
 
             /**
-             * Bluesky+ core set
+             * QuantZing Pro core set
              */
             core_aurora: {
               ios: './assets/app-icons/ios_icon_core_aurora.png',
@@ -600,7 +601,7 @@ module.exports = function (_config) {
                     bundleIdentifier: 'com.quantzing.app.Share-with-QuantZing',
                     entitlements: {
                       'com.apple.security.application-groups': [
-                        'group.app.bsky',
+                        'group.com.quantzing.app',
                       ],
                     },
                   },
@@ -609,7 +610,7 @@ module.exports = function (_config) {
                     bundleIdentifier: 'com.quantzing.app.QuantZingNSE',
                     entitlements: {
                       'com.apple.security.application-groups': [
-                        'group.app.bsky',
+                        'group.com.quantzing.app',
                       ],
                     },
                   },
@@ -619,7 +620,7 @@ module.exports = function (_config) {
                     parentBundleIdentifier: 'com.quantzing.app',
                     entitlements: {
                       'com.apple.security.application-groups': [
-                        'group.app.bsky',
+                        'group.com.quantzing.app',
                       ],
                       'com.apple.developer.parent-application-identifiers': [
                         '$(AppIdentifierPrefix)com.quantzing.app',

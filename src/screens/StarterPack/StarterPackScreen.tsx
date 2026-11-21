@@ -192,7 +192,7 @@ function StarterPackScreenLoaded({
   const tabs = [
     ...(showPeopleTab ? [l`People`] : []),
     ...(showFeedsTab ? [l`Feeds`] : []),
-    ...(showPostsTab ? [l`Posts`] : []),
+    ...(showPostsTab ? [l`Zings`] : []),
   ]
 
   const qrCodeDialogControl = useDialogControl()
@@ -465,7 +465,7 @@ function Header({
           {richText ? <RichText value={richText} style={[a.text_md]} /> : null}
           {!hasSession ? (
             <Button
-              label={l`Join Bluesky`}
+              label={l`Join QuantZing`}
               onPress={() => {
                 setActiveStarterPack({
                   uri: starterPack.uri,
@@ -475,7 +475,7 @@ function Header({
               color="primary"
               size="large">
               <ButtonText style={[a.text_lg]}>
-                <Trans>Join Bluesky</Trans>
+                <Trans>Join QuantZing</Trans>
               </ButtonText>
             </Button>
           ) : null}
@@ -491,12 +491,12 @@ function Header({
                   a.text_sm,
                   t.atoms.text_contrast_medium,
                 ]}>
-                <Trans comment="Number of users (always at least 25) who have joined Bluesky using a specific Starter Pack">
+                <Trans comment="Number of users (always at least 25) who have joined QuantZing using a specific Starter Pack">
                   <Plural
                     value={starterPack.joinedAllTimeCount || 0}
                     other="# people have"
                   />{' '}
-                  joined Bluesky via this Starter Pack!
+                  joined QuantZing via this Starter Pack!
                 </Trans>
               </Text>
             </View>
@@ -591,7 +591,7 @@ function OverflowMenu({
   return (
     <>
       <Menu.Root>
-        <Menu.Trigger label={l`Repost or quote post`}>
+        <Menu.Trigger label={l`Rezing or Quote Zing`}>
           {({props}) => (
             <Button
               {...props}

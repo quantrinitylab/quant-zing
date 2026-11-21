@@ -1,5 +1,6 @@
 {
   "name": "bskylink",
+  "description": "QuantZing Link Service",
   "license": "MIT",
   "version": "0.0.0",
   "type": "module",

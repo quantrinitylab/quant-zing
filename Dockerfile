@@ -1,125 +1,90 @@
-#
-# Stage 1: build the web bundle with pnpm.
-#
-# Uses the official pnpm image. Node is auto-downloaded by pnpm using the
-# `devEngines.runtime` field in package.json (onFail: "download").
-#
-FROM ghcr.io/pnpm/pnpm:11 AS web-build
+# =============================================================================
+# QuantZing (quantzing.com) — Production Multi-Stage Node 24 Dockerfile
+# Stage 1: Build QuantZing Web Bundle (expo export + post-web-build.js)
+# Stage 2: Sovereign ATProto PDS + AppView Hybrid + QuantOS Proxy Server (:3008)
+# =============================================================================
+
+FROM node:24-bookworm AS web-build
 
 WORKDIR /app
 
 ENV DEBIAN_FRONTEND=noninteractive
-
-#
-# pnpm config
-#
 ENV CI=1
-# use the pnpm version specified in package.json
-ENV pnpm_config_pm_on_fail=download
-
-# Metro's web export needs far more heap than Node's default (~1GB in the
-# container), which crashes the bundle step with a V8 OOM.
 ENV NODE_OPTIONS="--max-old-space-size=8192"
 
-# The latest git hash of the preview branch on render.com
-# https://render.com/docs/docker-secrets#environment-variables-in-docker-builds
-ARG RENDER_GIT_COMMIT
+ARG EXPO_PUBLIC_ENV=production
+ENV EXPO_PUBLIC_ENV=${EXPO_PUBLIC_ENV}
+ARG EXPO_PUBLIC_QUANTZING_DOMAIN=quantzing.com
+ENV EXPO_PUBLIC_QUANTZING_DOMAIN=${EXPO_PUBLIC_QUANTZING_DOMAIN}
+ARG EXPO_PUBLIC_RELEASE_VERSION=1.139.0
+ENV EXPO_PUBLIC_RELEASE_VERSION=${EXPO_PUBLIC_RELEASE_VERSION}
+ARG EXPO_PUBLIC_BUNDLE_IDENTIFIER=production
+ENV EXPO_PUBLIC_BUNDLE_IDENTIFIER=${EXPO_PUBLIC_BUNDLE_IDENTIFIER}
 
-#
-# Expo
-#
-ARG EXPO_PUBLIC_ENV
-ENV EXPO_PUBLIC_ENV=${EXPO_PUBLIC_ENV:-development}
-ARG EXPO_PUBLIC_RELEASE_VERSION
-ENV EXPO_PUBLIC_RELEASE_VERSION=$EXPO_PUBLIC_RELEASE_VERSION
-ARG EXPO_PUBLIC_BUNDLE_IDENTIFIER
-# If not set by GitHub workflows, we're probably in Render
-ENV EXPO_PUBLIC_BUNDLE_IDENTIFIER=${EXPO_PUBLIC_BUNDLE_IDENTIFIER:-$RENDER_GIT_COMMIT}
+RUN corepack enable && corepack prepare pnpm@10.28.1 --activate
 
-#
-# Sentry
-#
-ARG SENTRY_AUTH_TOKEN
-ENV SENTRY_AUTH_TOKEN=${SENTRY_AUTH_TOKEN:-unknown}
-ARG EXPO_PUBLIC_SENTRY_DSN
-ENV EXPO_PUBLIC_SENTRY_DSN=$EXPO_PUBLIC_SENTRY_DSN
+COPY package.json pnpm-lock.yaml ./
+COPY patches ./patches
+COPY scripts ./scripts
+COPY lexicons ./lexicons
+
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile --ignore-scripts
 
 COPY . .
 
-RUN echo "Using bundle identifier: $EXPO_PUBLIC_BUNDLE_IDENTIFIER" && \
-  echo "EXPO_PUBLIC_ENV=$EXPO_PUBLIC_ENV" >> .env && \
-  echo "EXPO_PUBLIC_RELEASE_VERSION=$EXPO_PUBLIC_RELEASE_VERSION" >> .env && \
-  echo "EXPO_PUBLIC_BUNDLE_IDENTIFIER=$EXPO_PUBLIC_BUNDLE_IDENTIFIER" >> .env && \
-  echo "EXPO_PUBLIC_BUNDLE_DATE=$(date -u +"%y%m%d%H")" >> .env && \
-  echo "EXPO_PUBLIC_SENTRY_DSN=$EXPO_PUBLIC_SENTRY_DSN" >> .env
+RUN pnpm lexicons:generate && \
+    pnpm intl:build && \
+    EXPO_UNSTABLE_METRO_OPTIMIZE_GRAPH=1 \
+    EXPO_UNSTABLE_TREE_SHAKING=1 \
+    pnpm exec expo export --platform web --source-maps && \
+    node ./scripts/post-web-build.js
 
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+# =============================================================================
+# Stage 2: Production Runtime Image (Node 24 Slim)
+# =============================================================================
 
-RUN pnpm intl:build 2>&1 | tee i18n.log && \
-  if grep -q "invalid syntax" "i18n.log"; then echo "\n\nFound compilation errors!\n\n" && exit 1; else echo "\n\nNo compile errors!\n\n"; fi
+FROM node:24-bookworm-slim AS runtime
 
-RUN SENTRY_AUTH_TOKEN=$SENTRY_AUTH_TOKEN \
-    SENTRY_RELEASE="xyz.blueskyweb.app@${EXPO_PUBLIC_RELEASE_VERSION:-unset}" \
-    SENTRY_DIST=$EXPO_PUBLIC_BUNDLE_IDENTIFIER \
-    pnpm build-web
+WORKDIR /app
 
-#
-# Stage 2: build the bskyweb Go binary, embedding the assets from stage 1.
-#
-# post-web-build.js (run by `pnpm build-web`) writes the bundled JS/CSS/media
-# into bskyweb/static/* and regenerates bskyweb/templates/scripts.html, so
-# copying the bskyweb/ tree from stage 1 is enough for go:embed to find
-# everything.
-#
-FROM golang:1.26.10-bookworm AS go-build
-
-WORKDIR /usr/src/social-app
-
-ENV GODEBUG="netdns=go"
-ENV GOOS="linux"
-ENV GOARCH="amd64"
-ENV CGO_ENABLED=1
-ENV GOEXPERIMENT="loopvar"
-
-COPY --from=web-build /app/bskyweb ./bskyweb
-
-# DEBUG
-RUN find ./bskyweb/static
-
-RUN cd bskyweb/ && \
-  go mod download && \
-  go mod verify
-
-RUN cd bskyweb/ && \
-  go build \
-    -v  \
-    -trimpath \
-    -tags timetzdata \
-    -o /bskyweb \
-    ./cmd/bskyweb
-
-#
-# Stage 3: runtime image.
-#
-FROM debian:bookworm-slim
-
-ENV GODEBUG=netdns=go
+ENV NODE_ENV=production
 ENV TZ=Etc/UTC
-ENV DEBIAN_FRONTEND=noninteractive
+ENV HOST=0.0.0.0
+ENV PORT=3008
+ENV QUANTZING_DATA_DIR=/data/.quantzing-data
+ENV QUANT_AI_HOST=quant-ai
+ENV QUANT_AI_PORT=4240
+ENV QUANT_ROUTER_HOST=quant-router
+ENV QUANT_ROUTER_PORT=4003
+ENV QUANT_PAY_HOST=quant-pay
+ENV QUANT_PAY_PORT=4002
 
-RUN apt-get update && apt-get install --yes \
-  dumb-init \
-  ca-certificates
+RUN apt-get update && apt-get install --yes --no-install-recommends \
+    ca-certificates \
+    dumb-init && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir -p /data/.quantzing-data/blobs && \
+    chown -R node:node /data /app
+
+COPY --from=web-build --chown=node:node /app/package.json ./package.json
+COPY --from=web-build --chown=node:node /app/dist ./dist
+COPY --from=web-build --chown=node:node /app/scripts ./scripts
+COPY --from=web-build --chown=node:node /app/deploy ./deploy
+
+VOLUME ["/data/.quantzing-data"]
+
+USER node
+
+EXPOSE 3008
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3008/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "./scripts/serve-quantzing.mjs"]
 
-WORKDIR /bskyweb
-COPY --from=go-build /bskyweb /usr/bin/bskyweb
-
-CMD ["/usr/bin/bskyweb"]
-
-LABEL org.opencontainers.image.source=https://github.com/bluesky-social/social-app
-LABEL org.opencontainers.image.description="bsky.app Web App"
-LABEL org.opencontainers.image.licenses=MIT
-
-# NOOP
+LABEL org.opencontainers.image.title="QuantZing"
+LABEL org.opencontainers.image.description="QuantZing Sovereign ATProto Social Network & QuantOS Web/PDS Server"
+LABEL org.opencontainers.image.url="https://quantzing.com"
+LABEL org.opencontainers.image.licenses="MIT"

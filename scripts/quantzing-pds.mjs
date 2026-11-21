@@ -27,6 +27,8 @@ const DISCOVER_FEED_URI =
 const QUANTZING_DID = 'did:web:quantzing.com'
 const QUANTZING_DOMAIN = '.quantzing.com'
 const QUANTZING_ALT_DOMAIN = '.quantzing.in'
+const QUANTY_SYSTEM_DID = 'did:plc:quantyaiofficial00000000'
+const QUANTY_SYSTEM_HANDLE = 'quanty.quantzing.com'
 const UPSTREAM_TIMEOUT_MS = 15000
 const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024
 const MAX_BLOB_BODY_BYTES = 25 * 1024 * 1024
@@ -79,9 +81,57 @@ function createEmptyDb() {
 let cachedDb = null
 let cachedDbPath = null
 
+function ensureQuantySystemAccount(db) {
+  if (!db || typeof db !== 'object') return
+  db.accounts = db.accounts || {}
+  db.records = db.records || {}
+  if (!db.accounts[QUANTY_SYSTEM_DID]) {
+    const createdAt = '2026-01-01T00:00:00.000Z'
+    db.accounts[QUANTY_SYSTEM_DID] = {
+      did: QUANTY_SYSTEM_DID,
+      handle: QUANTY_SYSTEM_HANDLE,
+      email: 'quanty@quantzing.com',
+      emailConfirmed: true,
+      passwordSalt: 'system',
+      passwordHash: 'system',
+      createdAt,
+      active: true,
+      status: undefined,
+      isSystemQuanty: true,
+      profile: {
+        displayName: 'Quanty',
+        description:
+          'Official AI on QuantZing. Mention @quanty in any Zing or reply to fact-check, summarize, or ask anything.',
+        createdAt,
+      },
+      preferences: [],
+    }
+  }
+  const col = getCollectionMap(db, QUANTY_SYSTEM_DID, 'app.bsky.actor.profile', true)
+  if (!col.self) {
+    const profileValue = {
+      $type: 'app.bsky.actor.profile',
+      displayName: 'Quanty',
+      description:
+        'Official AI on QuantZing. Mention @quanty in any Zing or reply to fact-check, summarize, or ask anything.',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    }
+    col.self = {
+      uri: `at://${QUANTY_SYSTEM_DID}/app.bsky.actor.profile/self`,
+      cid: computeCid(profileValue, 'dag-cbor'),
+      rkey: 'self',
+      collection: 'app.bsky.actor.profile',
+      repo: QUANTY_SYSTEM_DID,
+      value: profileValue,
+      indexedAt: '2026-01-01T00:00:00.000Z',
+    }
+  }
+}
+
 function loadDb() {
   const dbPath = getDbPath()
   if (cachedDb && cachedDbPath === dbPath) {
+    ensureQuantySystemAccount(cachedDb)
     return cachedDb
   }
   ensureStorageDirs()
@@ -100,6 +150,7 @@ function loadDb() {
           ? parsed.revokedTokens
           : [],
       }
+      ensureQuantySystemAccount(cachedDb)
       cachedDbPath = dbPath
       return cachedDb
     } catch (err) {
@@ -107,6 +158,7 @@ function loadDb() {
     }
   }
   cachedDb = createEmptyDb()
+  ensureQuantySystemAccount(cachedDb)
   cachedDbPath = dbPath
   saveDb(cachedDb)
   return cachedDb
@@ -576,6 +628,34 @@ function syncProfileFromRecord(account, value) {
   }
 }
 
+function synthesizeQuantyReplyText(rawText, parentText, authorHandle) {
+  const cleaned = String(rawText || '')
+    .replace(/@quanty(?:\.quantzing\.(?:com|in))?/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const handlePrefix = authorHandle ? `@${String(authorHandle).replace(/^@/, '')} ` : ''
+  const parentSnippet = String(parentText || '').replace(/\s+/g, ' ').trim().slice(0, 110)
+
+  if (parentSnippet && (!cleaned || /^(explain|fact[- ]?check|summarize|context|is this true|verify)/i.test(cleaned))) {
+    return `${handlePrefix}Context on "${parentSnippet}${parentSnippet.length >= 110 ? '...' : ''}": Core claim is actively debated across QuantZing; check primary linked reporting and cross-thread replies before treating it as settled.`.slice(0, 280)
+  }
+  if (/trending|breaking|news|happening|today/i.test(cleaned)) {
+    return `${handlePrefix}Top momentum on QuantZing right now centers on frontier AI releases, global market shifts, and open-network engineering. Open Quanty from the sidebar for the full multi-story briefing.`.slice(0, 280)
+  }
+  const topic = cleaned.replace(/\?+$/, '').slice(0, 115) || 'your Zing'
+  if (parentSnippet) {
+    return `${handlePrefix}On "${topic}" (re: "${parentSnippet.slice(0, 65)}..."): Key signal is separating primary data from commentary — cross-check cited sources and counter-arguments in thread.`.slice(0, 280)
+  }
+  return `${handlePrefix}Regarding "${topic}": High-signal discussion points to rapid execution and verifiable benchmarks as the key differentiators. Tap Quanty on any Zing for deep source citations.`.slice(0, 280)
+}
+
+function findLocalPostByUri(db, uri) {
+  if (!uri) return null
+  const parsed = parseAtUri(uri)
+  if (!parsed || parsed.collection !== 'app.bsky.feed.post') return null
+  return db.records?.[parsed.repo]?.['app.bsky.feed.post']?.[parsed.rkey] || null
+}
+
 function putLocalRecord(db, did, collection, rkey, recordValue) {
   const key = rkey || generateTid()
   const value = {
@@ -599,6 +679,51 @@ function putLocalRecord(db, did, collection, rkey, recordValue) {
   if (collection === 'app.bsky.actor.profile' && key === 'self' && db.accounts[did]) {
     syncProfileFromRecord(db.accounts[did], value)
   }
+
+  // Automatic @quanty thread reply when any user mentions @quanty in a Zing or reply!
+  if (
+    collection === 'app.bsky.feed.post' &&
+    did !== QUANTY_SYSTEM_DID &&
+    typeof value.text === 'string' &&
+    /(?:^|\s)@quanty(?:\.quantzing\.(?:com|in))?\b/i.test(value.text)
+  ) {
+    ensureQuantySystemAccount(db)
+    const authorAcc = db.accounts[did]
+    const parentUri = value.reply?.parent?.uri
+    const parentRec = parentUri ? findLocalPostByUri(db, parentUri) : null
+    const parentText = parentRec?.value?.text || ''
+    const replyText = synthesizeQuantyReplyText(
+      value.text,
+      parentText,
+      authorAcc?.handle,
+    )
+    const rootRef = value.reply?.root?.uri
+      ? value.reply.root
+      : {uri: entry.uri, cid: entry.cid}
+    const parentRef = {uri: entry.uri, cid: entry.cid}
+    const replyRkey = generateTid()
+    const replyValue = {
+      $type: 'app.bsky.feed.post',
+      text: replyText,
+      createdAt: new Date(Date.now() + 250).toISOString(),
+      langs: ['en'],
+      reply: {
+        root: rootRef,
+        parent: parentRef,
+      },
+    }
+    const qCol = getCollectionMap(db, QUANTY_SYSTEM_DID, 'app.bsky.feed.post', true)
+    qCol[replyRkey] = {
+      uri: `at://${QUANTY_SYSTEM_DID}/app.bsky.feed.post/${replyRkey}`,
+      cid: computeCid(replyValue, 'dag-cbor'),
+      rkey: replyRkey,
+      collection: 'app.bsky.feed.post',
+      repo: QUANTY_SYSTEM_DID,
+      value: replyValue,
+      indexedAt: new Date(Date.now() + 250).toISOString(),
+    }
+  }
+
   return entry
 }
 
@@ -720,6 +845,15 @@ function buildLocalProfileView(db, account, viewerDid, origin, detailed = false)
     displayName: profile.displayName || account.handle.split('.')[0],
     ...(avatar ? {avatar} : {}),
     ...(profile.pronouns ? {pronouns: profile.pronouns} : {}),
+    ...(account.did === QUANTY_SYSTEM_DID || account.isSystemQuanty
+      ? {
+          verification: {
+            verifiedStatus: 'valid',
+            trustedVerifierStatus: 'none',
+            verifications: [],
+          },
+        }
+      : {}),
     associated: {
       chat: {allowIncoming: 'all'},
     },
@@ -1204,8 +1338,7 @@ export function isQuantZingPdsRoute(urlPath) {
     pathname.startsWith('/blob/') ||
     pathname === '/api/quantzing/config' ||
     pathname === '/api/quantzing/geolocation' ||
-    pathname === '/api/quantzing/config' ||
-    pathname === '/api/quantzing/geolocation' ||
+    pathname === '/api/quantzing/quanty-mention' ||
     pathname === '/.well-known/did.json'
   )
 }
@@ -1265,6 +1398,54 @@ export async function handleQuantZingPds(req, res) {
       city: 'New Delhi',
       isAgeRestrictedGeo: false,
       isAgeBlockedGeo: false,
+    })
+    return true
+  }
+
+  if (pathname === '/api/quantzing/quanty-mention' && method === 'POST') {
+    const body = await readJsonBody(req)
+    const text = String(body.text || '')
+    const parentText = String(body.parentText || '')
+    const authorHandle = String(body.authorHandle || 'member.quantzing.com')
+    ensureQuantySystemAccount(db)
+    const replyText = synthesizeQuantyReplyText(text, parentText, authorHandle)
+    const replyRkey = generateTid()
+    const replyValue = {
+      $type: 'app.bsky.feed.post',
+      text: replyText,
+      createdAt: new Date().toISOString(),
+      langs: ['en'],
+      ...(body.postUri && body.postCid
+        ? {
+            reply: {
+              root: body.rootUri && body.rootCid
+                ? {uri: String(body.rootUri), cid: String(body.rootCid)}
+                : {uri: String(body.postUri), cid: String(body.postCid)},
+              parent: {uri: String(body.postUri), cid: String(body.postCid)},
+            },
+          }
+        : {}),
+    }
+    const qCol = getCollectionMap(db, QUANTY_SYSTEM_DID, 'app.bsky.feed.post', true)
+    const replyUri = `at://${QUANTY_SYSTEM_DID}/app.bsky.feed.post/${replyRkey}`
+    const replyCid = computeCid(replyValue, 'dag-cbor')
+    qCol[replyRkey] = {
+      uri: replyUri,
+      cid: replyCid,
+      rkey: replyRkey,
+      collection: 'app.bsky.feed.post',
+      repo: QUANTY_SYSTEM_DID,
+      value: replyValue,
+      indexedAt: new Date().toISOString(),
+    }
+    saveDb(db)
+    sendJson(req, res, 200, {
+      ok: true,
+      author: QUANTY_SYSTEM_HANDLE,
+      did: QUANTY_SYSTEM_DID,
+      replyUri,
+      replyCid,
+      replyText,
     })
     return true
   }

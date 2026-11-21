@@ -17,9 +17,9 @@ export const DEMO_FEED = {
         cid: 'bafyreihwh3wxxme732ylbylhhdyz7ex6t4jtu6s3gjxxvnnh4feddhg3ku',
         author: {
           did: 'did:plc:pvooorihapc2lf2pijehgrdf',
-          handle: 'forkedriverband.bsky.social',
+          handle: 'forkedriverband.quantzing.com',
           displayName: 'Forked River Band',
-          avatar: 'https://bsky.social/about/adi/post_1_avi.jpg',
+          avatar: 'https://quantzing.com/about/adi/post_1_avi.jpg',
           viewer: {
             muted: false,
             blockedBy: false,
@@ -71,8 +71,8 @@ export const DEMO_FEED = {
           $type: 'app.bsky.embed.images#view',
           images: [
             {
-              thumb: 'https://bsky.social/about/adi/post_1_image.jpg',
-              fullsize: 'https://bsky.social/about/adi/post_1_image.jpg',
+              thumb: 'https://quantzing.com/about/adi/post_1_image.jpg',
+              fullsize: 'https://quantzing.com/about/adi/post_1_image.jpg',
               alt: 'Fake flier for Sebastapol Bluegrass Fest',
               aspectRatio: {
                 height: 1350,
@@ -99,9 +99,9 @@ export const DEMO_FEED = {
         cid: 'bafyreienuabsr55rycirdf4ewue5tjcseg5lzqompcsh2brqzag6hvxllm',
         author: {
           did: 'did:plc:fhhqii56ppgyh5qcm2b3mokf',
-          handle: 'dinh-designs.bsky.social',
+          handle: 'dinh-designs.quantzing.com',
           displayName: 'Rich Dinh Designs',
-          avatar: 'https://bsky.social/about/adi/post_2_avi.jpg',
+          avatar: 'https://quantzing.com/about/adi/post_2_avi.jpg',
           viewer: {
             muted: false,
             blockedBy: false,
@@ -141,8 +141,8 @@ export const DEMO_FEED = {
           $type: 'app.bsky.embed.images#view',
           images: [
             {
-              thumb: 'https://bsky.social/about/adi/post_2_image.jpg',
-              fullsize: 'https://bsky.social/about/adi/post_2_image.jpg',
+              thumb: 'https://quantzing.com/about/adi/post_2_image.jpg',
+              fullsize: 'https://quantzing.com/about/adi/post_2_image.jpg',
               alt: 'Placeholder image of interior design',
               aspectRatio: {
                 height: 872,
@@ -169,9 +169,9 @@ export const DEMO_FEED = {
         cid: 'bafyreiepn7obmlshliori4j34texpaukrqkyyu7cq6nmpzk4lkis7nqeae',
         author: {
           did: 'did:plc:h7fwnfejmmifveeea5eyxgkc',
-          handle: 'rodyalbuerne.bsky.social',
+          handle: 'rodyalbuerne.quantzing.com',
           displayName: 'Rody Albuerne',
-          avatar: 'https://bsky.social/about/adi/post_3_avi.jpg',
+          avatar: 'https://quantzing.com/about/adi/post_3_avi.jpg',
           viewer: {
             muted: false,
             blockedBy: false,
@@ -201,4 +201,4 @@ export const DEMO_FEED = {
   ],
 } satisfies app.bsky.feed.getFeed.$OutputBody
 
-export const BOTTOM_BAR_AVI = 'https://bsky.social/about/adi/user_avi.jpg'
+export const BOTTOM_BAR_AVI = 'https://quantzing.com/about/adi/user_avi.jpg'

@@ -1,0 +1,65 @@
+# =============================================================================
+# QuantZing Production Caddyfile
+# Automatic HTTPS & Reverse Proxy for quantzing.com, quantzing.in & *.quantzing.com
+# =============================================================================
+
+{
+	admin off
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+(quantzing_security_headers) {
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Powered-By "QuantZing / QuantOS"
+		-Server
+	}
+}
+
+(quantzing_proxy) {
+	encode zstd gzip
+
+	# Apple Universal Links & Android App Links verification
+	@well_known path /.well-known/apple-app-site-association /.well-known/assetlinks.json /.well-known/atproto-did /.well-known/did.json
+	header @well_known Content-Type "application/json; charset=utf-8"
+
+	# Immutable hashed static assets
+	@immutable_assets path /_expo/* /static/_expo/* *.woff2 *.ttf
+	header @immutable_assets Cache-Control "public, max-age=31536000, immutable"
+
+	reverse_proxy {$QUANTZING_UPSTREAM:quantzing:3008} {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+
+		health_uri /health
+		health_interval 15s
+		health_timeout 5s
+	}
+}
+
+# Redirect www.quantzing.com -> quantzing.com
+www.quantzing.com {
+	redir https://quantzing.com{uri} permanent
+}
+
+# Primary QuantZing Web + ATProto PDS + QuantOS Proxy
+quantzing.com, quantzing.in {
+	import quantzing_security_headers
+	import quantzing_proxy
+}
+
+# Sovereign ATProto Handle Subdomains (*.quantzing.com)
+# Note: For automatic wildcard TLS certificates, configure a Caddy DNS plugin
+# (e.g. cloudflare) or on-demand TLS via /health check.
+*.quantzing.com {
+	import quantzing_security_headers
+	import quantzing_proxy
+}

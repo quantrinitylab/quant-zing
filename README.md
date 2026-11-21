@@ -1,90 +1,152 @@
-# Bluesky Social App
+# QuantZing (`quantzing.com` · `quantzing.in`)
 
-Welcome friends! This is the codebase for the Bluesky Social app.
+**QuantZing** is the flagship real-time social conversation, breaking news, live audio, and creator publishing platform in the QuantOS ecosystem. Built on React Native, Expo, and a sovereign AT Protocol (ATProto) hybrid Personal Data Server (PDS), QuantZing pairs a true-black X-Dark interface with open-protocol data portability, **ZingSpaces** audio rooms, long-form **Articles Studio**, **Creator Studio** (70/30 creator revenue share), and **Quanty** (including automatic inline `@quanty` mention replies in public threads).
 
-Get the app itself:
+- **Production Domains:** [`https://quantzing.com`](https://quantzing.com) · [`https://quantzing.in`](https://quantzing.in)
+- **Repository:** [`https://github.com/quantrinitylab/quant-zing`](https://github.com/quantrinitylab/quant-zing)
+- **Bundle / Application ID:** `com.quantzing.app`
 
-- **Web: [bsky.app](https://bsky.app)**
-- **iOS: [App Store](https://apps.apple.com/us/app/bluesky-social/id6444370199)**
-- **Android: [Play Store](https://play.google.com/store/apps/details?id=xyz.blueskyweb.app)**
+---
 
-## Development Resources
+## QuantZing Culture & Feature Matrix
 
-This is a [React Native](https://reactnative.dev/) application, written in the TypeScript programming language. It builds on the `atproto` TypeScript packages (like [`@atproto/api`](https://www.npmjs.com/package/@atproto/api)), which are also open source, but in [a different git repository](https://github.com/bluesky-social/atproto).
+| Capability | QuantZing Vocabulary | Experience & Architecture |
+| :--- | :--- | :--- |
+| **Post** | **Zing** | Real-time public posts with 4K media, threads, polls, and cryptographic ATProto records (`app.bsky.feed.post`). |
+| **Repost** | **Rezing** | Instant one-tap amplification (`#00BA7C` Rezing green) across follower timelines. |
+| **Quote Post** | **Quote Zing** | Commentary layered directly over an embedded Zing with full thread provenance. |
+| **Composer Prompt** | **"What's zinging?"** | Multi-modal Zing composer with inline media, thread splitting, and reply-gate controls. |
+| **Live Audio** | **ZingSpaces** | Real-time multi-speaker audio stages (`/spaces`) with host moderation, speaker requests, and live reactions. |
+| **Long-Form Publishing** | **Articles Studio** | Markdown-native long-form essay publishing (`/articles`) with cover presets, reading-time calculation, and one-click Zing syndication. |
+| **Creator Monetization** | **Creator Studio** | Real-time impression analytics, engagement velocity, and transparent **70% Creator / 30% Platform** net ad revenue share (`/studio`). |
+| **Membership Tiers** | **QuantZing Pro** | **Zing Basic**, **Zing Pro**, and **Zing Pro+** verification badges, extended character limits, and priority capabilities (`/pro`). |
+| **Native AI** | **Quanty** + **`@quanty`** | Dedicated `/quanty` research workspace (Ask, DeepSearch, Draft Zing, News) plus automatic inline `@quanty` mention replies inside any Zing thread. |
 
-There is a small amount of Go language source code (in `./bskyweb/`), for a web service that returns the React Native Web application.
+---
 
-The [Build Instructions](./docs/build.md) are a good place to get started with the app itself.
+## System Architecture
 
-The Authenticated Transfer Protocol ("AT Protocol" or "atproto") is a decentralized social media protocol. You don't *need* to understand AT Protocol to work with this application, but it can help. Learn more at:
+```
++-----------------------------------------------------------------------------------+
+|                        QuantZing Client (Web / iOS / Android)                     |
+|   React 19.3 + React Native 0.88 + Expo 58 + ALF True-Black X-Dark Design System  |
++-----------------------------------------+-----------------------------------------+
+                                          |
+                                          v
++-----------------------------------------------------------------------------------+
+|              QuantZing Sovereign Gateway & Hybrid ATProto PDS (:3008)             |
+|                scripts/serve-quantzing.mjs + scripts/quantzing-pds.mjs            |
+|                                                                                   |
+|  +---------------------------+  +-----------------------+  +-------------------+  |
+|  | Local Sovereign XRPC PDS  |  | @quanty Thread Engine |  | Public AppView    |  |
+|  | .quantzing.com / .in DIDs |  | Auto-replies to any   |  | Federation Proxy  |  |
+|  | Persistent JSON + Blobs   |  | Zing mentioning       |  | public.api.bsky   |  |
+|  | Auth, Feeds, Likes, Follow|  | @quanty in thread     |  | .app read merge   |  |
+|  +---------------------------+  +-----------+-----------+  +-------------------+  |
++---------------------------------------------|-------------------------------------+
+                                              |
+                     +------------------------+------------------------+
+                     |                        |                        |
+                     v                        v                        v
+        +------------------------+ +------------------------+ +--------------------+
+        |   /api/quant-ai        | |   /api/quant-router    | |  /api/quant-pay    |
+        |   QuantAI (:4240)      | |   QuantRouter (:4003)  | |  QuantPay (:4002)  |
+        |   DeepSearch & Grounded| |   Multi-Model LLM      | |  QuantZing Pro &   |
+        |   Social Synthesis     | |   Inference Gateway    | |  70/30 Payouts     |
+        +------------------------+ +------------------------+ +--------------------+
+```
 
-- [Overview and Guides](https://atproto.com/guides/overview)
-- [GitHub Discussions](https://github.com/bluesky-social/atproto/discussions) 👈 Great place to ask questions
-- [Protocol Specifications](https://atproto.com/specs/atp)
-- [Blogpost on self-authenticating data structures](https://bsky.social/about/blog/3-6-2022-a-self-authenticating-social-protocol)
+### Core Components
 
-The Bluesky Social application encompasses a set of schemas and APIs built in the overall AT Protocol framework. The namespace for these "Lexicons" is `app.bsky.*`.
+1. **Cross-Platform Client (`src/`)**
+   - Built with React Native Web and Expo 58 using the Application Layout Framework (`src/alf/`) tuned to the X-Dark palette (`#000000` canvas, `#16181C` cards, `#202327` inputs, `#2F3336` borders, `#E7E9EA` primary text, `#71767B` muted text, `#1D9BF0` electric blue accent, `#F91880` like pink, `#00BA7C` Rezing green).
+   - First-class QuantZing domain screens in `src/screens/QuantZing/`: `QuantyScreen`, `ZingSpacesScreen`, `ArticlesScreen`, `CreatorStudioScreen`, `QuantZingProScreen`, `HelpScreen`, `TermsScreen`, and `PrivacyScreen`.
+2. **Sovereign ATProto Hybrid PDS (`scripts/quantzing-pds.mjs`)**
+   - Full local and production-capable ATProto Personal Data Server issuing `@handle.quantzing.com` and `@handle.quantzing.in` identities.
+   - Persists accounts, sessions, Zings, Rezings, likes, follows, profiles, notifications, and uploaded media blobs in `.quantzing-data/` while seamlessly federating read hydration with `https://public.api.bsky.app`.
+   - Includes the built-in **`@quanty` Mention Auto-Reply Engine**: whenever any user publishes a Zing or reply containing `@quanty`, the PDS synthesizes a grounded reply from `@quanty.quantzing.com` directly inside the thread.
+3. **QuantOS Service Adapter (`scripts/serve-quantzing.mjs` & `src/lib/quantos/client.ts`)**
+   - `/api/quant-ai/*` routes to **QuantAI** (`http://127.0.0.1:4240`).
+   - `/api/quant-router/*` routes to **QuantRouter** (`http://127.0.0.1:4003`).
+   - `/api/quant-pay/*` routes to **QuantPay** (`http://127.0.0.1:4002`) for **QuantZing Pro** subscriptions and **70/30 Creator Studio** payouts.
 
-## Contributions
+---
 
-> [!NOTE]
-> While we do accept contributions, we prioritize high quality issues and pull requests. Adhering to the below guidelines will ensure a more timely review.
+## Quickstart (Local Development & Production Web Server)
 
-**Rules:**
+### Prerequisites
+- **Node.js:** `>= 24.7.0`
+- **Package Manager:** `pnpm` `10.28.1`
 
-- We may not respond to your issue or PR.
-- We may close an issue or PR without much feedback.
-- We may lock discussions or contributions if our attention is getting DDOSed.
-- We're not going to provide support for build issues.
+### 1. Install Dependencies
+```bash
+pnpm install
+```
 
-**Guidelines:**
+### 2. Build the Production Web Bundle
+```bash
+pnpm build-web
+```
 
-- Check for existing issues before filing a new one please.
-- Open an issue and give some time for discussion before submitting a PR.
-- Stay away from PRs like...
-  - Changing "Post" to "Skeet."
-  - Refactoring the codebase, e.g., to replace React Query with Redux Toolkit or something.
-  - Adding entirely new features without prior discussion. 
+### 3. Start the QuantZing Sovereign Gateway & Hybrid PDS
+```bash
+pnpm serve:web
+```
+Open **`http://localhost:3008`** in your browser.
 
-Remember, we serve a wide community of users. Our day-to-day involves us constantly asking "which top priority is our top priority." If you submit well-written PRs that solve problems concisely, that's an awesome contribution. Otherwise, as much as we'd love to accept your ideas and contributions, we really don't have the bandwidth. That's what forking is for!
+- **Health Check:** `GET http://localhost:3008/api/health`
+- **Create Account / Sign In:** Register any `@handle.quantzing.com` account directly from the onboarding flow or sign in with a seeded account.
+- **Test `@quanty` in a Thread:** Publish a Zing containing `@quanty` (for example, `What is driving semiconductor capex this quarter? @quanty`) and open the thread to see `@quanty.quantzing.com` reply automatically.
 
-## Forking guidelines
+---
 
-You have our blessing 🪄✨ to fork this application! However, it's very important to be clear to users when you're giving them a fork.
+## Cloud & Docker Deployment
 
-Please be sure to:
+QuantZing ships with turnkey container and reverse-proxy configurations for deploying `quantzing.com` and `quantzing.in`:
 
-- Change all branding in the repository and UI to clearly differentiate from Bluesky.
-- Change any support links (feedback, email, terms of service, etc) to your own systems.
-- Replace any analytics or error-collection systems with your own so we don't get super confused.
-- Replace the landing-screen illustration in `assets/illustrations/`. It is commissioned artwork licensed to Bluesky alone, and our MIT license does not cover it.
-- Source your own UI icons. The glyph set in `assets/icons/` is licensed to us by a third party for our own use, and that license does not extend to you.
-- Replace the Bluesky logo, app icons, and other brand assets. Our trademarks are not licensed with the code.
+- **Comprehensive Guide:** See [`DEPLOYMENT_AND_PLAY_STORE.md`](./DEPLOYMENT_AND_PLAY_STORE.md) and [`QUANTZING_ARCHITECTURE.md`](./QUANTZING_ARCHITECTURE.md).
+- **Container Build:** [`Dockerfile`](./Dockerfile) packages the compiled `dist/` web bundle alongside `scripts/serve-quantzing.mjs` and `scripts/quantzing-pds.mjs`.
+- **Production Compose Stack:** [`docker-compose.prod.yml`](./docker-compose.prod.yml) mounts persistent volumes for `.quantzing-data/` and connects the gateway to QuantAI, QuantRouter, and QuantPay.
+- **Reverse Proxy & Systemd:** Ready-to-use templates live under `deploy/` (Caddy, Nginx, and systemd service units).
 
-Please read [./ASSETS.md](./ASSETS.md) before you ship. Not every file in this repository is
-covered by our MIT license — some of the artwork, icons, fonts, and brand assets are licensed to
-us by third parties or are trademarks, and `ASSETS.md` says which ones and what to do about them.
-That file is new. Its absence is why some forks have shipped assets they did not have rights to,
-and that was our omission rather than theirs.
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
 
-## Security disclosures
+---
 
-If you discover any security issues, please send an email to security@bsky.app. The email is automatically CC'd to the entire team and we'll respond promptly.
+## Google Play Store & Apple App Store Builds
 
-## Are you a developer interested in building on atproto?
+QuantZing is configured for native Android and iOS builds under the `com.quantzing.app` identifier:
 
-Bluesky is an open social network built on the AT Protocol, a flexible technology that will never lock developers out of the ecosystems that they help build. With atproto, third-party integration can be as seamless as first-party through custom feeds, federated services, clients, and more.
+- **Expo Configuration:** [`app.config.js`](./app.config.js) (`scheme: "quantzing"`, associated domains `quantzing.com` and `quantzing.in`).
+- **EAS Build Profiles:** [`eas.json`](./eas.json) defines `development`, `preview`, and `production` profiles for Android App Bundles (`.aab`) and iOS archives (`.ipa`).
 
-## License (MIT)
+```bash
+# Generate native Android & iOS directories
+pnpm prebuild
 
-See [./LICENSE](./LICENSE) for the full license, which covers the source code in this repository.
+# Build production Android App Bundle (.aab) via EAS
+pnpm build-android
 
-It does not cover every file. Certain images, icons, fonts, and brand assets are licensed to us
-by third parties, or are trademarks, and are carved out — see [./ASSETS.md](./ASSETS.md). Required
-third-party attribution notices are collected in [./NOTICE.md](./NOTICE.md).
+# Build production iOS archive (.ipa) via EAS
+pnpm build-ios
+```
 
-Bluesky Social PBC has committed to a software patent non-aggression pledge. For details see [the original announcement](https://bsky.social/about/blog/10-01-2025-patent-pledge).
+See [`DEPLOYMENT_AND_PLAY_STORE.md`](./DEPLOYMENT_AND_PLAY_STORE.md) for Play Console Data Safety declarations, Digital Asset Links (`/.well-known/assetlinks.json`), Apple Universal Links (`/.well-known/apple-app-site-association`), and store listing checklists.
 
-## P.S.
+---
 
-We ❤️ you and all of the ways you support us. Thank you for making Bluesky a great place!
+## License & Attribution
+
+QuantZing source code is licensed under the **MIT License**.
+
+- **Primary License:** See [`LICENSE`](./LICENSE) — `Copyright (c) 2026 QuantZing (Quantrinity Lab / QuantOS)`, with upstream attribution `Portions Copyright (c) 2023-2026 Bluesky Social PBC (MIT License)`.
+- **Third-Party Font & Library Notices:** See [`NOTICE.md`](./NOTICE.md).
+- **Asset Licensing & Carve-Out Documentation:** See [`ASSETS.md`](./ASSETS.md) and [`QUANTZING_ARCHITECTURE.md`](./QUANTZING_ARCHITECTURE.md).
+
+For legal, copyright, privacy, or security inquiries:
+- **General Support:** `support@quantzing.com`
+- **Legal & DMCA:** `legal@quantzing.com`
+- **Privacy & Data Protection:** `privacy@quantzing.com`
+- **Trust & Safety:** `safety@quantzing.com`

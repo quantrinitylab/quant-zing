@@ -5,10 +5,10 @@ import {IS_WEB} from '#/env'
 const IFRAME_HOST = IS_WEB
   ? window.location.host === 'localhost:8100'
     ? 'http://localhost:8100'
-    : 'https://bsky.app'
+    : 'https://quantzing.com'
   : __DEV__ && !process.env.JEST_WORKER_ID
     ? 'http://localhost:8100'
-    : 'https://bsky.app'
+    : 'https://quantzing.com'
 
 export const embedPlayerSources = [
   'youtube',
