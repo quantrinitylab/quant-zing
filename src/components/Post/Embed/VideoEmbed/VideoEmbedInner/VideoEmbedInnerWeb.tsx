@@ -61,6 +61,7 @@ export function VideoEmbedInnerWeb({
     throw error
   }
 
+  const isHlsPlaylist = /\.m3u8(?:$|\?)/i.test(embed.playlist)
   const {hlsRef, loop, updateCuePositions} = useHLS({
     playlist: embed.playlist,
     setHasSubtitleTrack,
@@ -87,7 +88,7 @@ export function VideoEmbedInnerWeb({
             poster={embed.thumbnail}
             style={{width: '100%', height: '100%', objectFit: 'contain'}}
             playsInline
-            preload="none"
+            preload={isHlsPlaylist ? 'none' : 'metadata'}
             muted={embed.presentation === 'gif' || !focused}
             aria-labelledby={embed.alt ? figId : undefined}
             onTimeUpdate={e => {
@@ -192,7 +193,12 @@ function useHLS({
   setHlsLoading: (v: boolean) => void
 }) {
   const [Hls, setHls] = useState<typeof HlsTypes.default | undefined>(undefined)
+  const isHlsPlaylist = /\.m3u8(?:$|\?)/i.test(playlist)
   useEffect(() => {
+    if (!isHlsPlaylist) {
+      setHlsLoading(false)
+      return
+    }
     let cancelled = false
     setHlsLoading(true)
     void loadHls().then(
@@ -214,7 +220,7 @@ function useHLS({
     return () => {
       cancelled = true
     }
-  }, [setError, setHlsLoading])
+  }, [isHlsPlaylist, setError, setHlsLoading])
 
   const hlsRef = useRef<HlsTypes.default | undefined>(undefined)
   const controlsVisibleRef = useRef(false)

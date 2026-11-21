@@ -186,7 +186,7 @@ export function VideoEmbed({
         cursor: 'default',
         position: 'relative',
         backgroundColor: t.palette.black,
-        backgroundImage: `url(${embed.thumbnail})`,
+        backgroundImage: embed.thumbnail ? `url(${embed.thumbnail})` : undefined,
         backgroundSize: 'contain',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',

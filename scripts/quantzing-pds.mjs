@@ -42,8 +42,37 @@ const GENESIS_VERSION = 2
 
 const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024
 const MAX_BLOB_BODY_BYTES = 100 * 1024 * 1024
+const MAX_VIDEO_TOTAL_BYTES = 300 * 1024 * 1024
 const VIDEO_UPLOAD_PART_BYTES = 5 * 1024 * 1024
+const VIDEO_AUTH_SCOPES = [
+  'com.atproto.access',
+  'com.atproto.serviceAuth',
+  'quantzing.ops',
+]
 const activeVideoUploads = new Map()
+
+function pruneExpiredVideoUploads() {
+  const now = Date.now()
+  for (const [jobId, job] of activeVideoUploads.entries()) {
+    const expMs = Date.parse(job.expiresAt || 0)
+    if (expMs && now - expMs > 5 * 60_000) {
+      job.parts?.clear()
+      activeVideoUploads.delete(jobId)
+    }
+  }
+}
+
+function isVideoEmbed(embed) {
+  if (!embed || typeof embed !== 'object') return false
+  if (embed.$type === 'app.bsky.embed.video') return true
+  if (
+    embed.$type === 'app.bsky.embed.recordWithMedia' &&
+    embed.media?.$type === 'app.bsky.embed.video'
+  ) {
+    return true
+  }
+  return false
+}
 
 // RFC 4648 base32 lowercase (used for CIDv1 multibase 'b' and did:plc)
 const BASE32_RFC4648 = 'abcdefghijklmnopqrstuvwxyz234567'
@@ -289,6 +318,22 @@ function parseAtUri(uri) {
     repo: parts[0],
     collection: parts[1],
     rkey: parts.slice(2).join('/'),
+  }
+}
+
+function resolveAtUri(db, uri) {
+  const parsed = parseAtUri(uri)
+  if (!parsed) return null
+  const account = findLocalAccount(db, parsed.repo)
+  if (!account) return null
+  return {
+    did: account.did,
+    handle: account.handle,
+    repo: account.did,
+    collection: parsed.collection,
+    rkey: parsed.rkey,
+    canonicalUri: `at://${account.did}/${parsed.collection}/${parsed.rkey}`,
+    account,
   }
 }
 
@@ -1293,9 +1338,11 @@ function synthesizeQuantyReplyText(db, rawText, parentText, authorHandle) {
 
 function findLocalPostByUri(db, uri) {
   if (!uri) return null
-  const parsed = parseAtUri(uri)
-  if (!parsed || parsed.collection !== 'app.bsky.feed.post') return null
-  return db.records?.[parsed.repo]?.['app.bsky.feed.post']?.[parsed.rkey] || null
+  const resolved = resolveAtUri(db, uri)
+  if (!resolved || resolved.collection !== 'app.bsky.feed.post') return null
+  return (
+    db.records?.[resolved.did]?.['app.bsky.feed.post']?.[resolved.rkey] || null
+  )
 }
 
 function putLocalRecord(db, did, collection, rkey, recordValue) {
@@ -1637,15 +1684,15 @@ function hydrateEmbedView(db, authorDid, embed, viewerDid, origin, depth = 0) {
   }
 
   if (type === 'app.bsky.embed.record' && embed.record?.uri && depth < 1) {
-    const parsed = parseAtUri(embed.record.uri)
-    if (parsed && db.accounts[parsed.repo]) {
+    const resolved = resolveAtUri(db, embed.record.uri)
+    if (resolved) {
       const targetRec =
-        db.records?.[parsed.repo]?.[parsed.collection]?.[parsed.rkey]
+        db.records?.[resolved.did]?.[resolved.collection]?.[resolved.rkey]
       if (
         targetRec &&
         !isPostHiddenForViewer(db, targetRec, viewerDid, getCollectionMap)
       ) {
-        const targetAuthor = db.accounts[parsed.repo]
+        const targetAuthor = resolved.account
         const counts = countLocalInteractions(db, targetRec.uri)
         return {
           $type: 'app.bsky.embed.record#view',
@@ -1698,7 +1745,7 @@ function hydrateEmbedView(db, authorDid, embed, viewerDid, origin, depth = 0) {
       embed.record,
       viewerDid,
       origin,
-      depth + 1,
+      depth,
     )
     if (media && record) {
       return {
@@ -1767,9 +1814,10 @@ function buildLocalPostView(db, postRec, viewerDid, origin) {
 function hydrateLocalPosts(db, uris, viewerDid, origin) {
   const posts = []
   for (const uri of uris) {
-    const parsed = parseAtUri(uri)
-    if (!parsed || !db.accounts[parsed.repo]) continue
-    const rec = db.records?.[parsed.repo]?.[parsed.collection]?.[parsed.rkey]
+    const resolved = resolveAtUri(db, uri)
+    if (!resolved) continue
+    const rec =
+      db.records?.[resolved.did]?.[resolved.collection]?.[resolved.rkey]
     if (!rec) continue
     if (isPostHiddenForViewer(db, rec, viewerDid, getCollectionMap)) continue
     const view = buildLocalPostView(db, rec, viewerDid, origin)
@@ -1792,7 +1840,7 @@ function getLocalFeedItems(
   for (const postRec of posts) {
     if (isPostHiddenForViewer(db, postRec, viewerDid, getCollectionMap)) continue
     if (!includeReplies && postRec.value?.reply) continue
-    if (onlyVideo && postRec.value?.embed?.$type !== 'app.bsky.embed.video') {
+    if (onlyVideo && !isVideoEmbed(postRec.value?.embed)) {
       continue
     }
     if (Array.isArray(filterTags) && filterTags.length > 0) {
@@ -2152,9 +2200,10 @@ function buildGroupedNotifications(
 
   const registerPost = uri => {
     if (!uri || postViews.has(uri)) return
-    const parsed = parseAtUri(uri)
-    if (!parsed || !db.accounts[parsed.repo]) return
-    const rec = db.records?.[parsed.repo]?.[parsed.collection]?.[parsed.rkey]
+    const resolved = resolveAtUri(db, uri)
+    if (!resolved) return
+    const rec =
+      db.records?.[resolved.did]?.[resolved.collection]?.[resolved.rkey]
     if (!rec) return
     const pv = buildLocalPostView(db, rec, viewerDid, origin)
     if (pv) postViews.set(uri, pv)
@@ -3163,10 +3212,16 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
+      const requestedExp = Number(searchParams.get('exp'))
+      const nowSec = Math.floor(Date.now() / 1000)
+      const ttlSeconds =
+        Number.isFinite(requestedExp) && requestedExp > nowSec
+          ? Math.max(60, Math.min(1800, Math.floor(requestedExp - nowSec)))
+          : 300
       const token = signJwt(db, {
         did: auth.did,
         scope: 'com.atproto.serviceAuth',
-        ttlSeconds: 300,
+        ttlSeconds,
         tv: Number(auth.account?.tokenVersion) || 1,
       })
       sendJson(req, res, 200, {token})
@@ -3522,7 +3577,9 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'com.atproto.repo.uploadBlob' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, db, {
+        allowedScopes: VIDEO_AUTH_SCOPES,
+      })
       if (auth.error) {
         sendXrpcError(
           req,
@@ -3951,7 +4008,7 @@ export async function handleQuantZingPds(req, res) {
         if (filter === 'posts_with_media' && !postRec.value?.embed) continue
         if (
           filter === 'posts_with_video' &&
-          postRec.value?.embed?.$type !== 'app.bsky.embed.video'
+          !isVideoEmbed(postRec.value?.embed)
         ) {
           continue
         }
@@ -4043,12 +4100,14 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'app.bsky.feed.getPostThread' && method === 'GET') {
       const uri = searchParams.get('uri') || ''
       const viewerDid = getOptionalViewerDid(req, db)
-      const parsed = parseAtUri(uri)
+      const resolved = resolveAtUri(db, uri)
+      const canonicalUri = resolved?.canonicalUri || uri
 
       const localReplies = getAllLocalRecords(db, 'app.bsky.feed.post')
         .filter(
           r =>
-            r?.value?.reply?.parent?.uri === uri &&
+            (r?.value?.reply?.parent?.uri === canonicalUri ||
+              r?.value?.reply?.parent?.uri === uri) &&
             !isPostHiddenForViewer(db, r, viewerDid, getCollectionMap),
         )
         .sort((a, b) =>
@@ -4062,7 +4121,7 @@ export async function handleQuantZingPds(req, res) {
           replies: [],
         }))
 
-      if (!parsed || !db.accounts[parsed.repo]) {
+      if (!resolved) {
         sendJson(req, res, 200, {
           thread: {
             $type: 'app.bsky.feed.defs#notFoundPost',
@@ -4074,7 +4133,7 @@ export async function handleQuantZingPds(req, res) {
       }
 
       const postRec =
-        db.records?.[parsed.repo]?.[parsed.collection]?.[parsed.rkey]
+        db.records?.[resolved.did]?.[resolved.collection]?.[resolved.rkey]
       if (
         !postRec ||
         isPostHiddenForViewer(db, postRec, viewerDid, getCollectionMap)
@@ -4114,12 +4173,14 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'app.bsky.unspecced.getPostThreadV2' && method === 'GET') {
       const anchor = searchParams.get('anchor') || ''
       const viewerDid = getOptionalViewerDid(req, db)
-      const parsed = parseAtUri(anchor)
+      const resolved = resolveAtUri(db, anchor)
+      const canonicalAnchor = resolved?.canonicalUri || anchor
 
       const localReplies = getAllLocalRecords(db, 'app.bsky.feed.post')
         .filter(
           r =>
-            r?.value?.reply?.parent?.uri === anchor &&
+            (r?.value?.reply?.parent?.uri === canonicalAnchor ||
+              r?.value?.reply?.parent?.uri === anchor) &&
             !isPostHiddenForViewer(db, r, viewerDid, getCollectionMap),
         )
         .sort((a, b) =>
@@ -4128,10 +4189,9 @@ export async function handleQuantZingPds(req, res) {
         .map(r => buildLocalPostView(db, r, viewerDid, origin))
         .filter(Boolean)
 
-      const postRec =
-        parsed && db.accounts[parsed.repo]
-          ? db.records?.[parsed.repo]?.[parsed.collection]?.[parsed.rkey]
-          : null
+      const postRec = resolved
+        ? db.records?.[resolved.did]?.[resolved.collection]?.[resolved.rkey]
+        : null
 
       if (
         !postRec ||
@@ -4212,10 +4272,15 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'app.bsky.feed.getLikes' && method === 'GET') {
-      const uri = searchParams.get('uri') || ''
+      const rawUri = searchParams.get('uri') || ''
+      const uri = resolveAtUri(db, rawUri)?.canonicalUri || rawUri
       const viewerDid = getOptionalViewerDid(req, db)
       const likes = getAllLocalRecords(db, 'app.bsky.feed.like')
-        .filter(r => r?.value?.subject?.uri === uri)
+        .filter(
+          r =>
+            r?.value?.subject?.uri === uri ||
+            r?.value?.subject?.uri === rawUri,
+        )
         .map(r => {
           const acc = db.accounts[r.repo]
           if (!acc) return null
@@ -4231,10 +4296,15 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'app.bsky.feed.getRepostedBy' && method === 'GET') {
-      const uri = searchParams.get('uri') || ''
+      const rawUri = searchParams.get('uri') || ''
+      const uri = resolveAtUri(db, rawUri)?.canonicalUri || rawUri
       const viewerDid = getOptionalViewerDid(req, db)
       const repostedBy = getAllLocalRecords(db, 'app.bsky.feed.repost')
-        .filter(r => r?.value?.subject?.uri === uri)
+        .filter(
+          r =>
+            r?.value?.subject?.uri === uri ||
+            r?.value?.subject?.uri === rawUri,
+        )
         .map(r => {
           const acc = db.accounts[r.repo]
           return acc
@@ -4247,13 +4317,16 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'app.bsky.feed.getQuotes' && method === 'GET') {
-      const uri = searchParams.get('uri') || ''
+      const rawUri = searchParams.get('uri') || ''
+      const uri = resolveAtUri(db, rawUri)?.canonicalUri || rawUri
       const viewerDid = getOptionalViewerDid(req, db)
       const posts = getAllLocalRecords(db, 'app.bsky.feed.post')
         .filter(
           r =>
             (r?.value?.embed?.record?.uri === uri ||
-              r?.value?.embed?.record?.record?.uri === uri) &&
+              r?.value?.embed?.record?.uri === rawUri ||
+              r?.value?.embed?.record?.record?.uri === uri ||
+              r?.value?.embed?.record?.record?.uri === rawUri) &&
             !isPostHiddenForViewer(db, r, viewerDid, getCollectionMap),
         )
         .map(r => buildLocalPostView(db, r, viewerDid, origin))
@@ -4264,6 +4337,12 @@ export async function handleQuantZingPds(req, res) {
 
     if (nsid === 'app.bsky.feed.searchPosts' && method === 'GET') {
       const q = (searchParams.get('q') || '').trim().toLowerCase()
+      const authorFilter = (searchParams.get('author') || '').trim()
+      const authorAcc = authorFilter ? findLocalAccount(db, authorFilter) : null
+      const tagFilters = searchParams
+        .getAll('tag')
+        .map(t => String(t || '').trim().toLowerCase().replace(/^#/, ''))
+        .filter(Boolean)
       const limit = Math.min(Number(searchParams.get('limit') || 25) || 25, 50)
       const viewerDid = getOptionalViewerDid(req, db)
       const matches = []
@@ -4272,7 +4351,18 @@ export async function handleQuantZingPds(req, res) {
         if (isPostHiddenForViewer(db, rec, viewerDid, getCollectionMap)) {
           continue
         }
+        if (authorFilter && (!authorAcc || rec.repo !== authorAcc.did)) {
+          continue
+        }
         const txt = String(rec?.value?.text || '').toLowerCase()
+        if (
+          tagFilters.length > 0 &&
+          !tagFilters.every(
+            tag => txt.includes(`#${tag}`) || txt.includes(tag),
+          )
+        ) {
+          continue
+        }
         const acc = db.accounts[rec.repo]
         const handle = String(acc?.handle || '').toLowerCase()
         const displayName = String(acc?.profile?.displayName || '').toLowerCase()
@@ -4742,11 +4832,13 @@ export async function handleQuantZingPds(req, res) {
 
       if (rawSubject.uri) {
         subjectType = 'post'
-        subjectUri = String(rawSubject.uri)
+        const resolvedSub = resolveAtUri(db, String(rawSubject.uri))
+        subjectUri = resolvedSub?.canonicalUri || String(rawSubject.uri)
         subjectCid = rawSubject.cid
           ? String(rawSubject.cid)
           : findLocalPostByUri(db, subjectUri)?.cid || null
         subjectDid =
+          resolvedSub?.did ||
           parseAtUri(subjectUri)?.repo ||
           (rawSubject.did ? String(rawSubject.did) : null)
         responseSubject = {
@@ -5234,7 +5326,9 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'app.bsky.video.startUpload' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, db, {
+        allowedScopes: VIDEO_AUTH_SCOPES,
+      })
       if (auth.error) {
         sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
         return true
@@ -5261,8 +5355,19 @@ export async function handleQuantZingPds(req, res) {
       ) {
         return true
       }
+      pruneExpiredVideoUploads()
       const body = await readJsonBody(req)
       const sizeBytes = Math.max(1, Number(body.sizeBytes || 1))
+      if (sizeBytes > MAX_VIDEO_TOTAL_BYTES) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'VideoTooLarge',
+          'Video exceeds maximum supported size of 300 MB',
+        )
+        return true
+      }
       const mimeType = String(body.mimeType || 'video/mp4')
       const partSizeBytes = VIDEO_UPLOAD_PART_BYTES
       const partCount = Math.max(1, Math.ceil(sizeBytes / partSizeBytes))
@@ -5286,7 +5391,9 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'app.bsky.video.uploadPart' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, db, {
+        allowedScopes: VIDEO_AUTH_SCOPES,
+      })
       if (auth.error) {
         sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
         return true
@@ -5294,7 +5401,7 @@ export async function handleQuantZingPds(req, res) {
       const jobId = searchParams.get('jobId') || ''
       const partNumber = Math.max(1, Number(searchParams.get('partNumber') || 1))
       const job = activeVideoUploads.get(jobId)
-      if (!job) {
+      if (!job || job.did !== auth.did) {
         sendXrpcError(req, res, 404, 'NotFound', 'Video upload session not found')
         return true
       }
@@ -5305,7 +5412,9 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'app.bsky.video.finishUpload' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, db, {
+        allowedScopes: VIDEO_AUTH_SCOPES,
+      })
       if (auth.error) {
         sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
         return true
@@ -5313,14 +5422,35 @@ export async function handleQuantZingPds(req, res) {
       const body = await readJsonBody(req)
       const jobId = String(body.jobId || '')
       const job = activeVideoUploads.get(jobId)
-      if (!job) {
+      if (!job || job.did !== auth.did) {
         sendXrpcError(req, res, 404, 'NotFound', 'Video upload session not found')
+        return true
+      }
+      if (job.state === 'completed' && job.jobStatus) {
+        sendJson(req, res, 200, {
+          completedJobId: jobId,
+          jobStatus: job.jobStatus,
+        })
         return true
       }
       const ordered = [...job.parts.entries()]
         .sort((a, b) => a[0] - b[0])
         .map(([, buf]) => buf)
       const fullBuf = Buffer.concat(ordered)
+      if (fullBuf.length === 0) {
+        sendXrpcError(req, res, 400, 'InvalidRequest', 'No video data received')
+        return true
+      }
+      if (fullBuf.length > MAX_VIDEO_TOTAL_BYTES) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'VideoTooLarge',
+          'Video exceeds maximum supported size of 300 MB',
+        )
+        return true
+      }
       const blob = storeLocalBlob(db, auth.did, fullBuf, job.mimeType)
       saveDb(db)
       job.parts.clear()
@@ -5340,9 +5470,16 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'app.bsky.video.getUploadStatus' && method === 'GET') {
+      const auth = getAuthedContext(req, db, {
+        allowedScopes: VIDEO_AUTH_SCOPES,
+      })
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        return true
+      }
       const jobId = searchParams.get('jobId') || ''
       const job = activeVideoUploads.get(jobId)
-      if (!job) {
+      if (!job || job.did !== auth.did) {
         sendXrpcError(req, res, 404, 'NotFound', 'Video upload session not found')
         return true
       }
@@ -5372,10 +5509,17 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'app.bsky.video.abortUpload' && method === 'POST') {
+      const auth = getAuthedContext(req, db, {
+        allowedScopes: VIDEO_AUTH_SCOPES,
+      })
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        return true
+      }
       const body = await readJsonBody(req)
       const jobId = String(body.jobId || '')
       const job = activeVideoUploads.get(jobId)
-      if (job) {
+      if (job && job.did === auth.did) {
         job.parts.clear()
         job.state = 'aborted'
       }

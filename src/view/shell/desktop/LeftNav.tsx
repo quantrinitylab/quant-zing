@@ -760,9 +760,17 @@ function ComposeBtn({minimal}: {minimal: boolean}) {
         size="large"
         color="primary"
         hoverStyle={{backgroundColor: pillHoverBg}}
-        style={[layout.button, {backgroundColor: pillBg}]}>
+        style={[
+          layout.button,
+          minimal && {paddingHorizontal: 0, paddingVertical: 0},
+          {backgroundColor: pillBg},
+        ]}>
         {minimal ? (
-          <EditBigIcon width={22} style={{color: pillTextColor}} />
+          <EditBigIcon
+            width={22}
+            fill={pillTextColor}
+            style={{color: pillTextColor}}
+          />
         ) : (
           <ButtonText
             style={[

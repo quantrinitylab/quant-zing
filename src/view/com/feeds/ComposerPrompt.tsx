@@ -167,6 +167,22 @@ export function ComposerPrompt() {
       }
 
       if (assets.length > 0) {
+        const videoAsset = assets.find(asset =>
+          asset.mimeType?.startsWith('video/'),
+        )
+        if (videoAsset) {
+          openComposer({
+            text: composedText || undefined,
+            videoUri: {
+              uri: videoAsset.uri,
+              width: videoAsset.width,
+              height: videoAsset.height,
+            },
+            logContext: 'Fab',
+          })
+          return
+        }
+
         const imageUris = assets
           .filter(asset => asset.mimeType?.startsWith('image/'))
           .slice(0, MAX_GALLERY_IMAGES)
@@ -408,7 +424,7 @@ export function ComposerPrompt() {
             <View style={[a.flex_row, a.align_center, a.gap_xs]}>
               <Button
                 onPress={() => void onPressImage()}
-                label="Add image"
+                label="Add media"
                 variant="ghost"
                 shape="round"
                 style={{width: 34, height: 34, padding: 0}}>
