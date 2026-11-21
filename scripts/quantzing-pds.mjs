@@ -1,35 +1,33 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import http from 'node:http'
 import https from 'node:https'
 import path from 'node:path'
-import tls from 'node:tls'
 import {fileURLToPath} from 'node:url'
-import zlib from 'node:zlib'
-
-function createUpstreamHttpsAgent() {
-  if (typeof tls.getCACertificates === 'function') {
-    const bundled = tls.getCACertificates('bundled')
-    const system = tls.getCACertificates('system')
-    return new https.Agent({
-      ca: [...bundled, ...system],
-      keepAlive: true,
-    })
-  }
-  return new https.Agent({keepAlive: true})
-}
-
-const UPSTREAM_HTTPS_AGENT = createUpstreamHttpsAgent()
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const PUBLIC_APPVIEW_ORIGIN = 'https://public.api.bsky.app'
-const DISCOVER_FEED_URI =
-  'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot'
+
+// ---------------------------------------------------------------------------
+// 100% Sovereign QuantZing Constants (ZERO external Bluesky network calls)
+// ---------------------------------------------------------------------------
+
 const QUANTZING_DID = 'did:web:quantzing.com'
 const QUANTZING_DOMAIN = '.quantzing.com'
 const QUANTZING_ALT_DOMAIN = '.quantzing.in'
-const QUANTY_SYSTEM_DID = 'did:plc:quantyaiofficial00000000'
+
+// RFC 4648 base32 strictly-valid 24-char PLC DIDs ([a-z2-7]{24})
+const QUANTZING_OFFICIAL_DID = 'did:plc:quantzingofficialaaaaaaa'
+const QUANTY_SYSTEM_DID = 'did:plc:quantyaiofficialaaaaaaaa'
+const QUANTRINITY_DID = 'did:plc:quantrinitylabaaaaaaaaaa'
+const QUANTZING_NEWS_DID = 'did:plc:quantzingnewsdesk2222222'
+const QUANT_BUILDERS_DID = 'did:plc:quantbuildershq222222222'
+
 const QUANTY_SYSTEM_HANDLE = 'quanty.quantzing.com'
-const UPSTREAM_TIMEOUT_MS = 15000
+const DISCOVER_FEED_URI = `at://${QUANTZING_OFFICIAL_DID}/app.bsky.feed.generator/whats-hot`
+const LEGACY_DISCOVER_FEED_URI =
+  'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot'
+const GENESIS_VERSION = 2
+
 const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024
 const MAX_BLOB_BODY_BYTES = 25 * 1024 * 1024
 
@@ -47,7 +45,6 @@ const tidClockId = BigInt(crypto.randomInt(0, 1024))
 
 function getDataDir() {
   return (
-    process.env.QUANTZING_DATA_DIR ||
     process.env.QUANTZING_DATA_DIR ||
     path.resolve(__dirname, '..', '.quantzing-data')
   )
@@ -68,120 +65,20 @@ function ensureStorageDirs() {
 
 function createEmptyDb() {
   return {
-    version: 1,
+    version: 2,
+    genesisVersion: 0,
     jwtSecret: crypto.randomBytes(32).toString('hex'),
     accounts: {},
     records: {},
     bookmarks: {},
     blobs: {},
+    convos: {},
     revokedTokens: [],
   }
 }
 
 let cachedDb = null
 let cachedDbPath = null
-
-function ensureQuantySystemAccount(db) {
-  if (!db || typeof db !== 'object') return
-  db.accounts = db.accounts || {}
-  db.records = db.records || {}
-  if (!db.accounts[QUANTY_SYSTEM_DID]) {
-    const createdAt = '2026-01-01T00:00:00.000Z'
-    db.accounts[QUANTY_SYSTEM_DID] = {
-      did: QUANTY_SYSTEM_DID,
-      handle: QUANTY_SYSTEM_HANDLE,
-      email: 'quanty@quantzing.com',
-      emailConfirmed: true,
-      passwordSalt: 'system',
-      passwordHash: 'system',
-      createdAt,
-      active: true,
-      status: undefined,
-      isSystemQuanty: true,
-      profile: {
-        displayName: 'Quanty',
-        description:
-          'Official AI on QuantZing. Mention @quanty in any Zing or reply to fact-check, summarize, or ask anything.',
-        createdAt,
-      },
-      preferences: [],
-    }
-  }
-  const col = getCollectionMap(db, QUANTY_SYSTEM_DID, 'app.bsky.actor.profile', true)
-  if (!col.self) {
-    const profileValue = {
-      $type: 'app.bsky.actor.profile',
-      displayName: 'Quanty',
-      description:
-        'Official AI on QuantZing. Mention @quanty in any Zing or reply to fact-check, summarize, or ask anything.',
-      createdAt: '2026-01-01T00:00:00.000Z',
-    }
-    col.self = {
-      uri: `at://${QUANTY_SYSTEM_DID}/app.bsky.actor.profile/self`,
-      cid: computeCid(profileValue, 'dag-cbor'),
-      rkey: 'self',
-      collection: 'app.bsky.actor.profile',
-      repo: QUANTY_SYSTEM_DID,
-      value: profileValue,
-      indexedAt: '2026-01-01T00:00:00.000Z',
-    }
-  }
-}
-
-function loadDb() {
-  const dbPath = getDbPath()
-  if (cachedDb && cachedDbPath === dbPath) {
-    ensureQuantySystemAccount(cachedDb)
-    return cachedDb
-  }
-  ensureStorageDirs()
-  if (fs.existsSync(dbPath)) {
-    try {
-      const raw = fs.readFileSync(dbPath, 'utf8')
-      const parsed = JSON.parse(raw)
-      cachedDb = {
-        ...createEmptyDb(),
-        ...parsed,
-        accounts: parsed.accounts || {},
-        records: parsed.records || {},
-        bookmarks: parsed.bookmarks || {},
-        blobs: parsed.blobs || {},
-        revokedTokens: Array.isArray(parsed.revokedTokens)
-          ? parsed.revokedTokens
-          : [],
-      }
-      ensureQuantySystemAccount(cachedDb)
-      cachedDbPath = dbPath
-      return cachedDb
-    } catch (err) {
-      console.error('[QuantZing PDS] Failed to parse db.json, initializing fresh store:', err)
-    }
-  }
-  cachedDb = createEmptyDb()
-  ensureQuantySystemAccount(cachedDb)
-  cachedDbPath = dbPath
-  saveDb(cachedDb)
-  return cachedDb
-}
-
-function saveDb(db) {
-  ensureStorageDirs()
-  const dbPath = getDbPath()
-  const tmpPath = `${dbPath}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`
-  const payload = JSON.stringify(db, null, 2)
-  fs.writeFileSync(tmpPath, payload, 'utf8')
-  try {
-    fs.renameSync(tmpPath, dbPath)
-  } catch {
-    // Windows fallback if destination is briefly locked
-    fs.copyFileSync(tmpPath, dbPath)
-    try {
-      fs.unlinkSync(tmpPath)
-    } catch {}
-  }
-  cachedDb = db
-  cachedDbPath = dbPath
-}
 
 // ---------------------------------------------------------------------------
 // Crypto & ATProto identifier primitives (zero external dependencies)
@@ -205,35 +102,27 @@ function base32Encode(buffer, alphabet = BASE32_RFC4648) {
   return out
 }
 
-/**
- * Generates a valid PLC DID: `did:plc:` + 24 base32 lowercase chars (`[a-z2-7]`),
- * passing `@atproto/syntax` `isDidString` 100%.
- */
 function createPlcDid() {
   const bytes = crypto.randomBytes(15) // 120 bits -> exactly 24 base32 chars
   return `did:plc:${base32Encode(bytes, BASE32_RFC4648)}`
 }
 
-/**
- * Generates a valid CIDv1 string (`bafyrei...` for dag-cbor records or `bafkrei...` for raw blobs)
- * passing `@atproto/lex` CID validation 100%.
- */
 function computeCid(input, codec = 'dag-cbor') {
   const buf = Buffer.isBuffer(input)
     ? input
-    : Buffer.from(typeof input === 'string' ? input : JSON.stringify(input), 'utf8')
+    : Buffer.from(
+        typeof input === 'string' ? input : JSON.stringify(input),
+        'utf8',
+      )
   const digest = crypto.createHash('sha256').update(buf).digest()
-  const codecByte = codec === 'raw' ? 0x55 : 0x71 // raw=0x55, dag-cbor=0x71
+  const codecByte = codec === 'raw' ? 0x55 : 0x71
   const cidBytes = Buffer.concat([
-    Buffer.from([0x01, codecByte, 0x12, 0x20]), // v1, codec, sha2-256, 32-byte len
+    Buffer.from([0x01, codecByte, 0x12, 0x20]),
     digest,
   ])
   return `b${base32Encode(cidBytes, BASE32_RFC4648)}`
 }
 
-/**
- * Generates a valid 13-character ATProto TID (base32-sortable).
- */
 function generateTid() {
   let nowUs = BigInt(Date.now()) * 1000n
   if (nowUs <= lastTidTimestamp) {
@@ -285,12 +174,12 @@ function mintTokens(db, did) {
     accessJwt: signJwt(db, {
       did,
       scope: 'com.atproto.access',
-      ttlSeconds: 30 * 24 * 60 * 60, // 30 days
+      ttlSeconds: 30 * 24 * 60 * 60,
     }),
     refreshJwt: signJwt(db, {
       did,
       scope: 'com.atproto.refresh',
-      ttlSeconds: 90 * 24 * 60 * 60, // 90 days
+      ttlSeconds: 90 * 24 * 60 * 60,
     }),
   }
 }
@@ -340,6 +229,7 @@ function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
 }
 
 function verifyPassword(password, salt, expectedHash) {
+  if (salt === 'system' || expectedHash === 'system') return false
   const computed = crypto.scryptSync(String(password), salt, 64)
   const expected = Buffer.from(expectedHash, 'hex')
   return (
@@ -377,6 +267,559 @@ function parseAtUri(uri) {
 }
 
 // ---------------------------------------------------------------------------
+// Sovereign Blob Avatar Generator + Genesis Network Seeder
+// ---------------------------------------------------------------------------
+
+function storeLocalBlob(db, did, buffer, mimeType) {
+  ensureStorageDirs()
+  const cid = computeCid(buffer, 'raw')
+  const blobPath = path.join(getBlobsDir(), cid)
+  if (!fs.existsSync(blobPath)) {
+    fs.writeFileSync(blobPath, buffer)
+  }
+  db.blobs[cid] = {
+    cid,
+    mimeType,
+    size: buffer.length,
+    did,
+  }
+  return {
+    $type: 'blob',
+    ref: {$link: cid},
+    mimeType,
+    size: buffer.length,
+  }
+}
+
+function makeAvatarSvg(variant) {
+  if (variant === 'quantzing') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect width="256" height="256" fill="#000000"/>
+  <rect x="10" y="10" width="236" height="236" rx="52" fill="#0B0D10" stroke="#2F3336" stroke-width="6"/>
+  <path d="M68 74H188L104 182H188" fill="none" stroke="#EFF3F4" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="186" cy="74" r="13" fill="#1D9BF0"/>
+</svg>`
+  }
+  if (variant === 'quanty') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect width="256" height="256" fill="#000000"/>
+  <circle cx="128" cy="128" r="112" fill="#0A131C" stroke="#1D9BF0" stroke-width="6"/>
+  <path d="M128 48L147 109L208 128L147 147L128 208L109 147L48 128L109 109Z" fill="#1D9BF0"/>
+  <circle cx="128" cy="128" r="18" fill="#EFF3F4"/>
+</svg>`
+  }
+  if (variant === 'quantrinity') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect width="256" height="256" fill="#080A0D"/>
+  <polygon points="128,36 212,184 44,184" fill="none" stroke="#EFF3F4" stroke-width="16" stroke-linejoin="round"/>
+  <circle cx="128" cy="136" r="22" fill="#1D9BF0"/>
+</svg>`
+  }
+  if (variant === 'news') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect width="256" height="256" fill="#0D1117"/>
+  <rect x="48" y="64" width="160" height="24" rx="12" fill="#1D9BF0"/>
+  <rect x="48" y="112" width="128" height="22" rx="11" fill="#EFF3F4"/>
+  <rect x="48" y="160" width="96" height="22" rx="11" fill="#71767B"/>
+</svg>`
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect width="256" height="256" fill="#0A0C10"/>
+  <path d="M84 86L46 128L84 170M172 86L210 128L172 170M144 68L112 188" fill="none" stroke="#EFF3F4" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="196" cy="60" r="12" fill="#00BA7C"/>
+</svg>`
+}
+
+function buildFacetsForText(db, text) {
+  const facets = []
+  const str = String(text || '')
+  const encoder = new TextEncoder()
+
+  const byteIndexAt = charIdx => encoder.encode(str.slice(0, charIdx)).length
+
+  // Hashtags (#Tag)
+  const tagRe = /(^|\s)(#[A-Za-z][A-Za-z0-9_]{1,40})/g
+  let m
+  while ((m = tagRe.exec(str)) !== null) {
+    const startChar = m.index + m[1].length
+    const endChar = startChar + m[2].length
+    facets.push({
+      index: {
+        byteStart: byteIndexAt(startChar),
+        byteEnd: byteIndexAt(endChar),
+      },
+      features: [
+        {
+          $type: 'app.bsky.richtext.facet#tag',
+          tag: m[2].slice(1),
+        },
+      ],
+    })
+  }
+
+  // Mentions (@handle or @quanty)
+  const mentionRe = /(^|\s)(@[a-zA-Z0-9.-]+)/g
+  while ((m = mentionRe.exec(str)) !== null) {
+    const rawMention = m[2].slice(1).toLowerCase()
+    const acc = findLocalAccount(db, rawMention)
+    if (!acc) continue
+    const startChar = m.index + m[1].length
+    const endChar = startChar + m[2].length
+    facets.push({
+      index: {
+        byteStart: byteIndexAt(startChar),
+        byteEnd: byteIndexAt(endChar),
+      },
+      features: [
+        {
+          $type: 'app.bsky.richtext.facet#mention',
+          did: acc.did,
+        },
+      ],
+    })
+  }
+
+  return facets.length > 0 ? facets : undefined
+}
+
+const OFFICIAL_GENESIS_ACCOUNTS = [
+  {
+    did: QUANTZING_OFFICIAL_DID,
+    handle: 'quantzing.quantzing.com',
+    email: 'official@quantzing.com',
+    displayName: 'QuantZing',
+    description:
+      'Official QuantZing network account. Real-time Zings, sovereign handles, ZingSpaces, and built-in Quanty intelligence.',
+    avatarVariant: 'quantzing',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    did: QUANTY_SYSTEM_DID,
+    handle: QUANTY_SYSTEM_HANDLE,
+    email: 'quanty@quantzing.com',
+    displayName: 'Quanty',
+    description:
+      'Official AI on QuantZing. Mention @quanty in any Zing or reply to fact-check, summarize, or ask anything.',
+    avatarVariant: 'quanty',
+    isSystemQuanty: true,
+    createdAt: '2026-01-01T00:01:00.000Z',
+  },
+  {
+    did: QUANTRINITY_DID,
+    handle: 'quantrinity.quantzing.com',
+    email: 'lab@quantrinity.in',
+    displayName: 'Quantrinity Lab',
+    description:
+      'Building the sovereign QuantOS stack: QuantZing, QuantMail, QuantAI, QuantChat, QuantDrive & independent cloud infrastructure.',
+    avatarVariant: 'quantrinity',
+    createdAt: '2026-01-01T00:02:00.000Z',
+  },
+  {
+    did: QUANTZING_NEWS_DID,
+    handle: 'news.quantzing.com',
+    email: 'news@quantzing.com',
+    displayName: 'QuantZing News',
+    description:
+      'Live high-signal updates across frontier AI, global markets, startups, science, and India technology.',
+    avatarVariant: 'news',
+    createdAt: '2026-01-01T00:03:00.000Z',
+  },
+  {
+    did: QUANT_BUILDERS_DID,
+    handle: 'builders.quantzing.com',
+    email: 'builders@quantzing.com',
+    displayName: 'Quant Builders',
+    description:
+      'Founders, systems engineers, and independent developers shipping real software in public on QuantZing.',
+    avatarVariant: 'builders',
+    createdAt: '2026-01-01T00:04:00.000Z',
+  },
+]
+
+const SOVEREIGN_FEED_GENERATORS = [
+  {
+    rkey: 'whats-hot',
+    displayName: 'For you',
+    description:
+      'Real-time Zings across the entire QuantZing network — zero external third-party feeds.',
+    category: 'Home',
+    tags: [],
+  },
+  {
+    rkey: 'quanty-ai',
+    displayName: 'Quanty & AI',
+    description:
+      'Frontier AI releases, @quanty thread breakdowns, agents, inference, and open-weights research.',
+    category: 'AI',
+    tags: ['ai', 'quantyai', 'quanty', 'llm', 'agents', 'inference'],
+  },
+  {
+    rkey: 'builders',
+    displayName: 'Builders & Tech',
+    description:
+      'Systems engineering, startups, QuantOS architecture, and founders shipping in public.',
+    category: 'Technology',
+    tags: ['quantos', 'startups', 'opensource', 'typescript', 'cloudinfra', 'builders'],
+  },
+  {
+    rkey: 'india-global',
+    displayName: 'India & Global',
+    description:
+      'Breaking tech, policy, markets, and startup momentum from India and around the world.',
+    category: 'News',
+    tags: ['indiatech', 'markets', 'news', 'quantrinity', 'global'],
+  },
+  {
+    rkey: 'thevids',
+    displayName: 'Videos',
+    description: 'Native video Zings and clips published on QuantZing.',
+    category: 'Media',
+    tags: ['video'],
+  },
+]
+
+function ensureSovereignGenesis(db) {
+  if (!db || typeof db !== 'object') return false
+  let mutated = false
+  db.accounts = db.accounts || {}
+  db.records = db.records || {}
+  db.bookmarks = db.bookmarks || {}
+  db.blobs = db.blobs || {}
+  db.convos = db.convos || {}
+
+  // Remove legacy invalid-base32 Quanty DID if present from older local builds
+  const legacyQuantyDid = 'did:plc:quantyaiofficial00000000'
+  if (db.accounts[legacyQuantyDid]) {
+    delete db.accounts[legacyQuantyDid]
+    delete db.records[legacyQuantyDid]
+    mutated = true
+  }
+
+  // Ensure all 5 official sovereign QuantZing genesis accounts + SVG avatars exist
+  for (const spec of OFFICIAL_GENESIS_ACCOUNTS) {
+    let acc = db.accounts[spec.did]
+    const needsAvatar =
+      !acc?.profile?.avatar ||
+      !db.blobs[extractBlobCid(acc.profile.avatar) || '']
+
+    let avatarBlob = acc?.profile?.avatar || null
+    if (needsAvatar) {
+      const svgBuf = Buffer.from(makeAvatarSvg(spec.avatarVariant), 'utf8')
+      avatarBlob = storeLocalBlob(db, spec.did, svgBuf, 'image/svg+xml')
+      mutated = true
+    }
+
+    if (!acc) {
+      acc = {
+        did: spec.did,
+        handle: spec.handle,
+        email: spec.email,
+        emailConfirmed: true,
+        passwordSalt: 'system',
+        passwordHash: 'system',
+        createdAt: spec.createdAt,
+        active: true,
+        verified: true,
+        isOfficial: true,
+        isSystemQuanty: Boolean(spec.isSystemQuanty),
+        profile: {
+          displayName: spec.displayName,
+          description: spec.description,
+          avatar: avatarBlob,
+          createdAt: spec.createdAt,
+        },
+        preferences: createDefaultPreferences(),
+        notificationPreferences: createDefaultNotificationPreferences(),
+      }
+      db.accounts[spec.did] = acc
+      mutated = true
+    } else {
+      acc.verified = true
+      acc.isOfficial = true
+      if (spec.isSystemQuanty) acc.isSystemQuanty = true
+      if (avatarBlob && !acc.profile?.avatar) {
+        acc.profile = {...(acc.profile || {}), avatar: avatarBlob}
+        mutated = true
+      }
+    }
+
+    const profileCol = getCollectionMap(
+      db,
+      spec.did,
+      'app.bsky.actor.profile',
+      true,
+    )
+    if (!profileCol.self || needsAvatar) {
+      const profileValue = {
+        $type: 'app.bsky.actor.profile',
+        displayName: acc.profile?.displayName || spec.displayName,
+        description: acc.profile?.description || spec.description,
+        ...(avatarBlob ? {avatar: avatarBlob} : {}),
+        createdAt: spec.createdAt,
+      }
+      profileCol.self = {
+        uri: `at://${spec.did}/app.bsky.actor.profile/self`,
+        cid: computeCid(profileValue, 'dag-cbor'),
+        rkey: 'self',
+        collection: 'app.bsky.actor.profile',
+        repo: spec.did,
+        value: profileValue,
+        indexedAt: spec.createdAt,
+      }
+      mutated = true
+    }
+  }
+
+  // Seed sovereign genesis Zings once so the brand-new QuantZing network launches alive
+  if ((db.genesisVersion || 0) < GENESIS_VERSION) {
+    const now = Date.now()
+    const genesisPosts = [
+      {
+        rkey: '3mquantzing001',
+        did: QUANTZING_OFFICIAL_DID,
+        minutesAgo: 8,
+        text: 'Welcome to QuantZing. Real-time conversations, sovereign @handle.quantzing.com identity, built-in Quanty AI, and live ZingSpaces — running 100% on our own independent network. Post your first Zing or tag @quanty in any thread. #QuantZing #OpenWeb',
+      },
+      {
+        rkey: '3mquantzing002',
+        did: QUANTY_SYSTEM_DID,
+        minutesAgo: 18,
+        text: 'Quanty is live directly inside QuantZing. Mention @quanty in any Zing or reply to summarize a thread, verify claims, or draft a sharper Zing without leaving your timeline. #QuantyAI #AI',
+      },
+      {
+        rkey: '3mquantzing003',
+        did: QUANTRINITY_DID,
+        minutesAgo: 34,
+        text: 'QuantZing is now running on dedicated sovereign infrastructure under quantzing.quantrinity.in alongside QuantMail, QuantAI, and QuantChat. Zero third-party feed lock-in, full protocol ownership from day one. #QuantOS #Quantrinity #CloudInfra',
+      },
+      {
+        rkey: '3mquantzing004',
+        did: QUANTZING_NEWS_DID,
+        minutesAgo: 52,
+        text: 'India Tech Pulse: Independent Indian cloud and AI engineering teams are rapidly shifting toward sovereign ARM64 infrastructure, open-weight inference routers, and native mobile-first platforms. #IndiaTech #AI #Startups',
+      },
+      {
+        rkey: '3mquantzing005',
+        did: QUANT_BUILDERS_DID,
+        minutesAgo: 78,
+        text: 'Shipping tip for founders building real-time social apps: own your identity server, own your feed graph, and keep the interface razor-fast on pure OLED black. What are you building this week? #Builders #Startups #OpenSource',
+      },
+      {
+        rkey: '3mquantzing006',
+        did: QUANTZING_NEWS_DID,
+        minutesAgo: 110,
+        text: 'Global Markets & AI Infrastructure: Compute efficiency, multi-provider AI routing, and sub-100ms edge delivery are driving the next wave of consumer software launches across Asia, Europe, and the US. #Markets #AI #CloudInfra',
+      },
+      {
+        rkey: '3mquantzing007',
+        did: QUANTZING_OFFICIAL_DID,
+        minutesAgo: 145,
+        text: 'ZingSpaces live audio rooms, long-form Articles, Creator Studio analytics, and direct messages are all built right into QuantZing. Tap Sign up to claim your sovereign handle before launch fills up. #ZingSpaces #QuantZing',
+      },
+      {
+        rkey: '3mquantzing008',
+        did: QUANT_BUILDERS_DID,
+        minutesAgo: 180,
+        text: '@quanty give a quick breakdown of why owning your own sovereign PDS and AppView matters for a modern social platform. #QuantOS #QuantyAI',
+      },
+    ]
+
+    let lastBuilderPost = null
+    for (const item of genesisPosts) {
+      const col = getCollectionMap(db, item.did, 'app.bsky.feed.post', true)
+      if (!col[item.rkey]) {
+        const createdAt = new Date(now - item.minutesAgo * 60_000).toISOString()
+        const facets = buildFacetsForText(db, item.text)
+        const value = {
+          $type: 'app.bsky.feed.post',
+          text: item.text,
+          createdAt,
+          langs: ['en'],
+          ...(facets ? {facets} : {}),
+        }
+        const entry = {
+          uri: `at://${item.did}/app.bsky.feed.post/${item.rkey}`,
+          cid: computeCid(value, 'dag-cbor'),
+          rkey: item.rkey,
+          collection: 'app.bsky.feed.post',
+          repo: item.did,
+          value,
+          indexedAt: createdAt,
+        }
+        col[item.rkey] = entry
+        if (item.rkey === '3mquantzing008') lastBuilderPost = entry
+        mutated = true
+      }
+    }
+
+    // Seed an authentic @quanty in-thread reply on the builder question
+    if (lastBuilderPost) {
+      const qCol = getCollectionMap(
+        db,
+        QUANTY_SYSTEM_DID,
+        'app.bsky.feed.post',
+        true,
+      )
+      if (!qCol['3mquantzing009']) {
+        const replyAt = new Date(now - 178 * 60_000).toISOString()
+        const replyText =
+          '@builders.quantzing.com Owning the PDS + AppView means zero third-party rate limits, full data sovereignty for every handle and Zing, instant custom ranking, and native AI integration across threads.'
+        const facets = buildFacetsForText(db, replyText)
+        const replyValue = {
+          $type: 'app.bsky.feed.post',
+          text: replyText,
+          createdAt: replyAt,
+          langs: ['en'],
+          ...(facets ? {facets} : {}),
+          reply: {
+            root: {uri: lastBuilderPost.uri, cid: lastBuilderPost.cid},
+            parent: {uri: lastBuilderPost.uri, cid: lastBuilderPost.cid},
+          },
+        }
+        qCol['3mquantzing009'] = {
+          uri: `at://${QUANTY_SYSTEM_DID}/app.bsky.feed.post/3mquantzing009`,
+          cid: computeCid(replyValue, 'dag-cbor'),
+          rkey: '3mquantzing009',
+          collection: 'app.bsky.feed.post',
+          repo: QUANTY_SYSTEM_DID,
+          value: replyValue,
+          indexedAt: replyAt,
+        }
+        mutated = true
+      }
+    }
+
+    // Seed cross-follows among official ecosystem accounts so profiles have real graph edges
+    const followPairs = [
+      [QUANTZING_OFFICIAL_DID, QUANTY_SYSTEM_DID],
+      [QUANTZING_OFFICIAL_DID, QUANTRINITY_DID],
+      [QUANTZING_OFFICIAL_DID, QUANTZING_NEWS_DID],
+      [QUANTZING_OFFICIAL_DID, QUANT_BUILDERS_DID],
+      [QUANTRINITY_DID, QUANTZING_OFFICIAL_DID],
+      [QUANTRINITY_DID, QUANTY_SYSTEM_DID],
+      [QUANT_BUILDERS_DID, QUANTZING_OFFICIAL_DID],
+      [QUANT_BUILDERS_DID, QUANTY_SYSTEM_DID],
+      [QUANTZING_NEWS_DID, QUANTZING_OFFICIAL_DID],
+    ]
+    for (const [src, dst] of followPairs) {
+      const fCol = getCollectionMap(db, src, 'app.bsky.graph.follow', true)
+      const exists = Object.values(fCol).some(r => r?.value?.subject === dst)
+      if (!exists) {
+        const rkey = generateTid()
+        const createdAt = new Date(now - 200 * 60_000).toISOString()
+        const value = {
+          $type: 'app.bsky.graph.follow',
+          subject: dst,
+          createdAt,
+        }
+        fCol[rkey] = {
+          uri: `at://${src}/app.bsky.graph.follow/${rkey}`,
+          cid: computeCid(value, 'dag-cbor'),
+          rkey,
+          collection: 'app.bsky.graph.follow',
+          repo: src,
+          value,
+          indexedAt: createdAt,
+        }
+        mutated = true
+      }
+    }
+
+    // Migrate any user savedFeeds referencing legacy Bluesky Discover URI to Sovereign QuantZing Discover URI
+    for (const acc of Object.values(db.accounts)) {
+      if (!Array.isArray(acc.preferences)) continue
+      for (const pref of acc.preferences) {
+        if (Array.isArray(pref.items)) {
+          for (const it of pref.items) {
+            if (it?.value === LEGACY_DISCOVER_FEED_URI) {
+              it.value = DISCOVER_FEED_URI
+              mutated = true
+            }
+          }
+        }
+        if (Array.isArray(pref.pinned)) {
+          pref.pinned = pref.pinned.map(v =>
+            v === LEGACY_DISCOVER_FEED_URI ? DISCOVER_FEED_URI : v,
+          )
+        }
+        if (Array.isArray(pref.saved)) {
+          pref.saved = pref.saved.map(v =>
+            v === LEGACY_DISCOVER_FEED_URI ? DISCOVER_FEED_URI : v,
+          )
+        }
+      }
+    }
+
+    db.genesisVersion = GENESIS_VERSION
+    mutated = true
+  }
+
+  return mutated
+}
+
+function loadDb() {
+  const dbPath = getDbPath()
+  if (cachedDb && cachedDbPath === dbPath) {
+    if (ensureSovereignGenesis(cachedDb)) {
+      saveDb(cachedDb)
+    }
+    return cachedDb
+  }
+  ensureStorageDirs()
+  if (fs.existsSync(dbPath)) {
+    try {
+      const raw = fs.readFileSync(dbPath, 'utf8')
+      const parsed = JSON.parse(raw)
+      cachedDb = {
+        ...createEmptyDb(),
+        ...parsed,
+        accounts: parsed.accounts || {},
+        records: parsed.records || {},
+        bookmarks: parsed.bookmarks || {},
+        blobs: parsed.blobs || {},
+        convos: parsed.convos || {},
+        revokedTokens: Array.isArray(parsed.revokedTokens)
+          ? parsed.revokedTokens
+          : [],
+      }
+      cachedDbPath = dbPath
+      if (ensureSovereignGenesis(cachedDb)) {
+        saveDb(cachedDb)
+      }
+      return cachedDb
+    } catch (err) {
+      console.error(
+        '[QuantZing PDS] Failed to parse db.json, initializing fresh sovereign store:',
+        err,
+      )
+    }
+  }
+  cachedDb = createEmptyDb()
+  cachedDbPath = dbPath
+  ensureSovereignGenesis(cachedDb)
+  saveDb(cachedDb)
+  return cachedDb
+}
+
+function saveDb(db) {
+  ensureStorageDirs()
+  const dbPath = getDbPath()
+  const tmpPath = `${dbPath}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`
+  const payload = JSON.stringify(db, null, 2)
+  fs.writeFileSync(tmpPath, payload, 'utf8')
+  try {
+    fs.renameSync(tmpPath, dbPath)
+  } catch {
+    fs.copyFileSync(tmpPath, dbPath)
+    try {
+      fs.unlinkSync(tmpPath)
+    } catch {}
+  }
+  cachedDb = db
+  cachedDbPath = dbPath
+}
+
+// ---------------------------------------------------------------------------
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
@@ -384,7 +827,9 @@ function getServerOrigin(req) {
   const proto = String(req.headers['x-forwarded-proto'] || 'http')
     .split(',')[0]
     .trim()
-  const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3008')
+  const host = String(
+    req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3008',
+  )
     .split(',')[0]
     .trim()
   return `${proto}://${host}`
@@ -396,9 +841,9 @@ function corsHeaders(req, extra = {}) {
     'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     'access-control-allow-headers':
       req.headers['access-control-request-headers'] ||
-      'content-type,authorization,atproto-proxy,atproto-accept-labelers,x-atproto-device-id,x-atproto-session-id,accept-language',
+      'content-type,authorization,atproto-proxy,atproto-accept-labelers,x-atproto-device-id,x-atproto-session-id,accept-language,x-bsky-topics',
     'access-control-expose-headers': 'content-type,x-quantzing-pds',
-    'x-quantzing-pds': 'sovereign-hybrid',
+    'x-quantzing-pds': 'sovereign-pure',
     ...extra,
   }
 }
@@ -563,7 +1008,9 @@ function findLocalAccount(db, identifierOrDid) {
   if (db.accounts[raw]) return db.accounts[raw]
   const lower = raw.toLowerCase().replace(/^@/, '')
   const withDomain = lower.includes('.') ? lower : `${lower}${QUANTZING_DOMAIN}`
-  const withAltDomain = lower.includes('.') ? lower : `${lower}${QUANTZING_ALT_DOMAIN}`
+  const withAltDomain = lower.includes('.')
+    ? lower
+    : `${lower}${QUANTZING_ALT_DOMAIN}`
   for (const account of Object.values(db.accounts)) {
     const h = account.handle.toLowerCase()
     if (
@@ -624,29 +1071,57 @@ function syncProfileFromRecord(account, value) {
       value.pinnedPost !== undefined
         ? value.pinnedPost
         : account.profile?.pinnedPost,
-    createdAt: value.createdAt || account.profile?.createdAt || account.createdAt,
+    createdAt:
+      value.createdAt || account.profile?.createdAt || account.createdAt,
   }
 }
 
-function synthesizeQuantyReplyText(rawText, parentText, authorHandle) {
+function synthesizeQuantyReplyText(db, rawText, parentText, authorHandle) {
   const cleaned = String(rawText || '')
     .replace(/@quanty(?:\.quantzing\.(?:com|in))?/gi, '')
     .replace(/\s+/g, ' ')
     .trim()
-  const handlePrefix = authorHandle ? `@${String(authorHandle).replace(/^@/, '')} ` : ''
-  const parentSnippet = String(parentText || '').replace(/\s+/g, ' ').trim().slice(0, 110)
+  const handlePrefix = authorHandle
+    ? `@${String(authorHandle).replace(/^@/, '')} `
+    : ''
+  const parentSnippet = String(parentText || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 110)
 
-  if (parentSnippet && (!cleaned || /^(explain|fact[- ]?check|summarize|context|is this true|verify)/i.test(cleaned))) {
-    return `${handlePrefix}Context on "${parentSnippet}${parentSnippet.length >= 110 ? '...' : ''}": Core claim is actively debated across QuantZing; check primary linked reporting and cross-thread replies before treating it as settled.`.slice(0, 280)
+  if (
+    parentSnippet &&
+    (!cleaned ||
+      /^(explain|fact[- ]?check|summarize|context|is this true|verify)/i.test(
+        cleaned,
+      ))
+  ) {
+    return `${handlePrefix}Context on "${parentSnippet}${parentSnippet.length >= 110 ? '...' : ''}": Core claim is live on QuantZing; verify primary linked sources and check replies in this thread for full context.`.slice(
+      0,
+      280,
+    )
   }
+
   if (/trending|breaking|news|happening|today/i.test(cleaned)) {
-    return `${handlePrefix}Top momentum on QuantZing right now centers on frontier AI releases, global market shifts, and open-network engineering. Open Quanty from the sidebar for the full multi-story briefing.`.slice(0, 280)
+    const trends = computeSovereignTrends(db, null, '', 3)
+    const topNames = trends.map(t => t.displayName).join(', ')
+    return `${handlePrefix}Top momentum on QuantZing right now: ${topNames || '#QuantZing, #AI, #IndiaTech'}. Open Quanty from the sidebar for the full multi-story briefing.`.slice(
+      0,
+      280,
+    )
   }
+
   const topic = cleaned.replace(/\?+$/, '').slice(0, 115) || 'your Zing'
   if (parentSnippet) {
-    return `${handlePrefix}On "${topic}" (re: "${parentSnippet.slice(0, 65)}..."): Key signal is separating primary data from commentary — cross-check cited sources and counter-arguments in thread.`.slice(0, 280)
+    return `${handlePrefix}On "${topic}" (re: "${parentSnippet.slice(0, 65)}..."): Key signal is separating primary data from commentary — cross-check cited sources and counter-arguments in thread.`.slice(
+      0,
+      280,
+    )
   }
-  return `${handlePrefix}Regarding "${topic}": High-signal discussion points to rapid execution and verifiable benchmarks as the key differentiators. Tap Quanty on any Zing for deep source citations.`.slice(0, 280)
+  return `${handlePrefix}Regarding "${topic}": High-signal discussion on QuantZing points to fast execution, open benchmarks, and sovereign ownership as the key differentiators. Tap Quanty for deeper analysis.`.slice(
+    0,
+    280,
+  )
 }
 
 function findLocalPostByUri(db, uri) {
@@ -662,6 +1137,14 @@ function putLocalRecord(db, did, collection, rkey, recordValue) {
     $type: collection,
     ...recordValue,
   }
+  if (
+    collection === 'app.bsky.feed.post' &&
+    typeof value.text === 'string' &&
+    (!Array.isArray(value.facets) || value.facets.length === 0)
+  ) {
+    const autoFacets = buildFacetsForText(db, value.text)
+    if (autoFacets) value.facets = autoFacets
+  }
   const uri = `at://${did}/${collection}/${key}`
   const cid = computeCid(value, 'dag-cbor')
   const indexedAt = new Date().toISOString()
@@ -676,23 +1159,28 @@ function putLocalRecord(db, did, collection, rkey, recordValue) {
     indexedAt,
   }
   col[key] = entry
-  if (collection === 'app.bsky.actor.profile' && key === 'self' && db.accounts[did]) {
+  if (
+    collection === 'app.bsky.actor.profile' &&
+    key === 'self' &&
+    db.accounts[did]
+  ) {
     syncProfileFromRecord(db.accounts[did], value)
   }
 
-  // Automatic @quanty thread reply when any user mentions @quanty in a Zing or reply!
+  // Automatic @quanty in-thread reply whenever any user tags @quanty in a Zing or reply
   if (
     collection === 'app.bsky.feed.post' &&
     did !== QUANTY_SYSTEM_DID &&
     typeof value.text === 'string' &&
     /(?:^|\s)@quanty(?:\.quantzing\.(?:com|in))?\b/i.test(value.text)
   ) {
-    ensureQuantySystemAccount(db)
+    ensureSovereignGenesis(db)
     const authorAcc = db.accounts[did]
     const parentUri = value.reply?.parent?.uri
     const parentRec = parentUri ? findLocalPostByUri(db, parentUri) : null
     const parentText = parentRec?.value?.text || ''
     const replyText = synthesizeQuantyReplyText(
+      db,
       value.text,
       parentText,
       authorAcc?.handle,
@@ -702,17 +1190,25 @@ function putLocalRecord(db, did, collection, rkey, recordValue) {
       : {uri: entry.uri, cid: entry.cid}
     const parentRef = {uri: entry.uri, cid: entry.cid}
     const replyRkey = generateTid()
+    const replyCreatedAt = new Date(Date.now() + 250).toISOString()
+    const facets = buildFacetsForText(db, replyText)
     const replyValue = {
       $type: 'app.bsky.feed.post',
       text: replyText,
-      createdAt: new Date(Date.now() + 250).toISOString(),
+      createdAt: replyCreatedAt,
       langs: ['en'],
+      ...(facets ? {facets} : {}),
       reply: {
         root: rootRef,
         parent: parentRef,
       },
     }
-    const qCol = getCollectionMap(db, QUANTY_SYSTEM_DID, 'app.bsky.feed.post', true)
+    const qCol = getCollectionMap(
+      db,
+      QUANTY_SYSTEM_DID,
+      'app.bsky.feed.post',
+      true,
+    )
     qCol[replyRkey] = {
       uri: `at://${QUANTY_SYSTEM_DID}/app.bsky.feed.post/${replyRkey}`,
       cid: computeCid(replyValue, 'dag-cbor'),
@@ -720,7 +1216,7 @@ function putLocalRecord(db, did, collection, rkey, recordValue) {
       collection: 'app.bsky.feed.post',
       repo: QUANTY_SYSTEM_DID,
       value: replyValue,
-      indexedAt: new Date(Date.now() + 250).toISOString(),
+      indexedAt: replyCreatedAt,
     }
   }
 
@@ -750,7 +1246,7 @@ function blobUrl(origin, did, blobRef) {
 }
 
 // ---------------------------------------------------------------------------
-// Local View Hydrators & Remote View Decorators
+// 100% Sovereign Local View Hydrators
 // ---------------------------------------------------------------------------
 
 function findViewerFollowUri(db, viewerDid, subjectDid) {
@@ -825,7 +1321,13 @@ function countLocalInteractions(db, postUri) {
   return {likeCount, repostCount, replyCount, quoteCount, bookmarkCount}
 }
 
-function buildLocalProfileView(db, account, viewerDid, origin, detailed = false) {
+function buildLocalProfileView(
+  db,
+  account,
+  viewerDid,
+  origin,
+  detailed = false,
+) {
   const profile = account.profile || {}
   const avatar = blobUrl(origin, account.did, profile.avatar)
   const banner = blobUrl(origin, account.did, profile.banner)
@@ -839,17 +1341,27 @@ function buildLocalProfileView(db, account, viewerDid, origin, detailed = false)
     ...(followedByUri ? {followedBy: followedByUri} : {}),
   }
 
+  const isVerified = Boolean(
+    account.verified ||
+      account.isOfficial ||
+      account.isSystemQuanty ||
+      account.did === QUANTY_SYSTEM_DID ||
+      account.did === QUANTZING_OFFICIAL_DID,
+  )
+
   const base = {
     did: account.did,
     handle: account.handle,
     displayName: profile.displayName || account.handle.split('.')[0],
     ...(avatar ? {avatar} : {}),
+    ...(profile.description ? {description: profile.description} : {}),
     ...(profile.pronouns ? {pronouns: profile.pronouns} : {}),
-    ...(account.did === QUANTY_SYSTEM_DID || account.isSystemQuanty
+    ...(isVerified
       ? {
           verification: {
             verifiedStatus: 'valid',
-            trustedVerifierStatus: 'none',
+            trustedVerifierStatus:
+              account.did === QUANTZING_OFFICIAL_DID ? 'valid' : 'none',
             verifications: [],
           },
         }
@@ -860,6 +1372,7 @@ function buildLocalProfileView(db, account, viewerDid, origin, detailed = false)
     viewer,
     labels: [],
     createdAt: account.createdAt,
+    indexedAt: account.createdAt,
   }
 
   if (!detailed) {
@@ -880,13 +1393,11 @@ function buildLocalProfileView(db, account, viewerDid, origin, detailed = false)
   return {
     ...base,
     ...(banner ? {banner} : {}),
-    ...(profile.description ? {description: profile.description} : {}),
     ...(profile.website ? {website: profile.website} : {}),
     ...(profile.pinnedPost ? {pinnedPost: profile.pinnedPost} : {}),
     followersCount,
     followsCount,
     postsCount,
-    indexedAt: account.createdAt,
   }
 }
 
@@ -968,7 +1479,14 @@ function hydrateEmbedView(db, authorDid, embed, viewerDid, origin, depth = 0) {
   }
 
   if (type === 'app.bsky.embed.recordWithMedia' && depth < 1) {
-    const media = hydrateEmbedView(db, authorDid, embed.media, viewerDid, origin, depth + 1)
+    const media = hydrateEmbedView(
+      db,
+      authorDid,
+      embed.media,
+      viewerDid,
+      origin,
+      depth + 1,
+    )
     const record = hydrateEmbedView(
       db,
       authorDid,
@@ -1026,7 +1544,8 @@ function buildLocalPostView(db, postRec, viewerDid, origin) {
     repostCount: counts.repostCount,
     likeCount: counts.likeCount,
     quoteCount: counts.quoteCount,
-    indexedAt: postRec.indexedAt || postRec.value?.createdAt || new Date().toISOString(),
+    indexedAt:
+      postRec.indexedAt || postRec.value?.createdAt || new Date().toISOString(),
     viewer: {
       ...(likeUri ? {like: likeUri} : {}),
       ...(repostUri ? {repost: repostUri} : {}),
@@ -1038,103 +1557,25 @@ function buildLocalPostView(db, postRec, viewerDid, origin) {
   }
 }
 
-function decorateProfileView(db, profile, viewerDid) {
-  if (!profile || typeof profile !== 'object' || !profile.did) return profile
-  const followUri = findViewerFollowUri(db, viewerDid, profile.did)
-  const viewer = {
-    muted: false,
-    blockedBy: false,
-    ...(profile.viewer || {}),
-    ...(followUri ? {following: followUri} : {}),
+function hydrateLocalPosts(db, uris, viewerDid, origin) {
+  const posts = []
+  for (const uri of uris) {
+    const parsed = parseAtUri(uri)
+    if (!parsed || !db.accounts[parsed.repo]) continue
+    const rec = db.records?.[parsed.repo]?.[parsed.collection]?.[parsed.rkey]
+    if (!rec) continue
+    const view = buildLocalPostView(db, rec, viewerDid, origin)
+    if (view) posts.push(view)
   }
-  let followersCount = profile.followersCount
-  if (typeof followersCount === 'number' && followUri && !profile.viewer?.following) {
-    followersCount += 1
-  }
-  return {
-    ...profile,
-    ...(followersCount !== undefined ? {followersCount} : {}),
-    viewer,
-  }
+  return posts
 }
 
-function decoratePostView(db, post, viewerDid) {
-  if (!post || typeof post !== 'object' || !post.uri) return post
-  const localCounts = countLocalInteractions(db, post.uri)
-  const likeUri = findViewerReactionUri(
-    db,
-    viewerDid,
-    'app.bsky.feed.like',
-    post.uri,
-  )
-  const repostUri = findViewerReactionUri(
-    db,
-    viewerDid,
-    'app.bsky.feed.repost',
-    post.uri,
-  )
-  const bookmarked = isBookmarkedByViewer(db, viewerDid, post.uri)
-
-  const viewer = {
-    threadMuted: false,
-    embeddingDisabled: false,
-    ...(post.viewer || {}),
-    ...(likeUri ? {like: likeUri} : {}),
-    ...(repostUri ? {repost: repostUri} : {}),
-    ...(bookmarked ? {bookmarked: true} : {}),
-  }
-
-  return {
-    ...post,
-    author: decorateProfileView(db, post.author, viewerDid),
-    likeCount: (post.likeCount || 0) + localCounts.likeCount,
-    repostCount: (post.repostCount || 0) + localCounts.repostCount,
-    replyCount: (post.replyCount || 0) + localCounts.replyCount,
-    quoteCount: (post.quoteCount || 0) + localCounts.quoteCount,
-    bookmarkCount: (post.bookmarkCount || 0) + localCounts.bookmarkCount,
-    viewer,
-  }
-}
-
-function decorateFeedItems(db, items, viewerDid) {
-  if (!Array.isArray(items)) return []
-  return items.map(item => {
-    if (!item || typeof item !== 'object') return item
-    const next = {...item}
-    if (next.post) {
-      next.post = decoratePostView(db, next.post, viewerDid)
-    }
-    if (next.reply) {
-      next.reply = {
-        ...next.reply,
-        ...(next.reply.root?.uri
-          ? {root: decoratePostView(db, next.reply.root, viewerDid)}
-          : {}),
-        ...(next.reply.parent?.uri
-          ? {parent: decoratePostView(db, next.reply.parent, viewerDid)}
-          : {}),
-      }
-    }
-    return next
-  })
-}
-
-function decorateThreadNode(db, node, viewerDid) {
-  if (!node || typeof node !== 'object') return node
-  const next = {...node}
-  if (next.post) {
-    next.post = decoratePostView(db, next.post, viewerDid)
-  }
-  if (next.parent) {
-    next.parent = decorateThreadNode(db, next.parent, viewerDid)
-  }
-  if (Array.isArray(next.replies)) {
-    next.replies = next.replies.map(r => decorateThreadNode(db, r, viewerDid))
-  }
-  return next
-}
-
-function getLocalFeedItems(db, viewerDid, origin, {authorDid = null, includeReplies = false} = {}) {
+function getLocalFeedItems(
+  db,
+  viewerDid,
+  origin,
+  {authorDid = null, includeReplies = false, filterTags = null, onlyVideo = false} = {},
+) {
   const posts = authorDid
     ? Object.values(getCollectionMap(db, authorDid, 'app.bsky.feed.post'))
     : getAllLocalRecords(db, 'app.bsky.feed.post')
@@ -1142,11 +1583,22 @@ function getLocalFeedItems(db, viewerDid, origin, {authorDid = null, includeRepl
   const items = []
   for (const postRec of posts) {
     if (!includeReplies && postRec.value?.reply) continue
+    if (onlyVideo && postRec.value?.embed?.$type !== 'app.bsky.embed.video') {
+      continue
+    }
+    if (Array.isArray(filterTags) && filterTags.length > 0) {
+      const lower = String(postRec.value?.text || '').toLowerCase()
+      const hit = filterTags.some(
+        tag => lower.includes(`#${tag}`) || lower.includes(tag),
+      )
+      if (!hit) continue
+    }
     const postView = buildLocalPostView(db, postRec, viewerDid, origin)
     if (!postView) continue
     items.push({
       post: postView,
-      _sortTime: Date.parse(postRec.value?.createdAt || postRec.indexedAt || 0) || 0,
+      _sortTime:
+        Date.parse(postRec.value?.createdAt || postRec.indexedAt || 0) || 0,
     })
   }
 
@@ -1154,181 +1606,410 @@ function getLocalFeedItems(db, viewerDid, origin, {authorDid = null, includeRepl
   return items.map(({_sortTime, ...rest}) => rest)
 }
 
+function paginateItems(items, cursor, limit) {
+  const lim = Math.min(100, Math.max(1, Number(limit) || 30))
+  const offset = cursor ? Math.max(0, parseInt(String(cursor), 10) || 0) : 0
+  const slice = items.slice(offset, offset + lim)
+  const nextOffset = offset + slice.length
+  return {
+    items: slice,
+    cursor: nextOffset < items.length ? String(nextOffset) : undefined,
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Upstream Public AppView Proxy helpers (strips Authorization header!)
+// Sovereign Feed Generators, Dynamic Trends & Who-to-Follow
 // ---------------------------------------------------------------------------
 
-function upstreamGet(urlString, headers = {}) {
-  return new Promise((resolve, reject) => {
-    const req = https.request(
-      urlString,
-      {
-        method: 'GET',
-        agent: UPSTREAM_HTTPS_AGENT,
-        timeout: UPSTREAM_TIMEOUT_MS,
-        headers: {
-          'accept-encoding': 'gzip, deflate',
-          ...headers,
+function buildFeedGeneratorView(db, spec, viewerDid, origin) {
+  const creatorAcc = db.accounts[QUANTZING_OFFICIAL_DID]
+  const uri = `at://${QUANTZING_OFFICIAL_DID}/app.bsky.feed.generator/${spec.rkey}`
+  const avatar = creatorAcc
+    ? blobUrl(origin, creatorAcc.did, creatorAcc.profile?.avatar)
+    : undefined
+  return {
+    $type: 'app.bsky.feed.defs#generatorView',
+    uri,
+    cid: computeCid({uri, name: spec.displayName}, 'dag-cbor'),
+    did: QUANTZING_DID,
+    creator: creatorAcc
+      ? buildLocalProfileView(db, creatorAcc, viewerDid, origin, false)
+      : {
+          did: QUANTZING_OFFICIAL_DID,
+          handle: 'quantzing.quantzing.com',
+          displayName: 'QuantZing',
         },
-      },
-      res => {
-        const chunks = []
-        res.on('data', chunk => chunks.push(chunk))
-        res.on('end', () => {
-          const rawBuf = Buffer.concat(chunks)
-          const encoding = String(res.headers['content-encoding'] || '').toLowerCase()
-          let body = rawBuf
-          try {
-            if (encoding === 'gzip') {
-              body = zlib.gunzipSync(rawBuf)
-            } else if (encoding === 'deflate') {
-              body = zlib.inflateSync(rawBuf)
-            } else if (encoding === 'br') {
-              body = zlib.brotliDecompressSync(rawBuf)
-            }
-          } catch {
-            body = rawBuf
-          }
-          const status = res.statusCode || 502
-          resolve({
-            ok: status >= 200 && status < 300,
-            status,
-            headers: res.headers,
-            body,
-          })
-        })
-        res.on('error', reject)
-      },
-    )
-    req.on('timeout', () => {
-      req.destroy(new Error('ETIMEDOUT'))
-    })
-    req.on('error', reject)
-    req.end()
+    displayName: spec.displayName,
+    description: spec.description,
+    ...(avatar ? {avatar} : {}),
+    likeCount: 0,
+    acceptsInteractions: false,
+    labels: [],
+    viewer: {},
+    indexedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function computeSovereignTrends(db, viewerDid, origin, limit = 10) {
+  const allPosts = getAllLocalRecords(db, 'app.bsky.feed.post')
+  const buckets = new Map()
+
+  const categoryForTag = tag => {
+    const t = tag.toLowerCase()
+    if (/ai|quanty|llm|agent|model/.test(t)) return 'AI & Tech'
+    if (/india|delhi|bengaluru|mumbai/.test(t)) return 'India'
+    if (/market|finance|crypto|stock|economy/.test(t)) return 'Markets'
+    if (/startup|builder|founder|opensource|cloud|quantos|quantrinity/.test(t))
+      return 'Technology'
+    return 'QuantZing'
+  }
+
+  for (const rec of allPosts) {
+    const text = String(rec.value?.text || '')
+    const matches = text.match(/#[A-Za-z][A-Za-z0-9_]{1,40}/g) || []
+    const createdAt = rec.value?.createdAt || rec.indexedAt || new Date().toISOString()
+    for (const rawTag of matches) {
+      const key = rawTag.toLowerCase()
+      const existing = buckets.get(key) || {
+        topic: rawTag.slice(1),
+        displayName: rawTag,
+        count: 0,
+        latestAt: createdAt,
+        snippet: text.slice(0, 140),
+        actorDids: new Set(),
+      }
+      existing.count += 1
+      if (createdAt > existing.latestAt) {
+        existing.latestAt = createdAt
+        existing.snippet = text.slice(0, 140)
+      }
+      existing.actorDids.add(rec.repo)
+      buckets.set(key, existing)
+    }
+  }
+
+  const sorted = [...buckets.values()].sort(
+    (a, b) => b.count - a.count || b.latestAt.localeCompare(a.latestAt),
+  )
+
+  return sorted.slice(0, Math.min(25, Math.max(1, limit))).map((entry, idx) => {
+    const actors = [...entry.actorDids]
+      .slice(0, 3)
+      .map(did => db.accounts[did])
+      .filter(Boolean)
+      .map(acc => buildLocalProfileView(db, acc, viewerDid, origin, false))
+    return {
+      $type: 'app.bsky.unspecced.defs#trendView',
+      topic: entry.topic,
+      displayName: entry.displayName,
+      description: entry.snippet,
+      link: `/search?q=${encodeURIComponent(entry.displayName)}`,
+      startedAt: entry.latestAt,
+      postCount: entry.count,
+      ...(idx < 2 ? {status: 'hot'} : {}),
+      category: categoryForTag(entry.topic),
+      actors,
+    }
   })
 }
 
-async function fetchPublicAppViewJson(nsid, searchParams, reqHeaders = {}) {
-  const qs =
-    searchParams instanceof URLSearchParams
-      ? searchParams.toString()
-      : String(searchParams || '').replace(/^\?/, '')
-  const url = `${PUBLIC_APPVIEW_ORIGIN}/xrpc/${nsid}${qs ? `?${qs}` : ''}`
-  const headers = {
-    accept: 'application/json',
-  }
-  if (reqHeaders['accept-language']) {
-    headers['accept-language'] = String(reqHeaders['accept-language'])
-  }
-  if (reqHeaders['atproto-accept-labelers']) {
-    headers['atproto-accept-labelers'] = String(reqHeaders['atproto-accept-labelers'])
-  }
-
-  const upstreamRes = await upstreamGet(url, headers)
-  const text = upstreamRes.body.toString('utf8')
-  let data = null
-  try {
-    data = text ? JSON.parse(text) : {}
-  } catch {
-    data = {raw: text}
-  }
-  return {
-    ok: upstreamRes.ok,
-    status: upstreamRes.status,
-    data,
-    contentType: upstreamRes.headers['content-type'],
-  }
-}
-
-async function proxyPublicAppView(req, res, nsid, searchParams) {
-  try {
-    const qs = searchParams.toString()
-    const url = `${PUBLIC_APPVIEW_ORIGIN}/xrpc/${nsid}${qs ? `?${qs}` : ''}`
-    const headers = {}
-    if (req.headers.accept) headers.accept = String(req.headers.accept)
-    if (req.headers['accept-language']) {
-      headers['accept-language'] = String(req.headers['accept-language'])
-    }
-    if (req.headers['atproto-accept-labelers']) {
-      headers['atproto-accept-labelers'] = String(
-        req.headers['atproto-accept-labelers'],
-      )
-    }
-    // Deliberately strip authorization, cookie, host, atproto-proxy so public AppView never rejects local QuantZing JWTs
-
-    const upstreamRes = await upstreamGet(url, headers)
-    const buf = upstreamRes.body
-    const contentType =
-      upstreamRes.headers['content-type'] || 'application/json; charset=utf-8'
-    res.writeHead(
-      upstreamRes.status,
-      corsHeaders(req, {
-        'content-type': contentType,
-        'content-length': buf.length,
-        'cache-control': 'no-store',
-      }),
-    )
-    res.end(buf)
-  } catch (err) {
-    sendXrpcError(
-      req,
-      res,
-      502,
-      'UpstreamUnavailable',
-      `Public AppView proxy error for ${nsid}: ${err?.message || 'network failure'}`,
-    )
-  }
-}
-
-async function hydrateMixedPosts(db, uris, viewerDid, origin, reqHeaders) {
-  const localMap = new Map()
-  const remoteUris = []
-
-  for (const uri of uris) {
-    const parsed = parseAtUri(uri)
-    if (parsed && db.accounts[parsed.repo]) {
-      const rec = db.records?.[parsed.repo]?.[parsed.collection]?.[parsed.rkey]
-      if (rec) {
-        const view = buildLocalPostView(db, rec, viewerDid, origin)
-        if (view) localMap.set(uri, view)
-      }
-    } else if (uri) {
-      remoteUris.push(uri)
-    }
+function getSuggestedQuantZingActors(db, viewerDid, origin, limit = 10) {
+  const candidates = []
+  for (const acc of Object.values(db.accounts)) {
+    if (!acc || acc.active === false) continue
+    if (viewerDid && acc.did === viewerDid) continue
+    const alreadyFollowing = viewerDid
+      ? Boolean(findViewerFollowUri(db, viewerDid, acc.did))
+      : false
+    const postsCount = Object.keys(
+      getCollectionMap(db, acc.did, 'app.bsky.feed.post'),
+    ).length
+    const priority =
+      acc.did === QUANTY_SYSTEM_DID
+        ? 100
+        : acc.did === QUANTZING_OFFICIAL_DID
+          ? 95
+          : acc.did === QUANTRINITY_DID
+            ? 90
+            : acc.did === QUANTZING_NEWS_DID
+              ? 85
+              : acc.did === QUANT_BUILDERS_DID
+                ? 80
+                : 50 + postsCount
+    candidates.push({
+      acc,
+      alreadyFollowing,
+      priority,
+    })
   }
 
-  const remoteMap = new Map()
-  if (remoteUris.length > 0) {
-    // public.api.bsky.app allows up to 25 URIs per getPosts call
-    for (let i = 0; i < remoteUris.length; i += 25) {
-      const batch = remoteUris.slice(i, i + 25)
-      const params = new URLSearchParams()
-      for (const u of batch) params.append('uris', u)
-      try {
-        const upstream = await fetchPublicAppViewJson(
-          'app.bsky.feed.getPosts',
-          params,
-          reqHeaders,
-        )
-        if (upstream.ok && Array.isArray(upstream.data?.posts)) {
-          for (const p of upstream.data.posts) {
-            remoteMap.set(p.uri, decoratePostView(db, p, viewerDid))
-          }
-        }
-      } catch {}
-    }
-  }
+  // Prefer accounts not yet followed by viewer, then rank by priority
+  candidates.sort(
+    (a, b) =>
+      Number(a.alreadyFollowing) - Number(b.alreadyFollowing) ||
+      b.priority - a.priority,
+  )
 
-  const posts = []
-  for (const uri of uris) {
-    const post = localMap.get(uri) || remoteMap.get(uri)
-    if (post) posts.push(post)
-  }
-  return posts
+  return candidates
+    .slice(0, Math.min(50, Math.max(1, limit)))
+    .map(c => buildLocalProfileView(db, c.acc, viewerDid, origin, false))
 }
 
 // ---------------------------------------------------------------------------
-// Route predicate & main handler
+// Real Sovereign Notifications Engine
+// ---------------------------------------------------------------------------
+
+function buildLocalNotifications(db, viewerDid, origin, limit = 40) {
+  const viewerAcc = db.accounts[viewerDid]
+  if (!viewerAcc) return []
+  const seenAt = viewerAcc.notificationsSeenAt || '1970-01-01T00:00:00.000Z'
+  const notifications = []
+
+  // 1. Followers
+  for (const rec of getAllLocalRecords(db, 'app.bsky.graph.follow')) {
+    if (rec.repo === viewerDid || rec.value?.subject !== viewerDid) continue
+    const authorAcc = db.accounts[rec.repo]
+    if (!authorAcc) continue
+    const indexedAt = rec.indexedAt || rec.value?.createdAt || new Date().toISOString()
+    notifications.push({
+      uri: rec.uri,
+      cid: rec.cid,
+      author: buildLocalProfileView(db, authorAcc, viewerDid, origin, false),
+      reason: 'follow',
+      record: rec.value,
+      isRead: indexedAt <= seenAt,
+      indexedAt,
+      labels: [],
+    })
+  }
+
+  // 2. Likes & Reposts on viewer's posts
+  const viewerPostUris = new Set(
+    Object.values(getCollectionMap(db, viewerDid, 'app.bsky.feed.post')).map(
+      p => p.uri,
+    ),
+  )
+
+  for (const rec of getAllLocalRecords(db, 'app.bsky.feed.like')) {
+    const subjectUri = rec.value?.subject?.uri
+    if (rec.repo === viewerDid || !viewerPostUris.has(subjectUri)) continue
+    const authorAcc = db.accounts[rec.repo]
+    if (!authorAcc) continue
+    const indexedAt = rec.indexedAt || rec.value?.createdAt || new Date().toISOString()
+    notifications.push({
+      uri: rec.uri,
+      cid: rec.cid,
+      author: buildLocalProfileView(db, authorAcc, viewerDid, origin, false),
+      reason: 'like',
+      reasonSubject: subjectUri,
+      record: rec.value,
+      isRead: indexedAt <= seenAt,
+      indexedAt,
+      labels: [],
+    })
+  }
+
+  for (const rec of getAllLocalRecords(db, 'app.bsky.feed.repost')) {
+    const subjectUri = rec.value?.subject?.uri
+    if (rec.repo === viewerDid || !viewerPostUris.has(subjectUri)) continue
+    const authorAcc = db.accounts[rec.repo]
+    if (!authorAcc) continue
+    const indexedAt = rec.indexedAt || rec.value?.createdAt || new Date().toISOString()
+    notifications.push({
+      uri: rec.uri,
+      cid: rec.cid,
+      author: buildLocalProfileView(db, authorAcc, viewerDid, origin, false),
+      reason: 'repost',
+      reasonSubject: subjectUri,
+      record: rec.value,
+      isRead: indexedAt <= seenAt,
+      indexedAt,
+      labels: [],
+    })
+  }
+
+  // 3. Replies & Mentions targeting viewer
+  const handleNeedle = `@${viewerAcc.handle.toLowerCase()}`
+  const shortNeedle = `@${viewerAcc.handle.split('.')[0].toLowerCase()}`
+  for (const rec of getAllLocalRecords(db, 'app.bsky.feed.post')) {
+    if (rec.repo === viewerDid) continue
+    const authorAcc = db.accounts[rec.repo]
+    if (!authorAcc) continue
+    const parentUri = rec.value?.reply?.parent?.uri
+    const isReplyToViewer = parentUri && viewerPostUris.has(parentUri)
+    const textLower = String(rec.value?.text || '').toLowerCase()
+    const isMention =
+      textLower.includes(handleNeedle) ||
+      new RegExp(`(?:^|\\s)${shortNeedle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(
+        textLower,
+      )
+    if (!isReplyToViewer && !isMention) continue
+    const indexedAt = rec.indexedAt || rec.value?.createdAt || new Date().toISOString()
+    notifications.push({
+      uri: rec.uri,
+      cid: rec.cid,
+      author: buildLocalProfileView(db, authorAcc, viewerDid, origin, false),
+      reason: isReplyToViewer ? 'reply' : 'mention',
+      ...(isReplyToViewer ? {reasonSubject: parentUri} : {}),
+      record: rec.value,
+      isRead: indexedAt <= seenAt,
+      indexedAt,
+      labels: [],
+    })
+  }
+
+  notifications.sort((a, b) =>
+    String(b.indexedAt || '').localeCompare(String(a.indexedAt || '')),
+  )
+  return notifications.slice(0, limit)
+}
+
+// ---------------------------------------------------------------------------
+// Sovereign Link Metadata Extractor (replaces cardyb.bsky.app)
+// ---------------------------------------------------------------------------
+
+function isPrivateOrBlockedHost(hostname) {
+  const h = String(hostname || '').toLowerCase()
+  return (
+    !h ||
+    h === 'localhost' ||
+    h === '127.0.0.1' ||
+    h === '::1' ||
+    h === '0.0.0.0' ||
+    h.startsWith('10.') ||
+    h.startsWith('192.168.') ||
+    h.startsWith('169.254.') ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
+    h.endsWith('.local') ||
+    h.endsWith('.internal')
+  )
+}
+
+function fetchLinkMetaSafe(rawUrl) {
+  return new Promise(resolve => {
+    let parsed
+    try {
+      parsed = new URL(rawUrl)
+    } catch {
+      resolve({error: 'Invalid URL', title: '', description: '', image: ''})
+      return
+    }
+    if (
+      (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+      isPrivateOrBlockedHost(parsed.hostname)
+    ) {
+      resolve({
+        error: '',
+        likely_type: 'html',
+        url: rawUrl,
+        title: parsed.hostname || rawUrl,
+        description: '',
+        image: '',
+      })
+      return
+    }
+    const client = parsed.protocol === 'https:' ? https : http
+    const req = client.get(
+      parsed,
+      {
+        timeout: 4000,
+        headers: {
+          'user-agent': 'QuantZingLinkPreview/1.0 (+https://quantzing.com)',
+          accept: 'text/html,application/xhtml+xml',
+        },
+      },
+      res => {
+        let html = ''
+        res.setEncoding('utf8')
+        res.on('data', chunk => {
+          html += chunk
+          if (html.length > 65536) {
+            res.destroy()
+          }
+        })
+        const done = () => {
+          const titleMatch =
+            html.match(
+              /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i,
+            ) || html.match(/<title[^>]*>([^<]+)<\/title>/i)
+          const descMatch =
+            html.match(
+              /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i,
+            ) ||
+            html.match(
+              /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i,
+            )
+          const imgMatch = html.match(
+            /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
+          )
+          resolve({
+            error: '',
+            likely_type: 'html',
+            url: rawUrl,
+            title: (titleMatch?.[1] || parsed.hostname).trim().slice(0, 200),
+            description: (descMatch?.[1] || '').trim().slice(0, 400),
+            image: imgMatch?.[1]?.trim() || '',
+          })
+        }
+        res.on('end', done)
+        res.on('close', done)
+      },
+    )
+    req.on('timeout', () => {
+      req.destroy()
+      resolve({
+        error: '',
+        likely_type: 'html',
+        url: rawUrl,
+        title: parsed.hostname,
+        description: '',
+        image: '',
+      })
+    })
+    req.on('error', () => {
+      resolve({
+        error: '',
+        likely_type: 'html',
+        url: rawUrl,
+        title: parsed.hostname,
+        description: '',
+        image: '',
+      })
+    })
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Sovereign Direct Messages (chat.bsky.convo.*)
+// ---------------------------------------------------------------------------
+
+function buildConvoView(db, convo, viewerDid, origin) {
+  const members = (convo.members || [])
+    .map(did => db.accounts[did])
+    .filter(Boolean)
+    .map(acc => ({
+      ...buildLocalProfileView(db, acc, viewerDid, origin, false),
+      chatDisabled: false,
+    }))
+  const messages = Array.isArray(convo.messages) ? convo.messages : []
+  const lastMsg = messages.length > 0 ? messages[messages.length - 1] : undefined
+  const readRev = convo.readBy?.[viewerDid] || ''
+  const unreadCount = messages.filter(
+    m => m.sender?.did !== viewerDid && m.rev > readRev,
+  ).length
+  return {
+    id: convo.id,
+    rev: convo.rev || '1',
+    members,
+    ...(lastMsg ? {lastMessage: lastMsg} : {}),
+    muted: Boolean(convo.mutedBy?.[viewerDid]),
+    status: 'accepted',
+    unreadCount,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Route predicate & main Sovereign XRPC handler
 // ---------------------------------------------------------------------------
 
 export function isQuantZingPdsRoute(urlPath) {
@@ -1336,9 +2017,7 @@ export function isQuantZingPdsRoute(urlPath) {
   return (
     pathname.startsWith('/xrpc/') ||
     pathname.startsWith('/blob/') ||
-    pathname === '/api/quantzing/config' ||
-    pathname === '/api/quantzing/geolocation' ||
-    pathname === '/api/quantzing/quanty-mention' ||
+    pathname.startsWith('/api/quantzing/') ||
     pathname === '/.well-known/did.json'
   )
 }
@@ -1369,29 +2048,34 @@ export async function handleQuantZingPds(req, res) {
   const db = loadDb()
 
   // -------------------------------------------------------------------------
-  // Sovereign QuantZing Config, Geolocation & DID Document
+  // Sovereign QuantZing Config, Geolocation, Link Meta, Quanty Mention & DID
   // -------------------------------------------------------------------------
 
-  if (pathname === '/api/quantzing/config' || pathname === '/api/quantzing/config') {
+  if (pathname === '/api/quantzing/config') {
     sendJson(req, res, 200, {
       ok: true,
       app: 'QuantZing',
-      domain: 'quantzing.com',
+      domain: 'quantzing.quantrinity.in',
+      primaryDomain: 'quantzing.com',
       did: QUANTZING_DID,
       pds: origin,
-      appView: PUBLIC_APPVIEW_ORIGIN,
-      mode: 'sovereign-hybrid',
+      appView: origin,
+      mode: 'sovereign-pure',
+      blueskyUpstream: false,
       features: {
         localPds: true,
-        publicAppViewProxy: true,
+        sovereignAppView: true,
+        publicAppViewProxy: false,
         blobStorage: true,
         bookmarks: true,
+        quantyMentions: true,
+        directMessages: true,
       },
     })
     return true
   }
 
-  if (pathname === '/api/quantzing/geolocation' || pathname === '/api/quantzing/geolocation') {
+  if (pathname === '/api/quantzing/geolocation') {
     sendJson(req, res, 200, {
       countryCode: 'IN',
       regionCode: 'DL',
@@ -1402,31 +2086,89 @@ export async function handleQuantZingPds(req, res) {
     return true
   }
 
+  if (pathname === '/api/quantzing/link-meta' && method === 'GET') {
+    const target = searchParams.get('url') || ''
+    const meta = await fetchLinkMetaSafe(target)
+    sendJson(req, res, 200, meta)
+    return true
+  }
+
+  if (pathname === '/api/quantzing/link-favicon' && method === 'GET') {
+    const svg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#16181C"/><circle cx="16" cy="16" r="9" fill="none" stroke="#1D9BF0" stroke-width="2"/><path d="M7 16h18M16 7a13 13 0 0 1 0 18M16 7a13 13 0 0 0 0 18" fill="none" stroke="#1D9BF0" stroke-width="1.5"/></svg>',
+      'utf8',
+    )
+    res.writeHead(
+      200,
+      corsHeaders(req, {
+        'content-type': 'image/svg+xml',
+        'content-length': svg.length,
+        'cache-control': 'public, max-age=86400',
+      }),
+    )
+    res.end(svg)
+    return true
+  }
+
+  if (pathname.startsWith('/api/quantzing/gifs')) {
+    sendJson(req, res, 200, {results: [], next: ''})
+    return true
+  }
+
+  if (pathname.startsWith('/api/quantzing/events')) {
+    sendJson(req, res, 200, {status: 200, ok: true, features: {}})
+    return true
+  }
+
+  if (pathname === '/api/quantzing/live-events/config') {
+    sendJson(req, res, 200, {feeds: []})
+    return true
+  }
+
+  if (pathname === '/api/quantzing/app-config/config') {
+    sendJson(req, res, 200, {liveNow: {allow: [], exceptions: []}})
+    return true
+  }
+
   if (pathname === '/api/quantzing/quanty-mention' && method === 'POST') {
     const body = await readJsonBody(req)
     const text = String(body.text || '')
     const parentText = String(body.parentText || '')
     const authorHandle = String(body.authorHandle || 'member.quantzing.com')
-    ensureQuantySystemAccount(db)
-    const replyText = synthesizeQuantyReplyText(text, parentText, authorHandle)
+    ensureSovereignGenesis(db)
+    const replyText = synthesizeQuantyReplyText(
+      db,
+      text,
+      parentText,
+      authorHandle,
+    )
     const replyRkey = generateTid()
+    const createdAt = new Date().toISOString()
+    const facets = buildFacetsForText(db, replyText)
     const replyValue = {
       $type: 'app.bsky.feed.post',
       text: replyText,
-      createdAt: new Date().toISOString(),
+      createdAt,
       langs: ['en'],
+      ...(facets ? {facets} : {}),
       ...(body.postUri && body.postCid
         ? {
             reply: {
-              root: body.rootUri && body.rootCid
-                ? {uri: String(body.rootUri), cid: String(body.rootCid)}
-                : {uri: String(body.postUri), cid: String(body.postCid)},
+              root:
+                body.rootUri && body.rootCid
+                  ? {uri: String(body.rootUri), cid: String(body.rootCid)}
+                  : {uri: String(body.postUri), cid: String(body.postCid)},
               parent: {uri: String(body.postUri), cid: String(body.postCid)},
             },
           }
         : {}),
     }
-    const qCol = getCollectionMap(db, QUANTY_SYSTEM_DID, 'app.bsky.feed.post', true)
+    const qCol = getCollectionMap(
+      db,
+      QUANTY_SYSTEM_DID,
+      'app.bsky.feed.post',
+      true,
+    )
     const replyUri = `at://${QUANTY_SYSTEM_DID}/app.bsky.feed.post/${replyRkey}`
     const replyCid = computeCid(replyValue, 'dag-cbor')
     qCol[replyRkey] = {
@@ -1436,7 +2178,7 @@ export async function handleQuantZingPds(req, res) {
       collection: 'app.bsky.feed.post',
       repo: QUANTY_SYSTEM_DID,
       value: replyValue,
-      indexedAt: new Date().toISOString(),
+      indexedAt: createdAt,
     }
     saveDb(db)
     sendJson(req, res, 200, {
@@ -1466,7 +2208,7 @@ export async function handleQuantZingPds(req, res) {
   }
 
   // -------------------------------------------------------------------------
-  // Local Blob serving: GET /blob/:did/:cid or GET /blob/:cid
+  // Sovereign Blob serving: GET /blob/:did/:cid or GET /blob/:cid
   // -------------------------------------------------------------------------
 
   if (pathname.startsWith('/blob/')) {
@@ -1496,7 +2238,7 @@ export async function handleQuantZingPds(req, res) {
   }
 
   // -------------------------------------------------------------------------
-  // XRPC Router (/xrpc/<nsid>)
+  // Sovereign XRPC Router (/xrpc/<nsid>)
   // -------------------------------------------------------------------------
 
   if (!pathname.startsWith('/xrpc/')) {
@@ -1506,9 +2248,35 @@ export async function handleQuantZingPds(req, res) {
   const nsid = pathname.slice('/xrpc/'.length)
 
   try {
+    if (nsid === '_health' && method === 'GET') {
+      sendJson(req, res, 200, {
+        version: '1.0.0',
+        service: 'quant-zing',
+        mode: 'sovereign-pure',
+      })
+      return true
+    }
+
     // -----------------------------------------------------------------------
-    // 1. Server & Session endpoints (com.atproto.server.*)
+    // 1. Server, Identity & Session (com.atproto.server.*, com.atproto.identity.*)
     // -----------------------------------------------------------------------
+
+    if (nsid === 'com.atproto.identity.resolveHandle' && method === 'GET') {
+      const handle = searchParams.get('handle') || ''
+      const acc = findLocalAccount(db, handle)
+      if (!acc) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          `Unable to resolve handle: ${handle}`,
+        )
+        return true
+      }
+      sendJson(req, res, 200, {did: acc.did})
+      return true
+    }
 
     if (nsid === 'com.atproto.server.describeServer' && method === 'GET') {
       sendJson(req, res, 200, {
@@ -1527,7 +2295,10 @@ export async function handleQuantZingPds(req, res) {
       return true
     }
 
-    if (nsid === 'com.atproto.temp.checkHandleAvailability' && method === 'GET') {
+    if (
+      nsid === 'com.atproto.temp.checkHandleAvailability' &&
+      method === 'GET'
+    ) {
       const handle = normalizeHandle(searchParams.get('handle') || '')
       const existing = findLocalAccount(db, handle)
       if (!existing) {
@@ -1556,7 +2327,9 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'com.atproto.server.createAccount' && method === 'POST') {
       const body = await readJsonBody(req)
       const handle = normalizeHandle(body.handle)
-      const email = body.email ? String(body.email).trim().toLowerCase() : undefined
+      const email = body.email
+        ? String(body.email).trim().toLowerCase()
+        : undefined
       const password = typeof body.password === 'string' ? body.password : ''
 
       if (!isValidHandleFormat(handle)) {
@@ -1564,7 +2337,13 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
       if (!password || password.length < 1) {
-        sendXrpcError(req, res, 400, 'InvalidPassword', 'Password is required')
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidPassword',
+          'Password is required',
+        )
         return true
       }
 
@@ -1686,7 +2465,13 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'com.atproto.server.getSession' && method === 'GET') {
       const auth = getAuthedContext(req, db)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const {account} = auth
@@ -1703,9 +2488,17 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'com.atproto.server.refreshSession' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, db, {
+        expectedScope: 'com.atproto.refresh',
+      })
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Invalid refresh token')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Invalid refresh token',
+        )
         return true
       }
       const {account} = auth
@@ -1715,25 +2508,19 @@ export async function handleQuantZingPds(req, res) {
         handle: account.handle,
         did: account.did,
         didDoc: buildDidDoc(account, origin),
-        email: account.email,
-        emailConfirmed: true,
-        emailAuthFactor: false,
         active: true,
       })
       return true
     }
 
     if (nsid === 'com.atproto.server.deleteSession' && method === 'POST') {
-      const token = extractBearerToken(req)
-      if (token) {
-        const verified = verifyJwt(db, token)
-        if (verified?.payload?.jti) {
-          db.revokedTokens.push(verified.payload.jti)
-          if (db.revokedTokens.length > 500) {
-            db.revokedTokens = db.revokedTokens.slice(-500)
-          }
-          saveDb(db)
+      const auth = getAuthedContext(req, db)
+      if (auth.payload?.jti) {
+        db.revokedTokens.push(auth.payload.jti)
+        if (db.revokedTokens.length > 500) {
+          db.revokedTokens = db.revokedTokens.slice(-500)
         }
+        saveDb(db)
       }
       sendEmpty(req, res, 200)
       return true
@@ -1742,25 +2529,28 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'com.atproto.server.checkAccountStatus' && method === 'GET') {
       const auth = getAuthedContext(req, db)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
-      const userCols = db.records[auth.did] || {}
-      let indexedRecords = 0
-      for (const col of Object.values(userCols)) {
-        indexedRecords += Object.keys(col || {}).length
-      }
-      const userBlobs = Object.values(db.blobs).filter(b => b.did === auth.did).length
       sendJson(req, res, 200, {
         activated: true,
         validDid: true,
-        repoCommit: computeCid({did: auth.did, indexedRecords}, 'dag-cbor'),
+        repoCommit: computeCid({did: auth.did}, 'dag-cbor'),
         repoRev: generateTid(),
-        repoBlocks: Math.max(1, indexedRecords),
-        indexedRecords,
-        privateStateValues: (auth.account.preferences || []).length,
-        expectedBlobs: userBlobs,
-        importedBlobs: userBlobs,
+        repoBlocks: 1,
+        indexedRecords: Object.values(db.records[auth.did] || {}).reduce(
+          (sum, c) => sum + Object.keys(c || {}).length,
+          0,
+        ),
+        privateStateValues: 0,
+        expectedBlobs: 0,
+        importedBlobs: 0,
       })
       return true
     }
@@ -1768,48 +2558,50 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'com.atproto.server.getServiceAuth' && method === 'GET') {
       const auth = getAuthedContext(req, db)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
-      sendJson(req, res, 200, {
-        token: signJwt(db, {
-          did: auth.did,
-          scope: 'com.atproto.access',
-          ttlSeconds: 300,
-        }),
+      const token = signJwt(db, {
+        did: auth.did,
+        scope: 'com.atproto.serviceAuth',
+        ttlSeconds: 300,
       })
+      sendJson(req, res, 200, {token})
       return true
     }
 
     // -----------------------------------------------------------------------
-    // 2. Identity endpoints (com.atproto.identity.*)
-    // -----------------------------------------------------------------------
-
-    if (nsid === 'com.atproto.identity.resolveHandle' && method === 'GET') {
-      const handleParam = searchParams.get('handle') || ''
-      const local = findLocalAccount(db, handleParam)
-      if (local) {
-        sendJson(req, res, 200, {did: local.did})
-        return true
-      }
-      await proxyPublicAppView(req, res, nsid, searchParams)
-      return true
-    }
-
-    // -----------------------------------------------------------------------
-    // 3. Repository & Blob endpoints (com.atproto.repo.*, com.atproto.sync.*)
+    // 2. Repository & Blobs (com.atproto.repo.*, com.atproto.sync.*)
     // -----------------------------------------------------------------------
 
     if (nsid === 'com.atproto.repo.createRecord' && method === 'POST') {
       const auth = getAuthedContext(req, db)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const body = await readJsonBody(req)
       const collection = String(body.collection || '')
       if (!collection || !body.record || typeof body.record !== 'object') {
-        sendXrpcError(req, res, 400, 'InvalidRequest', 'collection and record are required')
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'collection and record are required',
+        )
         return true
       }
       const entry = putLocalRecord(
@@ -1832,13 +2624,24 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'com.atproto.repo.putRecord' && method === 'POST') {
       const auth = getAuthedContext(req, db)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const body = await readJsonBody(req)
       const collection = String(body.collection || '')
       const rkey = String(body.rkey || '')
-      if (!collection || !rkey || !body.record || typeof body.record !== 'object') {
+      if (
+        !collection ||
+        !rkey ||
+        !body.record ||
+        typeof body.record !== 'object'
+      ) {
         sendXrpcError(
           req,
           res,
@@ -1862,14 +2665,26 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'com.atproto.repo.deleteRecord' && method === 'POST') {
       const auth = getAuthedContext(req, db)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const body = await readJsonBody(req)
       const collection = String(body.collection || '')
       const rkey = String(body.rkey || '')
       if (!collection || !rkey) {
-        sendXrpcError(req, res, 400, 'InvalidRequest', 'collection and rkey are required')
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'collection and rkey are required',
+        )
         return true
       }
       deleteLocalRecord(db, auth.did, collection, rkey)
@@ -1877,7 +2692,10 @@ export async function handleQuantZingPds(req, res) {
       const rev = generateTid()
       sendJson(req, res, 200, {
         commit: {
-          cid: computeCid({deleted: `${auth.did}/${collection}/${rkey}`, rev}, 'dag-cbor'),
+          cid: computeCid(
+            {deleted: `${auth.did}/${collection}/${rkey}`, rev},
+            'dag-cbor',
+          ),
           rev,
         },
       })
@@ -1887,7 +2705,13 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'com.atproto.repo.applyWrites' && method === 'POST') {
       const auth = getAuthedContext(req, db)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const body = await readJsonBody(req)
@@ -1951,73 +2775,94 @@ export async function handleQuantZingPds(req, res) {
       const collection = searchParams.get('collection') || ''
       const rkey = searchParams.get('rkey') || ''
       const localAcc = findLocalAccount(db, repo)
-      if (localAcc) {
-        const rec = db.records?.[localAcc.did]?.[collection]?.[rkey]
-        if (!rec) {
-          sendXrpcError(
-            req,
-            res,
-            400,
-            'RecordNotFound',
-            `Could not locate record: at://${localAcc.did}/${collection}/${rkey}`,
-          )
-          return true
-        }
-        sendJson(req, res, 200, {
-          uri: rec.uri,
-          cid: rec.cid,
-          value: rec.value,
-        })
+      if (!localAcc) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'RecordNotFound',
+          `Account not found on QuantZing: ${repo}`,
+        )
         return true
       }
-      await proxyPublicAppView(req, res, nsid, searchParams)
+      const rec = db.records?.[localAcc.did]?.[collection]?.[rkey]
+      if (!rec) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'RecordNotFound',
+          `Could not locate record: at://${localAcc.did}/${collection}/${rkey}`,
+        )
+        return true
+      }
+      sendJson(req, res, 200, {
+        uri: rec.uri,
+        cid: rec.cid,
+        value: rec.value,
+      })
       return true
     }
 
     if (nsid === 'com.atproto.repo.listRecords' && method === 'GET') {
       const repo = searchParams.get('repo') || ''
       const collection = searchParams.get('collection') || ''
-      const limit = Math.min(100, Math.max(1, Number(searchParams.get('limit') || 50)))
+      const limit = Math.min(
+        100,
+        Math.max(1, Number(searchParams.get('limit') || 50)),
+      )
       const reverse = searchParams.get('reverse') === 'true'
       const localAcc = findLocalAccount(db, repo)
-      if (localAcc) {
-        const col = getCollectionMap(db, localAcc.did, collection)
-        const records = Object.values(col)
-          .sort((a, b) =>
-            reverse
-              ? a.rkey.localeCompare(b.rkey)
-              : b.rkey.localeCompare(a.rkey),
-          )
-          .slice(0, limit)
-          .map(r => ({uri: r.uri, cid: r.cid, value: r.value}))
-        sendJson(req, res, 200, {records})
+      if (!localAcc) {
+        sendJson(req, res, 200, {records: []})
         return true
       }
-      await proxyPublicAppView(req, res, nsid, searchParams)
+      const col = getCollectionMap(db, localAcc.did, collection)
+      const records = Object.values(col)
+        .sort((a, b) =>
+          reverse
+            ? a.rkey.localeCompare(b.rkey)
+            : b.rkey.localeCompare(a.rkey),
+        )
+        .slice(0, limit)
+        .map(r => ({uri: r.uri, cid: r.cid, value: r.value}))
+      sendJson(req, res, 200, {records})
       return true
     }
 
     if (nsid === 'com.atproto.repo.describeRepo' && method === 'GET') {
       const repo = searchParams.get('repo') || ''
       const localAcc = findLocalAccount(db, repo)
-      if (localAcc) {
-        sendJson(req, res, 200, {
-          handle: localAcc.handle,
-          did: localAcc.did,
-          didDoc: buildDidDoc(localAcc, origin),
-          collections: Object.keys(db.records[localAcc.did] || {}),
-          handleIsCorrect: true,
-        })
+      if (!localAcc) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          `Could not find QuantZing repo: ${repo}`,
+        )
         return true
       }
-      await proxyPublicAppView(req, res, nsid, searchParams)
+      sendJson(req, res, 200, {
+        handle: localAcc.handle,
+        did: localAcc.did,
+        didDoc: buildDidDoc(localAcc, origin),
+        collections: Object.keys(db.records[localAcc.did] || {}),
+        handleIsCorrect: true,
+      })
       return true
     }
 
     if (nsid === 'com.atproto.repo.uploadBlob' && method === 'POST') {
       const auth = getAuthedContext(req, db)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const data = await readRawBody(req, MAX_BLOB_BODY_BYTES)
@@ -2026,24 +2871,9 @@ export async function handleQuantZingPds(req, res) {
       )
         .split(';')[0]
         .trim()
-      const cid = computeCid(data, 'raw')
-      ensureStorageDirs()
-      fs.writeFileSync(path.join(getBlobsDir(), cid), data)
-      db.blobs[cid] = {
-        cid,
-        mimeType,
-        size: data.length,
-        did: auth.did,
-      }
+      const blob = storeLocalBlob(db, auth.did, data, mimeType)
       saveDb(db)
-      sendJson(req, res, 200, {
-        blob: {
-          $type: 'blob',
-          ref: {$link: cid},
-          mimeType,
-          size: data.length,
-        },
-      })
+      sendJson(req, res, 200, {blob})
       return true
     }
 
@@ -2066,18 +2896,24 @@ export async function handleQuantZingPds(req, res) {
           return true
         }
       }
-      await proxyPublicAppView(req, res, nsid, searchParams)
+      sendXrpcError(req, res, 404, 'BlobNotFound', 'Blob not found on QuantZing')
       return true
     }
 
     // -----------------------------------------------------------------------
-    // 4. Actor Preferences & Profiles (app.bsky.actor.*)
+    // 3. Actor Preferences, Profiles & Search (app.bsky.actor.*)
     // -----------------------------------------------------------------------
 
     if (nsid === 'app.bsky.actor.getPreferences' && method === 'GET') {
       const auth = getAuthedContext(req, db)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       if (
@@ -2094,12 +2930,24 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'app.bsky.actor.putPreferences' && method === 'POST') {
       const auth = getAuthedContext(req, db)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const body = await readJsonBody(req)
       if (!Array.isArray(body.preferences)) {
-        sendXrpcError(req, res, 400, 'InvalidRequest', 'preferences array is required')
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'preferences array is required',
+        )
         return true
       }
       auth.account.preferences = body.preferences
@@ -2112,60 +2960,36 @@ export async function handleQuantZingPds(req, res) {
       const actor = searchParams.get('actor') || ''
       const viewerDid = getOptionalViewerDid(req, db)
       const localAcc = findLocalAccount(db, actor)
-      if (localAcc) {
-        sendJson(
+      if (!localAcc) {
+        sendXrpcError(
           req,
           res,
-          200,
-          buildLocalProfileView(db, localAcc, viewerDid, origin, true),
+          400,
+          'InvalidRequest',
+          `Profile not found on QuantZing: ${actor}`,
         )
         return true
       }
-      const upstream = await fetchPublicAppViewJson(nsid, searchParams, req.headers)
-      if (!upstream.ok) {
-        sendJson(req, res, upstream.status, upstream.data)
-        return true
-      }
-      sendJson(req, res, 200, decorateProfileView(db, upstream.data, viewerDid))
+      sendJson(
+        req,
+        res,
+        200,
+        buildLocalProfileView(db, localAcc, viewerDid, origin, true),
+      )
       return true
     }
 
     if (nsid === 'app.bsky.actor.getProfiles' && method === 'GET') {
       const actors = searchParams.getAll('actors')
       const viewerDid = getOptionalViewerDid(req, db)
-      const localProfiles = new Map()
-      const remoteActors = []
-
+      const profiles = []
       for (const actor of actors) {
         const localAcc = findLocalAccount(db, actor)
         if (localAcc) {
-          localProfiles.set(
-            actor,
+          profiles.push(
             buildLocalProfileView(db, localAcc, viewerDid, origin, true),
           )
-        } else if (actor) {
-          remoteActors.push(actor)
         }
-      }
-
-      const remoteProfiles = new Map()
-      if (remoteActors.length > 0) {
-        const params = new URLSearchParams()
-        for (const a of remoteActors) params.append('actors', a)
-        const upstream = await fetchPublicAppViewJson(nsid, params, req.headers)
-        if (upstream.ok && Array.isArray(upstream.data?.profiles)) {
-          for (const p of upstream.data.profiles) {
-            const decorated = decorateProfileView(db, p, viewerDid)
-            remoteProfiles.set(p.did, decorated)
-            remoteProfiles.set(p.handle, decorated)
-          }
-        }
-      }
-
-      const profiles = []
-      for (const actor of actors) {
-        const p = localProfiles.get(actor) || remoteProfiles.get(actor)
-        if (p) profiles.push(p)
       }
       sendJson(req, res, 200, {profiles})
       return true
@@ -2179,31 +3003,105 @@ export async function handleQuantZingPds(req, res) {
       const q = (searchParams.get('q') || searchParams.get('term') || '')
         .trim()
         .toLowerCase()
+        .replace(/^@/, '')
+      const limit = Math.min(50, Math.max(1, Number(searchParams.get('limit') || 25)))
       const viewerDid = getOptionalViewerDid(req, db)
-      const localMatches = []
-      if (q) {
-        for (const acc of Object.values(db.accounts)) {
-          const dn = String(acc.profile?.displayName || '').toLowerCase()
-          if (acc.handle.toLowerCase().includes(q) || dn.includes(q)) {
-            localMatches.push(
-              buildLocalProfileView(db, acc, viewerDid, origin, false),
-            )
-          }
+      const matches = []
+      for (const acc of Object.values(db.accounts)) {
+        const dn = String(acc.profile?.displayName || '').toLowerCase()
+        const desc = String(acc.profile?.description || '').toLowerCase()
+        if (
+          !q ||
+          acc.handle.toLowerCase().includes(q) ||
+          dn.includes(q) ||
+          desc.includes(q)
+        ) {
+          matches.push(buildLocalProfileView(db, acc, viewerDid, origin, false))
         }
       }
-      try {
-        const upstream = await fetchPublicAppViewJson(nsid, searchParams, req.headers)
-        const remoteActors =
-          upstream.ok && Array.isArray(upstream.data?.actors)
-            ? upstream.data.actors.map(a => decorateProfileView(db, a, viewerDid))
-            : []
-        sendJson(req, res, 200, {
-          ...(upstream.data?.cursor ? {cursor: upstream.data.cursor} : {}),
-          actors: [...localMatches, ...remoteActors],
-        })
-      } catch {
-        sendJson(req, res, 200, {actors: localMatches})
-      }
+      sendJson(req, res, 200, {actors: matches.slice(0, limit)})
+      return true
+    }
+
+    if (nsid === 'app.bsky.actor.getSuggestions' && method === 'GET') {
+      const limit = Number(searchParams.get('limit') || 20)
+      const viewerDid = getOptionalViewerDid(req, db)
+      sendJson(req, res, 200, {
+        actors: getSuggestedQuantZingActors(db, viewerDid, origin, limit),
+        recIdStr: 'quantzing-suggestions-v1',
+      })
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // 4. Sovereign Trends & Unspecced Suggestions (app.bsky.unspecced.*)
+    // -----------------------------------------------------------------------
+
+    if (nsid === 'app.bsky.unspecced.getTrends' && method === 'GET') {
+      const limit = Number(searchParams.get('limit') || 10)
+      const viewerDid = getOptionalViewerDid(req, db)
+      sendJson(req, res, 200, {
+        trends: computeSovereignTrends(db, viewerDid, origin, limit),
+        recIdStr: 'quantzing-trends-v1',
+      })
+      return true
+    }
+
+    if (nsid === 'app.bsky.unspecced.getTrendingTopics' && method === 'GET') {
+      const limit = Number(searchParams.get('limit') || 10)
+      const viewerDid = getOptionalViewerDid(req, db)
+      const trends = computeSovereignTrends(db, viewerDid, origin, limit)
+      const topics = trends.map(t => ({
+        topic: t.topic,
+        displayName: t.displayName,
+        description: t.description,
+        link: t.link,
+      }))
+      sendJson(req, res, 200, {topics, suggested: topics.slice(0, 5)})
+      return true
+    }
+
+    if (
+      (nsid === 'app.bsky.unspecced.getSuggestedUsers' ||
+        nsid === 'app.bsky.unspecced.getSuggestedUsersForDiscover' ||
+        nsid === 'app.bsky.unspecced.getSuggestedUsersForExplore' ||
+        nsid === 'app.bsky.unspecced.getSuggestedUsersForSeeMore' ||
+        nsid === 'app.bsky.unspecced.getSuggestedOnboardingUsers') &&
+      method === 'GET'
+    ) {
+      const limit = Number(searchParams.get('limit') || 10)
+      const viewerDid = getOptionalViewerDid(req, db)
+      sendJson(req, res, 200, {
+        actors: getSuggestedQuantZingActors(db, viewerDid, origin, limit),
+        recIdStr: 'quantzing-discover-v1',
+      })
+      return true
+    }
+
+    if (
+      (nsid === 'app.bsky.unspecced.getPopularFeedGenerators' ||
+        nsid === 'app.bsky.unspecced.getSuggestedFeeds' ||
+        nsid === 'app.bsky.feed.getSuggestedFeeds') &&
+      method === 'GET'
+    ) {
+      const viewerDid = getOptionalViewerDid(req, db)
+      const query = (searchParams.get('query') || '').trim().toLowerCase()
+      const feeds = SOVEREIGN_FEED_GENERATORS.filter(
+        f =>
+          !query ||
+          f.displayName.toLowerCase().includes(query) ||
+          f.description.toLowerCase().includes(query),
+      ).map(f => buildFeedGeneratorView(db, f, viewerDid, origin))
+      sendJson(req, res, 200, {feeds})
+      return true
+    }
+
+    if (
+      (nsid === 'app.bsky.unspecced.getSuggestedStarterPacks' ||
+        nsid === 'app.bsky.unspecced.getOnboardingSuggestedStarterPacks') &&
+      method === 'GET'
+    ) {
+      sendJson(req, res, 200, {starterPacks: []})
       return true
     }
 
@@ -2211,36 +3109,91 @@ export async function handleQuantZingPds(req, res) {
     // 5. Feeds, Posts & Threads (app.bsky.feed.*, getPostThreadV2)
     // -----------------------------------------------------------------------
 
+    if (nsid === 'app.bsky.feed.getFeedGenerator' && method === 'GET') {
+      const feedUri = searchParams.get('feed') || DISCOVER_FEED_URI
+      const parsed = parseAtUri(feedUri)
+      const spec =
+        SOVEREIGN_FEED_GENERATORS.find(f => f.rkey === parsed?.rkey) ||
+        SOVEREIGN_FEED_GENERATORS[0]
+      const viewerDid = getOptionalViewerDid(req, db)
+      sendJson(req, res, 200, {
+        view: buildFeedGeneratorView(db, spec, viewerDid, origin),
+        isOnline: true,
+        isValid: true,
+      })
+      return true
+    }
+
+    if (nsid === 'app.bsky.feed.getFeedGenerators' && method === 'GET') {
+      const uris = searchParams.getAll('feeds')
+      const viewerDid = getOptionalViewerDid(req, db)
+      const feeds = []
+      const seen = new Set()
+      for (const uri of uris) {
+        const parsed = parseAtUri(uri)
+        const spec =
+          SOVEREIGN_FEED_GENERATORS.find(f => f.rkey === parsed?.rkey) ||
+          (uri === LEGACY_DISCOVER_FEED_URI
+            ? SOVEREIGN_FEED_GENERATORS[0]
+            : null)
+        if (spec && !seen.has(spec.rkey)) {
+          seen.add(spec.rkey)
+          feeds.push(buildFeedGeneratorView(db, spec, viewerDid, origin))
+        }
+      }
+      sendJson(req, res, 200, {feeds})
+      return true
+    }
+
+    if (nsid === 'app.bsky.feed.getActorFeeds' && method === 'GET') {
+      const actor = searchParams.get('actor') || ''
+      const viewerDid = getOptionalViewerDid(req, db)
+      const acc = findLocalAccount(db, actor)
+      const feeds =
+        acc?.did === QUANTZING_OFFICIAL_DID
+          ? SOVEREIGN_FEED_GENERATORS.map(f =>
+              buildFeedGeneratorView(db, f, viewerDid, origin),
+            )
+          : []
+      sendJson(req, res, 200, {feeds})
+      return true
+    }
+
     if (nsid === 'app.bsky.feed.getTimeline' && method === 'GET') {
       const viewerDid = getOptionalViewerDid(req, db)
       const cursor = searchParams.get('cursor')
       const limit = searchParams.get('limit') || '30'
 
-      const localItems = !cursor
-        ? getLocalFeedItems(db, viewerDid, origin, {includeReplies: false})
-        : []
+      const allItems = getLocalFeedItems(db, viewerDid, origin, {
+        includeReplies: false,
+      })
 
-      let remoteFeed = []
-      let remoteCursor
-      try {
-        const params = new URLSearchParams()
-        params.set('feed', DISCOVER_FEED_URI)
-        params.set('limit', limit)
-        if (cursor) params.set('cursor', cursor)
-        const upstream = await fetchPublicAppViewJson(
-          'app.bsky.feed.getFeed',
-          params,
-          req.headers,
+      // If viewer follows specific accounts, surface followed accounts + own posts first,
+      // falling back to full QuantZing network feed if timeline would otherwise be empty.
+      let items = allItems
+      if (viewerDid) {
+        const followedDids = new Set(
+          Object.values(
+            getCollectionMap(db, viewerDid, 'app.bsky.graph.follow'),
+          )
+            .map(r => r?.value?.subject)
+            .filter(Boolean),
         )
-        if (upstream.ok && Array.isArray(upstream.data?.feed)) {
-          remoteFeed = decorateFeedItems(db, upstream.data.feed, viewerDid)
-          remoteCursor = upstream.data.cursor
+        followedDids.add(viewerDid)
+        if (followedDids.size > 1) {
+          const followingOnly = allItems.filter(it =>
+            followedDids.has(it.post?.author?.did),
+          )
+          if (followingOnly.length > 0) {
+            items = followingOnly
+          }
         }
-      } catch {}
+      }
 
+      const page = paginateItems(items, cursor, limit)
       sendJson(req, res, 200, {
-        ...(remoteCursor ? {cursor: remoteCursor} : {}),
-        feed: [...localItems, ...remoteFeed],
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        feed: page.items,
       })
       return true
     }
@@ -2249,126 +3202,109 @@ export async function handleQuantZingPds(req, res) {
       const viewerDid = getOptionalViewerDid(req, db)
       const feedUri = searchParams.get('feed') || ''
       const cursor = searchParams.get('cursor')
-      const isDiscover = feedUri === DISCOVER_FEED_URI
+      const limit = searchParams.get('limit') || '30'
+      const parsed = parseAtUri(feedUri)
+      const spec = SOVEREIGN_FEED_GENERATORS.find(f => f.rkey === parsed?.rkey)
 
-      const localItems =
-        isDiscover && !cursor
-          ? getLocalFeedItems(db, viewerDid, origin, {includeReplies: false})
-          : []
-
-      try {
-        const upstream = await fetchPublicAppViewJson(nsid, searchParams, req.headers)
-        if (!upstream.ok) {
-          if (localItems.length > 0) {
-            sendJson(req, res, 200, {feed: localItems})
-            return true
-          }
-          sendJson(req, res, upstream.status, upstream.data)
-          return true
-        }
-        const remoteFeed = decorateFeedItems(
-          db,
-          upstream.data?.feed || [],
-          viewerDid,
-        )
-        sendJson(req, res, 200, {
-          ...(upstream.data?.cursor ? {cursor: upstream.data.cursor} : {}),
-          feed: [...localItems, ...remoteFeed],
-        })
-      } catch {
-        sendJson(req, res, 200, {feed: localItems})
+      let items = getLocalFeedItems(db, viewerDid, origin, {
+        includeReplies: false,
+        filterTags: spec?.tags?.length ? spec.tags : null,
+        onlyVideo: spec?.rkey === 'thevids',
+      })
+      // If a topical feed has 0 matches yet, return sovereign network feed so tab is never dead
+      if (items.length === 0 && spec?.rkey !== 'thevids') {
+        items = getLocalFeedItems(db, viewerDid, origin, {includeReplies: false})
       }
+
+      const page = paginateItems(items, cursor, limit)
+      sendJson(req, res, 200, {
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        feed: page.items,
+      })
       return true
     }
 
     if (nsid === 'app.bsky.feed.getAuthorFeed' && method === 'GET') {
       const actor = searchParams.get('actor') || ''
       const filter = searchParams.get('filter') || 'posts_with_replies'
+      const cursor = searchParams.get('cursor')
+      const limit = searchParams.get('limit') || '30'
       const viewerDid = getOptionalViewerDid(req, db)
       const localAcc = findLocalAccount(db, actor)
 
-      if (localAcc) {
-        const posts = Object.values(
-          getCollectionMap(db, localAcc.did, 'app.bsky.feed.post'),
-        )
-        const feedEntries = []
+      if (!localAcc) {
+        sendJson(req, res, 200, {feed: []})
+        return true
+      }
 
-        for (const postRec of posts) {
-          if (filter === 'posts_no_replies' && postRec.value?.reply) continue
-          if (filter === 'posts_with_media' && !postRec.value?.embed) continue
-          if (
-            filter === 'posts_with_video' &&
-            postRec.value?.embed?.$type !== 'app.bsky.embed.video'
-          ) {
-            continue
-          }
-          const postView = buildLocalPostView(db, postRec, viewerDid, origin)
-          if (!postView) continue
-          feedEntries.push({
-            post: postView,
-            _sortTime:
-              Date.parse(postRec.value?.createdAt || postRec.indexedAt || 0) || 0,
-          })
+      const posts = Object.values(
+        getCollectionMap(db, localAcc.did, 'app.bsky.feed.post'),
+      )
+      const feedEntries = []
+
+      for (const postRec of posts) {
+        if (filter === 'posts_no_replies' && postRec.value?.reply) continue
+        if (filter === 'posts_with_media' && !postRec.value?.embed) continue
+        if (
+          filter === 'posts_with_video' &&
+          postRec.value?.embed?.$type !== 'app.bsky.embed.video'
+        ) {
+          continue
         }
-
-        // Also include local reposts when not filtered strictly to media/video
-        if (filter !== 'posts_with_media' && filter !== 'posts_with_video') {
-          const reposts = Object.values(
-            getCollectionMap(db, localAcc.did, 'app.bsky.feed.repost'),
-          )
-          const repostUris = reposts
-            .map(r => r?.value?.subject?.uri)
-            .filter(Boolean)
-          if (repostUris.length > 0) {
-            const hydrated = await hydrateMixedPosts(
-              db,
-              repostUris,
-              viewerDid,
-              origin,
-              req.headers,
-            )
-            const byUri = new Map(hydrated.map(p => [p.uri, p]))
-            const reposterBasic = buildLocalProfileView(
-              db,
-              localAcc,
-              viewerDid,
-              origin,
-              false,
-            )
-            for (const rep of reposts) {
-              const target = byUri.get(rep?.value?.subject?.uri)
-              if (!target) continue
-              feedEntries.push({
-                post: target,
-                reason: {
-                  $type: 'app.bsky.feed.defs#reasonRepost',
-                  by: reposterBasic,
-                  uri: rep.uri,
-                  cid: rep.cid,
-                  indexedAt: rep.indexedAt,
-                },
-                _sortTime:
-                  Date.parse(rep.value?.createdAt || rep.indexedAt || 0) || 0,
-              })
-            }
-          }
-        }
-
-        feedEntries.sort((a, b) => b._sortTime - a._sortTime)
-        sendJson(req, res, 200, {
-          feed: feedEntries.map(({_sortTime, ...rest}) => rest),
+        const postView = buildLocalPostView(db, postRec, viewerDid, origin)
+        if (!postView) continue
+        feedEntries.push({
+          post: postView,
+          _sortTime:
+            Date.parse(postRec.value?.createdAt || postRec.indexedAt || 0) || 0,
         })
-        return true
       }
 
-      const upstream = await fetchPublicAppViewJson(nsid, searchParams, req.headers)
-      if (!upstream.ok) {
-        sendJson(req, res, upstream.status, upstream.data)
-        return true
+      if (filter !== 'posts_with_media' && filter !== 'posts_with_video') {
+        const reposts = Object.values(
+          getCollectionMap(db, localAcc.did, 'app.bsky.feed.repost'),
+        )
+        const repostUris = reposts
+          .map(r => r?.value?.subject?.uri)
+          .filter(Boolean)
+        if (repostUris.length > 0) {
+          const hydrated = hydrateLocalPosts(db, repostUris, viewerDid, origin)
+          const byUri = new Map(hydrated.map(p => [p.uri, p]))
+          const reposterBasic = buildLocalProfileView(
+            db,
+            localAcc,
+            viewerDid,
+            origin,
+            false,
+          )
+          for (const rep of reposts) {
+            const target = byUri.get(rep?.value?.subject?.uri)
+            if (!target) continue
+            feedEntries.push({
+              post: target,
+              reason: {
+                $type: 'app.bsky.feed.defs#reasonRepost',
+                by: reposterBasic,
+                uri: rep.uri,
+                cid: rep.cid,
+                indexedAt: rep.indexedAt,
+              },
+              _sortTime:
+                Date.parse(rep.value?.createdAt || rep.indexedAt || 0) || 0,
+            })
+          }
+        }
       }
+
+      feedEntries.sort((a, b) => b._sortTime - a._sortTime)
+      const page = paginateItems(
+        feedEntries.map(({_sortTime, ...rest}) => rest),
+        cursor,
+        limit,
+      )
       sendJson(req, res, 200, {
-        ...upstream.data,
-        feed: decorateFeedItems(db, upstream.data?.feed || [], viewerDid),
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        feed: page.items,
       })
       return true
     }
@@ -2377,25 +3313,25 @@ export async function handleQuantZingPds(req, res) {
       const actor = searchParams.get('actor') || ''
       const viewerDid = getOptionalViewerDid(req, db)
       const localAcc = findLocalAccount(db, actor)
-      if (localAcc) {
-        const likes = Object.values(
-          getCollectionMap(db, localAcc.did, 'app.bsky.feed.like'),
-        ).sort((a, b) =>
-          String(b.indexedAt || '').localeCompare(String(a.indexedAt || '')),
-        )
-        const uris = likes.map(l => l?.value?.subject?.uri).filter(Boolean)
-        const posts = await hydrateMixedPosts(db, uris, viewerDid, origin, req.headers)
-        sendJson(req, res, 200, {feed: posts.map(post => ({post}))})
+      if (!localAcc) {
+        sendJson(req, res, 200, {feed: []})
         return true
       }
-      await proxyPublicAppView(req, res, nsid, searchParams)
+      const likes = Object.values(
+        getCollectionMap(db, localAcc.did, 'app.bsky.feed.like'),
+      ).sort((a, b) =>
+        String(b.indexedAt || '').localeCompare(String(a.indexedAt || '')),
+      )
+      const uris = likes.map(l => l?.value?.subject?.uri).filter(Boolean)
+      const posts = hydrateLocalPosts(db, uris, viewerDid, origin)
+      sendJson(req, res, 200, {feed: posts.map(post => ({post}))})
       return true
     }
 
     if (nsid === 'app.bsky.feed.getPosts' && method === 'GET') {
       const uris = searchParams.getAll('uris')
       const viewerDid = getOptionalViewerDid(req, db)
-      const posts = await hydrateMixedPosts(db, uris, viewerDid, origin, req.headers)
+      const posts = hydrateLocalPosts(db, uris, viewerDid, origin)
       sendJson(req, res, 200, {posts})
       return true
     }
@@ -2405,7 +3341,6 @@ export async function handleQuantZingPds(req, res) {
       const viewerDid = getOptionalViewerDid(req, db)
       const parsed = parseAtUri(uri)
 
-      // Local replies targeting this URI (works for both local and remote parent posts)
       const localReplies = getAllLocalRecords(db, 'app.bsky.feed.post')
         .filter(r => r?.value?.reply?.parent?.uri === uri)
         .sort((a, b) =>
@@ -2419,57 +3354,49 @@ export async function handleQuantZingPds(req, res) {
           replies: [],
         }))
 
-      if (parsed && db.accounts[parsed.repo]) {
-        const postRec = db.records?.[parsed.repo]?.[parsed.collection]?.[parsed.rkey]
-        if (!postRec) {
-          sendJson(req, res, 200, {
-            thread: {
-              $type: 'app.bsky.feed.defs#notFoundPost',
-              uri,
-              notFound: true,
-            },
-          })
-          return true
-        }
-        const postView = buildLocalPostView(db, postRec, viewerDid, origin)
-        let parentNode
-        const parentUri = postRec.value?.reply?.parent?.uri
-        if (parentUri) {
-          const [parentPost] = await hydrateMixedPosts(
-            db,
-            [parentUri],
-            viewerDid,
-            origin,
-            req.headers,
-          )
-          if (parentPost) {
-            parentNode = {
-              $type: 'app.bsky.feed.defs#threadViewPost',
-              post: parentPost,
-            }
-          }
-        }
+      if (!parsed || !db.accounts[parsed.repo]) {
         sendJson(req, res, 200, {
           thread: {
-            $type: 'app.bsky.feed.defs#threadViewPost',
-            post: postView,
-            ...(parentNode ? {parent: parentNode} : {}),
-            replies: localReplies,
+            $type: 'app.bsky.feed.defs#notFoundPost',
+            uri,
+            notFound: true,
           },
         })
         return true
       }
 
-      const upstream = await fetchPublicAppViewJson(nsid, searchParams, req.headers)
-      if (!upstream.ok) {
-        sendJson(req, res, upstream.status, upstream.data)
+      const postRec =
+        db.records?.[parsed.repo]?.[parsed.collection]?.[parsed.rkey]
+      if (!postRec) {
+        sendJson(req, res, 200, {
+          thread: {
+            $type: 'app.bsky.feed.defs#notFoundPost',
+            uri,
+            notFound: true,
+          },
+        })
         return true
       }
-      const thread = decorateThreadNode(db, upstream.data?.thread, viewerDid)
-      if (thread && localReplies.length > 0) {
-        thread.replies = [...localReplies, ...(thread.replies || [])]
+      const postView = buildLocalPostView(db, postRec, viewerDid, origin)
+      let parentNode
+      const parentUri = postRec.value?.reply?.parent?.uri
+      if (parentUri) {
+        const [parentPost] = hydrateLocalPosts(db, [parentUri], viewerDid, origin)
+        if (parentPost) {
+          parentNode = {
+            $type: 'app.bsky.feed.defs#threadViewPost',
+            post: parentPost,
+          }
+        }
       }
-      sendJson(req, res, 200, {...upstream.data, thread})
+      sendJson(req, res, 200, {
+        thread: {
+          $type: 'app.bsky.feed.defs#threadViewPost',
+          post: postView,
+          ...(parentNode ? {parent: parentNode} : {}),
+          replies: localReplies,
+        },
+      })
       return true
     }
 
@@ -2486,101 +3413,61 @@ export async function handleQuantZingPds(req, res) {
         .map(r => buildLocalPostView(db, r, viewerDid, origin))
         .filter(Boolean)
 
-      if (parsed && db.accounts[parsed.repo]) {
-        const postRec = db.records?.[parsed.repo]?.[parsed.collection]?.[parsed.rkey]
-        if (!postRec) {
-          sendJson(req, res, 200, {
-            thread: [
-              {
-                uri: anchor,
-                depth: 0,
-                value: {$type: 'app.bsky.unspecced.defs#threadItemNotFound'},
-              },
-            ],
-            hasOtherReplies: false,
-          })
-          return true
-        }
-        const postView = buildLocalPostView(db, postRec, viewerDid, origin)
-        const items = []
-        const parentUri = postRec.value?.reply?.parent?.uri
-        if (parentUri) {
-          const [parentPost] = await hydrateMixedPosts(
-            db,
-            [parentUri],
-            viewerDid,
-            origin,
-            req.headers,
-          )
-          if (parentPost) {
-            items.push({
-              uri: parentPost.uri,
-              depth: -1,
-              value: {
-                $type: 'app.bsky.unspecced.defs#threadItemPost',
-                post: parentPost,
-                moreParents: false,
-                moreReplies: 0,
-                opThread: false,
-                hiddenByThreadgate: false,
-                mutedByViewer: false,
-              },
-            })
-          }
-        }
-        items.push({
-          uri: postView.uri,
-          depth: 0,
-          value: {
-            $type: 'app.bsky.unspecced.defs#threadItemPost',
-            post: postView,
-            moreParents: false,
-            moreReplies: 0,
-            opThread: true,
-            hiddenByThreadgate: false,
-            mutedByViewer: false,
-          },
+      const postRec =
+        parsed && db.accounts[parsed.repo]
+          ? db.records?.[parsed.repo]?.[parsed.collection]?.[parsed.rkey]
+          : null
+
+      if (!postRec) {
+        sendJson(req, res, 200, {
+          thread: [
+            {
+              uri: anchor,
+              depth: 0,
+              value: {$type: 'app.bsky.unspecced.defs#threadItemNotFound'},
+            },
+          ],
+          hasOtherReplies: false,
         })
-        for (const replyPost of localReplies) {
+        return true
+      }
+
+      const postView = buildLocalPostView(db, postRec, viewerDid, origin)
+      const items = []
+      const parentUri = postRec.value?.reply?.parent?.uri
+      if (parentUri) {
+        const [parentPost] = hydrateLocalPosts(db, [parentUri], viewerDid, origin)
+        if (parentPost) {
           items.push({
-            uri: replyPost.uri,
-            depth: 1,
+            uri: parentPost.uri,
+            depth: -1,
             value: {
               $type: 'app.bsky.unspecced.defs#threadItemPost',
-              post: replyPost,
+              post: parentPost,
               moreParents: false,
               moreReplies: 0,
-              opThread: replyPost.author.did === postView.author.did,
+              opThread: false,
               hiddenByThreadgate: false,
               mutedByViewer: false,
             },
           })
         }
-        sendJson(req, res, 200, {thread: items, hasOtherReplies: false})
-        return true
       }
-
-      const upstream = await fetchPublicAppViewJson(nsid, searchParams, req.headers)
-      if (!upstream.ok) {
-        sendJson(req, res, upstream.status, upstream.data)
-        return true
-      }
-      const thread = Array.isArray(upstream.data?.thread)
-        ? upstream.data.thread.map(item => {
-            if (item?.value?.post) {
-              return {
-                ...item,
-                value: {
-                  ...item.value,
-                  post: decoratePostView(db, item.value.post, viewerDid),
-                },
-              }
-            }
-            return item
-          })
-        : []
+      items.push({
+        uri: postView.uri,
+        depth: 0,
+        value: {
+          $type: 'app.bsky.unspecced.defs#threadItemPost',
+          post: postView,
+          moreParents: false,
+          moreReplies: 0,
+          opThread: true,
+          hiddenByThreadgate: false,
+          mutedByViewer: false,
+        },
+      })
       for (const replyPost of localReplies) {
-        thread.push({
+        items.push({
           uri: replyPost.uri,
           depth: 1,
           value: {
@@ -2588,76 +3475,108 @@ export async function handleQuantZingPds(req, res) {
             post: replyPost,
             moreParents: false,
             moreReplies: 0,
-            opThread: false,
+            opThread: replyPost.author.did === postView.author.did,
             hiddenByThreadgate: false,
             mutedByViewer: false,
           },
         })
       }
-      sendJson(req, res, 200, {...upstream.data, thread})
+      sendJson(req, res, 200, {thread: items, hasOtherReplies: false})
+      return true
+    }
+
+    if (
+      nsid === 'app.bsky.unspecced.getPostThreadOtherV2' &&
+      method === 'GET'
+    ) {
+      sendJson(req, res, 200, {thread: []})
       return true
     }
 
     if (nsid === 'app.bsky.feed.getLikes' && method === 'GET') {
       const uri = searchParams.get('uri') || ''
       const viewerDid = getOptionalViewerDid(req, db)
-      const parsed = parseAtUri(uri)
-      if (parsed && db.accounts[parsed.repo]) {
-        const likes = getAllLocalRecords(db, 'app.bsky.feed.like')
-          .filter(r => r?.value?.subject?.uri === uri)
-          .map(r => {
-            const acc = db.accounts[r.repo]
-            if (!acc) return null
-            return {
-              actor: buildLocalProfileView(db, acc, viewerDid, origin, false),
-              createdAt: r.value?.createdAt || r.indexedAt,
-              indexedAt: r.indexedAt,
-            }
-          })
-          .filter(Boolean)
-        sendJson(req, res, 200, {uri, likes})
-        return true
-      }
-      await proxyPublicAppView(req, res, nsid, searchParams)
+      const likes = getAllLocalRecords(db, 'app.bsky.feed.like')
+        .filter(r => r?.value?.subject?.uri === uri)
+        .map(r => {
+          const acc = db.accounts[r.repo]
+          if (!acc) return null
+          return {
+            actor: buildLocalProfileView(db, acc, viewerDid, origin, false),
+            createdAt: r.value?.createdAt || r.indexedAt,
+            indexedAt: r.indexedAt,
+          }
+        })
+        .filter(Boolean)
+      sendJson(req, res, 200, {uri, likes})
       return true
     }
 
     if (nsid === 'app.bsky.feed.getRepostedBy' && method === 'GET') {
       const uri = searchParams.get('uri') || ''
       const viewerDid = getOptionalViewerDid(req, db)
-      const parsed = parseAtUri(uri)
-      if (parsed && db.accounts[parsed.repo]) {
-        const repostedBy = getAllLocalRecords(db, 'app.bsky.feed.repost')
-          .filter(r => r?.value?.subject?.uri === uri)
-          .map(r => {
-            const acc = db.accounts[r.repo]
-            return acc ? buildLocalProfileView(db, acc, viewerDid, origin, false) : null
-          })
-          .filter(Boolean)
-        sendJson(req, res, 200, {uri, repostedBy})
-        return true
-      }
-      await proxyPublicAppView(req, res, nsid, searchParams)
+      const repostedBy = getAllLocalRecords(db, 'app.bsky.feed.repost')
+        .filter(r => r?.value?.subject?.uri === uri)
+        .map(r => {
+          const acc = db.accounts[r.repo]
+          return acc
+            ? buildLocalProfileView(db, acc, viewerDid, origin, false)
+            : null
+        })
+        .filter(Boolean)
+      sendJson(req, res, 200, {uri, repostedBy})
       return true
     }
 
     if (nsid === 'app.bsky.feed.getQuotes' && method === 'GET') {
       const uri = searchParams.get('uri') || ''
       const viewerDid = getOptionalViewerDid(req, db)
-      const parsed = parseAtUri(uri)
-      if (parsed && db.accounts[parsed.repo]) {
-        const posts = getAllLocalRecords(db, 'app.bsky.feed.post')
-          .filter(
-            r =>
-              r?.value?.embed?.record?.uri === uri ||
-              r?.value?.embed?.record?.record?.uri === uri,
-          )
-          .map(r => buildLocalPostView(db, r, viewerDid, origin))
-          .filter(Boolean)
-        sendJson(req, res, 200, {uri, posts})
-        return true
+      const posts = getAllLocalRecords(db, 'app.bsky.feed.post')
+        .filter(
+          r =>
+            r?.value?.embed?.record?.uri === uri ||
+            r?.value?.embed?.record?.record?.uri === uri,
+        )
+        .map(r => buildLocalPostView(db, r, viewerDid, origin))
+        .filter(Boolean)
+      sendJson(req, res, 200, {uri, posts})
+      return true
+    }
+
+    if (nsid === 'app.bsky.feed.searchPosts' && method === 'GET') {
+      const q = (searchParams.get('q') || '').trim().toLowerCase()
+      const limit = Math.min(Number(searchParams.get('limit') || 25) || 25, 50)
+      const viewerDid = getOptionalViewerDid(req, db)
+      const matches = []
+      const terms = q.split(/\s+/).filter(Boolean)
+      for (const rec of getAllLocalRecords(db, 'app.bsky.feed.post')) {
+        const txt = String(rec?.value?.text || '').toLowerCase()
+        const acc = db.accounts[rec.repo]
+        const handle = String(acc?.handle || '').toLowerCase()
+        const displayName = String(acc?.profile?.displayName || '').toLowerCase()
+        const hit =
+          terms.length === 0 ||
+          terms.every(t => {
+            if (t.startsWith('from:')) {
+              return handle.includes(t.slice(5).replace(/^@/, ''))
+            }
+            const bare = t.replace(/^#/, '')
+            return (
+              txt.includes(t) ||
+              txt.includes(bare) ||
+              handle.includes(bare) ||
+              displayName.includes(bare)
+            )
+          })
+        if (hit) {
+          const view = buildLocalPostView(db, rec, viewerDid, origin)
+          if (view) matches.push(view)
+        }
       }
-      await proxyPublicAppView(req, res, nsid, searchParams)
+      matches.sort((a, b) =>
+        String(b.indexedAt || '').localeCompare(String(a.indexedAt || '')),
+      )
+      sendJson(req, res, 200, {posts: matches.slice(0, limit)})
       return true
     }
 
@@ -2673,12 +3592,24 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'app.bsky.bookmark.createBookmark' && method === 'POST') {
       const auth = getAuthedContext(req, db)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const body = await readJsonBody(req)
       if (!body.uri || !body.cid) {
-        sendXrpcError(req, res, 400, 'InvalidRequest', 'uri and cid are required')
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'uri and cid are required',
+        )
         return true
       }
       const list = db.bookmarks[auth.did] || []
@@ -2697,7 +3628,13 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'app.bsky.bookmark.deleteBookmark' && method === 'POST') {
       const auth = getAuthedContext(req, db)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const body = await readJsonBody(req)
@@ -2715,18 +3652,18 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'app.bsky.bookmark.getBookmarks' && method === 'GET') {
       const auth = getAuthedContext(req, db)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const list = db.bookmarks[auth.did] || []
       const uris = list.map(b => b.uri)
-      const hydrated = await hydrateMixedPosts(
-        db,
-        uris,
-        auth.did,
-        origin,
-        req.headers,
-      )
+      const hydrated = hydrateLocalPosts(db, uris, auth.did, origin)
       const byUri = new Map(hydrated.map(p => [p.uri, p]))
       const bookmarks = list.map(b => {
         const post = byUri.get(b.uri)
@@ -2752,43 +3689,25 @@ export async function handleQuantZingPds(req, res) {
       const actor = searchParams.get('actor') || ''
       const viewerDid = getOptionalViewerDid(req, db)
       const localAcc = findLocalAccount(db, actor)
-      if (localAcc) {
-        const subject = buildLocalProfileView(db, localAcc, viewerDid, origin, false)
-        const followRecs = Object.values(
-          getCollectionMap(db, localAcc.did, 'app.bsky.graph.follow'),
-        )
-        const subjectDids = followRecs.map(r => r?.value?.subject).filter(Boolean)
-        const follows = []
-        const remoteDids = []
-        for (const did of subjectDids) {
-          if (db.accounts[did]) {
-            follows.push(
-              buildLocalProfileView(db, db.accounts[did], viewerDid, origin, false),
-            )
-          } else {
-            remoteDids.push(did)
-          }
-        }
-        if (remoteDids.length > 0) {
-          const params = new URLSearchParams()
-          for (const d of remoteDids.slice(0, 25)) params.append('actors', d)
-          try {
-            const upstream = await fetchPublicAppViewJson(
-              'app.bsky.actor.getProfiles',
-              params,
-              req.headers,
-            )
-            if (upstream.ok && Array.isArray(upstream.data?.profiles)) {
-              for (const p of upstream.data.profiles) {
-                follows.push(decorateProfileView(db, p, viewerDid))
-              }
-            }
-          } catch {}
-        }
-        sendJson(req, res, 200, {subject, follows})
+      if (!localAcc) {
+        sendJson(req, res, 200, {follows: []})
         return true
       }
-      await proxyPublicAppView(req, res, nsid, searchParams)
+      const subject = buildLocalProfileView(
+        db,
+        localAcc,
+        viewerDid,
+        origin,
+        false,
+      )
+      const followRecs = Object.values(
+        getCollectionMap(db, localAcc.did, 'app.bsky.graph.follow'),
+      )
+      const follows = followRecs
+        .map(r => db.accounts[r?.value?.subject])
+        .filter(Boolean)
+        .map(acc => buildLocalProfileView(db, acc, viewerDid, origin, false))
+      sendJson(req, res, 200, {subject, follows})
       return true
     }
 
@@ -2796,29 +3715,101 @@ export async function handleQuantZingPds(req, res) {
       const actor = searchParams.get('actor') || ''
       const viewerDid = getOptionalViewerDid(req, db)
       const localAcc = findLocalAccount(db, actor)
-      if (localAcc) {
-        const subject = buildLocalProfileView(db, localAcc, viewerDid, origin, false)
-        const followers = getAllLocalRecords(db, 'app.bsky.graph.follow')
-          .filter(r => r?.value?.subject === localAcc.did)
-          .map(r => {
-            const acc = db.accounts[r.repo]
-            return acc ? buildLocalProfileView(db, acc, viewerDid, origin, false) : null
-          })
-          .filter(Boolean)
-        sendJson(req, res, 200, {subject, followers})
+      if (!localAcc) {
+        sendJson(req, res, 200, {followers: []})
         return true
       }
-      await proxyPublicAppView(req, res, nsid, searchParams)
+      const subject = buildLocalProfileView(
+        db,
+        localAcc,
+        viewerDid,
+        origin,
+        false,
+      )
+      const followers = getAllLocalRecords(db, 'app.bsky.graph.follow')
+        .filter(r => r?.value?.subject === localAcc.did)
+        .map(r => {
+          const acc = db.accounts[r.repo]
+          return acc
+            ? buildLocalProfileView(db, acc, viewerDid, origin, false)
+            : null
+        })
+        .filter(Boolean)
+      sendJson(req, res, 200, {subject, followers})
       return true
     }
 
-    if (nsid === 'app.bsky.graph.getLists' && method === 'GET') {
+    if (nsid === 'app.bsky.graph.getKnownFollowers' && method === 'GET') {
       const actor = searchParams.get('actor') || ''
-      if (findLocalAccount(db, actor)) {
-        sendJson(req, res, 200, {lists: []})
+      const viewerDid = getOptionalViewerDid(req, db)
+      const localAcc = findLocalAccount(db, actor)
+      if (!localAcc) {
+        sendJson(req, res, 200, {followers: []})
         return true
       }
-      await proxyPublicAppView(req, res, nsid, searchParams)
+      const subject = buildLocalProfileView(
+        db,
+        localAcc,
+        viewerDid,
+        origin,
+        false,
+      )
+      sendJson(req, res, 200, {subject, followers: []})
+      return true
+    }
+
+    if (
+      nsid === 'app.bsky.graph.getSuggestedFollowsByActor' &&
+      method === 'GET'
+    ) {
+      const viewerDid = getOptionalViewerDid(req, db)
+      const suggestions = getSuggestedQuantZingActors(db, viewerDid, origin, 10)
+      sendJson(req, res, 200, {suggestions, isFallback: false})
+      return true
+    }
+
+    if (nsid === 'app.bsky.graph.getRelationships' && method === 'GET') {
+      const actor = searchParams.get('actor') || ''
+      const others = searchParams.getAll('others')
+      const localAcc = findLocalAccount(db, actor)
+      const relationships = others.map(otherDid => {
+        const following = localAcc
+          ? findViewerFollowUri(db, localAcc.did, otherDid)
+          : undefined
+        const followedBy = localAcc
+          ? findViewerFollowUri(db, otherDid, localAcc.did)
+          : undefined
+        return {
+          $type: 'app.bsky.graph.defs#relationship',
+          did: otherDid,
+          ...(following ? {following} : {}),
+          ...(followedBy ? {followedBy} : {}),
+        }
+      })
+      sendJson(req, res, 200, {
+        actor: localAcc?.did || actor,
+        relationships,
+      })
+      return true
+    }
+
+    if (
+      (nsid === 'app.bsky.graph.getLists' ||
+        nsid === 'app.bsky.graph.getMutedLists' ||
+        nsid === 'app.bsky.graph.getListBlocks') &&
+      method === 'GET'
+    ) {
+      sendJson(req, res, 200, {lists: []})
+      return true
+    }
+
+    if (
+      (nsid === 'app.bsky.graph.getStarterPacks' ||
+        nsid === 'app.bsky.graph.getActorStarterPacks' ||
+        nsid === 'app.bsky.graph.searchStarterPacks') &&
+      method === 'GET'
+    ) {
+      sendJson(req, res, 200, {starterPacks: []})
       return true
     }
 
@@ -2832,77 +3823,101 @@ export async function handleQuantZingPds(req, res) {
       return true
     }
 
-    if (
-      (nsid === 'app.bsky.graph.getMutedLists' ||
-        nsid === 'app.bsky.graph.getListBlocks') &&
-      method === 'GET'
-    ) {
-      sendJson(req, res, 200, {lists: []})
-      return true
-    }
+    // -----------------------------------------------------------------------
+    // 8. Labelers (app.bsky.labeler.*)
+    // -----------------------------------------------------------------------
 
-    if (nsid === 'app.bsky.graph.getSuggestedFollowsByActor' && method === 'GET') {
-      const actor = searchParams.get('actor') || ''
-      if (findLocalAccount(db, actor)) {
-        try {
-          const params = new URLSearchParams({limit: '10'})
-          const upstream = await fetchPublicAppViewJson(
-            'app.bsky.actor.getSuggestions',
-            params,
-            req.headers,
-          )
-          const viewerDid = getOptionalViewerDid(req, db)
-          const suggestions =
-            upstream.ok && Array.isArray(upstream.data?.actors)
-              ? upstream.data.actors.map(a => decorateProfileView(db, a, viewerDid))
-              : []
-          sendJson(req, res, 200, {suggestions, isFallback: true})
-        } catch {
-          sendJson(req, res, 200, {suggestions: [], isFallback: true})
-        }
-        return true
-      }
-      await proxyPublicAppView(req, res, nsid, searchParams)
-      return true
-    }
-
-    if (nsid === 'app.bsky.graph.getRelationships' && method === 'GET') {
-      const actor = searchParams.get('actor') || ''
-      const others = searchParams.getAll('others')
-      const localAcc = findLocalAccount(db, actor)
-      if (localAcc) {
-        const relationships = others.map(otherDid => {
-          const following = findViewerFollowUri(db, localAcc.did, otherDid)
-          const followedBy = findViewerFollowUri(db, otherDid, localAcc.did)
-          return {
-            $type: 'app.bsky.graph.defs#relationship',
-            did: otherDid,
-            ...(following ? {following} : {}),
-            ...(followedBy ? {followedBy} : {}),
-          }
-        })
-        sendJson(req, res, 200, {actor: localAcc.did, relationships})
-        return true
-      }
-      await proxyPublicAppView(req, res, nsid, searchParams)
+    if (nsid === 'app.bsky.labeler.getServices' && method === 'GET') {
+      const dids = searchParams.getAll('dids')
+      const detailed = searchParams.get('detailed') === 'true'
+      const creatorAcc = db.accounts[QUANTZING_OFFICIAL_DID]
+      const viewerDid = getOptionalViewerDid(req, db)
+      const views = (dids.length > 0 ? dids : [QUANTZING_OFFICIAL_DID]).map(
+        did => ({
+          $type: detailed
+            ? 'app.bsky.labeler.defs#labelerViewDetailed'
+            : 'app.bsky.labeler.defs#labelerView',
+          uri: `at://${did}/app.bsky.labeler.service/self`,
+          cid: computeCid({labeler: did}, 'dag-cbor'),
+          creator: creatorAcc
+            ? buildLocalProfileView(db, creatorAcc, viewerDid, origin, false)
+            : {
+                did: QUANTZING_OFFICIAL_DID,
+                handle: 'quantzing.quantzing.com',
+                displayName: 'QuantZing Moderation',
+              },
+          likeCount: 0,
+          indexedAt: '2026-01-01T00:00:00.000Z',
+          labels: [],
+          ...(detailed
+            ? {
+                policies: {
+                  labelValues: [],
+                  labelValueDefinitions: [],
+                },
+              }
+            : {}),
+        }),
+      )
+      sendJson(req, res, 200, {views})
       return true
     }
 
     // -----------------------------------------------------------------------
-    // 8. Notifications (app.bsky.notification.*)
+    // 9. Sovereign Notifications (app.bsky.notification.*)
     // -----------------------------------------------------------------------
 
+    if (nsid === 'app.bsky.notification.listNotifications' && method === 'GET') {
+      const auth = getAuthedContext(req, db)
+      if (auth.error) {
+        sendJson(req, res, 200, {notifications: [], priority: false})
+        return true
+      }
+      const limit = Math.min(50, Number(searchParams.get('limit') || 30))
+      const notifications = buildLocalNotifications(db, auth.did, origin, limit)
+      sendJson(req, res, 200, {
+        notifications,
+        priority: false,
+        seenAt: auth.account.notificationsSeenAt || new Date().toISOString(),
+      })
+      return true
+    }
+
     if (
-      (nsid === 'app.bsky.notification.listNotifications' ||
-        nsid === 'app.bsky.notification.getGroupedNotifications') &&
+      nsid === 'app.bsky.notification.getGroupedNotifications' &&
       method === 'GET'
     ) {
-      sendJson(req, res, 200, {notifications: [], priority: false})
+      const auth = getAuthedContext(req, db)
+      if (auth.error) {
+        sendJson(req, res, 200, {notifications: [], priority: false})
+        return true
+      }
+      const notifications = buildLocalNotifications(db, auth.did, origin, 30)
+      sendJson(req, res, 200, {notifications, priority: false})
       return true
     }
 
     if (nsid === 'app.bsky.notification.getUnreadCount' && method === 'GET') {
-      sendJson(req, res, 200, {count: 0})
+      const auth = getAuthedContext(req, db)
+      if (auth.error) {
+        sendJson(req, res, 200, {count: 0})
+        return true
+      }
+      const notifications = buildLocalNotifications(db, auth.did, origin, 50)
+      const count = notifications.filter(n => !n.isRead).length
+      sendJson(req, res, 200, {count})
+      return true
+    }
+
+    if (nsid === 'app.bsky.notification.updateSeen' && method === 'POST') {
+      const auth = getAuthedContext(req, db)
+      if (auth.account) {
+        const body = await readJsonBody(req)
+        auth.account.notificationsSeenAt =
+          body.seenAt || new Date().toISOString()
+        saveDb(db)
+      }
+      sendEmpty(req, res, 200)
       return true
     }
 
@@ -2951,8 +3966,7 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (
-      (nsid === 'app.bsky.notification.updateSeen' ||
-        nsid === 'app.bsky.notification.registerPush' ||
+      (nsid === 'app.bsky.notification.registerPush' ||
         nsid === 'app.bsky.notification.unregisterPush') &&
       method === 'POST'
     ) {
@@ -2961,7 +3975,7 @@ export async function handleQuantZingPds(req, res) {
     }
 
     // -----------------------------------------------------------------------
-    // 9. Age Assurance & Unspecced Config (prevent auth-blocker popups locally)
+    // 10. Age Assurance & Config (app.bsky.ageassurance.*, unspecced.getConfig)
     // -----------------------------------------------------------------------
 
     if (nsid === 'app.bsky.ageassurance.getState' && method === 'GET') {
@@ -2984,81 +3998,209 @@ export async function handleQuantZingPds(req, res) {
       return true
     }
 
-    if (nsid === 'app.bsky.unspecced.getAgeAssuranceState' && method === 'GET') {
+    if (
+      nsid === 'app.bsky.unspecced.getAgeAssuranceState' &&
+      method === 'GET'
+    ) {
       sendJson(req, res, 200, {status: 'assured'})
       return true
     }
 
     if (nsid === 'app.bsky.unspecced.getConfig' && method === 'GET') {
-      sendJson(req, res, 200, {checkEmailConfirmed: false})
+      sendJson(req, res, 200, {
+        checkEmailConfirmed: false,
+        topicsEnabled: true,
+      })
       return true
     }
 
     // -----------------------------------------------------------------------
-    // 10. Chat endpoints (chat.bsky.*) -> safe empty responses locally
+    // 11. Sovereign Direct Messages (chat.bsky.convo.*)
     // -----------------------------------------------------------------------
 
     if (nsid.startsWith('chat.bsky.')) {
-      if (nsid === 'chat.bsky.convo.getUnreadCounts') {
+      const auth = getAuthedContext(req, db)
+      const viewerDid = auth.did || null
+      db.convos = db.convos || {}
+
+      if (nsid === 'chat.bsky.convo.listConvos' && method === 'GET') {
+        const convos = viewerDid
+          ? Object.values(db.convos)
+              .filter(c => c.members?.includes(viewerDid))
+              .map(c => buildConvoView(db, c, viewerDid, origin))
+          : []
+        sendJson(req, res, 200, {convos})
+        return true
+      }
+
+      if (nsid === 'chat.bsky.convo.getConvoForMembers' && method === 'GET') {
+        const rawMembers = searchParams.getAll('members')
+        const members = [
+          ...new Set([viewerDid, ...rawMembers].filter(Boolean)),
+        ].sort()
+        const key = members.join('|')
+        let convo = Object.values(db.convos).find(
+          c => [...(c.members || [])].sort().join('|') === key,
+        )
+        if (!convo) {
+          const id = generateTid()
+          convo = {
+            id,
+            rev: generateTid(),
+            members,
+            messages: [],
+            readBy: {},
+            mutedBy: {},
+          }
+          db.convos[id] = convo
+          saveDb(db)
+        }
         sendJson(req, res, 200, {
-          unreadRequestConvos: 0,
-          unreadAcceptedConvos: 0,
+          convo: buildConvoView(db, convo, viewerDid, origin),
         })
         return true
       }
-      if (nsid === 'chat.bsky.convo.getLog') {
+
+      if (nsid === 'chat.bsky.convo.getConvo' && method === 'GET') {
+        const convoId = searchParams.get('convoId') || ''
+        const convo = db.convos[convoId]
+        if (!convo) {
+          sendXrpcError(req, res, 404, 'NotFound', 'Conversation not found')
+          return true
+        }
+        sendJson(req, res, 200, {
+          convo: buildConvoView(db, convo, viewerDid, origin),
+        })
+        return true
+      }
+
+      if (nsid === 'chat.bsky.convo.getMessages' && method === 'GET') {
+        const convoId = searchParams.get('convoId') || ''
+        const convo = db.convos[convoId]
+        const messages = convo ? [...(convo.messages || [])].reverse() : []
+        sendJson(req, res, 200, {messages})
+        return true
+      }
+
+      if (nsid === 'chat.bsky.convo.sendMessage' && method === 'POST') {
+        if (auth.error) {
+          sendXrpcError(
+            req,
+            res,
+            auth.status,
+            auth.error,
+            'Authentication required',
+          )
+          return true
+        }
+        const body = await readJsonBody(req)
+        const convo = db.convos[body.convoId]
+        if (!convo) {
+          sendXrpcError(req, res, 404, 'NotFound', 'Conversation not found')
+          return true
+        }
+        const rev = generateTid()
+        const msg = {
+          $type: 'chat.bsky.convo.defs#messageView',
+          id: generateTid(),
+          rev,
+          text: String(body.message?.text || ''),
+          sender: {did: auth.did},
+          sentAt: new Date().toISOString(),
+        }
+        convo.messages = convo.messages || []
+        convo.messages.push(msg)
+        convo.rev = rev
+        convo.readBy = convo.readBy || {}
+        convo.readBy[auth.did] = rev
+        saveDb(db)
+        sendJson(req, res, 200, msg)
+        return true
+      }
+
+      if (nsid === 'chat.bsky.convo.updateRead' && method === 'POST') {
+        const body = await readJsonBody(req)
+        const convo = db.convos[body.convoId]
+        if (convo && viewerDid) {
+          convo.readBy = convo.readBy || {}
+          convo.readBy[viewerDid] = convo.rev || generateTid()
+          saveDb(db)
+          sendJson(req, res, 200, {
+            convo: buildConvoView(db, convo, viewerDid, origin),
+          })
+          return true
+        }
+        sendJson(req, res, 200, {})
+        return true
+      }
+
+      if (nsid === 'chat.bsky.convo.getUnreadCounts' && method === 'GET') {
+        let unreadAcceptedConvos = 0
+        if (viewerDid) {
+          for (const c of Object.values(db.convos)) {
+            if (!c.members?.includes(viewerDid)) continue
+            const v = buildConvoView(db, c, viewerDid, origin)
+            if (v.unreadCount > 0) unreadAcceptedConvos++
+          }
+        }
+        sendJson(req, res, 200, {
+          unreadRequestConvos: 0,
+          unreadAcceptedConvos,
+        })
+        return true
+      }
+
+      if (nsid === 'chat.bsky.convo.getLog' && method === 'GET') {
         sendJson(req, res, 200, {logs: []})
         return true
       }
-      if (nsid === 'chat.bsky.convo.listConvoRequests') {
+
+      if (nsid === 'chat.bsky.convo.listConvoRequests' && method === 'GET') {
         sendJson(req, res, 200, {requests: []})
         return true
       }
-      if (nsid === 'chat.bsky.convo.getConvoAvailability') {
-        sendJson(req, res, 200, {canChat: false})
+
+      if (
+        nsid === 'chat.bsky.convo.getConvoAvailability' &&
+        method === 'GET'
+      ) {
+        const members = searchParams.getAll('members')
+        const canChat = members.every(m => Boolean(findLocalAccount(db, m)))
+        sendJson(req, res, 200, {canChat})
         return true
       }
+
       sendJson(req, res, 200, {convos: [], messages: []})
       return true
     }
 
     // -----------------------------------------------------------------------
-    // 11. Catch-all GET /xrpc/* -> transparent Public AppView proxy
+    // 12. Sovereign Safe Catch-All (ZERO external Bluesky proxy!)
     // -----------------------------------------------------------------------
 
-    if (nsid === 'app.bsky.feed.searchPosts' && method === 'GET') {
-      const q = (searchParams.get('q') || '').trim().toLowerCase()
-      const limit = Math.min(Number(searchParams.get('limit') || 25) || 25, 50)
-      const viewerDid = getOptionalViewerDid(req, db)
-      const localMatches = []
-      if (q) {
-        const terms = q.split(/\s+/).filter(Boolean)
-        for (const [did, collections] of Object.entries(db.records || {})) {
-          const postsMap = collections?.['app.bsky.feed.post'] || {}
-          for (const rec of Object.values(postsMap)) {
-            const txt = String(rec?.value?.text || '').toLowerCase()
-            const handle = String(db.accounts?.[did]?.handle || '').toLowerCase()
-            if (terms.some(t => txt.includes(t) || handle.includes(t.replace(/^from:/, '')))) {
-              const view = buildLocalPostView(db, rec, viewerDid, origin)
-              if (view) localMatches.push(view)
-            }
-          }
-        }
-      }
-      sendJson(req, res, 200, {posts: localMatches.slice(0, limit)})
-      return true
-    }
-
     if (method === 'GET') {
-      await proxyPublicAppView(req, res, nsid, searchParams)
+      sendJson(req, res, 200, {
+        feed: [],
+        feeds: [],
+        actors: [],
+        posts: [],
+        lists: [],
+        items: [],
+        views: [],
+        records: [],
+        trends: [],
+        topics: [],
+        starterPacks: [],
+        notifications: [],
+      })
       return true
     }
 
-    // Safe 200 fallback for non-destructive mute/unmute/telemetry POSTs
     if (
       method === 'POST' &&
       (nsid.startsWith('app.bsky.graph.mute') ||
-        nsid.startsWith('app.bsky.graph.unmute'))
+        nsid.startsWith('app.bsky.graph.unmute') ||
+        nsid.startsWith('com.atproto.moderation.'))
     ) {
       sendEmpty(req, res, 200)
       return true
@@ -3069,16 +4211,28 @@ export async function handleQuantZingPds(req, res) {
       res,
       501,
       'MethodNotImplemented',
-      `Endpoint ${method} /xrpc/${nsid} is not implemented on QuantZing PDS`,
+      `Endpoint ${method} /xrpc/${nsid} is not implemented on QuantZing Sovereign PDS`,
     )
     return true
   } catch (err) {
     if (err?.message === 'PayloadTooLarge') {
-      sendXrpcError(req, res, 413, 'PayloadTooLarge', 'Request payload too large')
+      sendXrpcError(
+        req,
+        res,
+        413,
+        'PayloadTooLarge',
+        'Request payload too large',
+      )
       return true
     }
     if (err?.message === 'InvalidJsonBody') {
-      sendXrpcError(req, res, 400, 'InvalidRequest', 'Invalid JSON request body')
+      sendXrpcError(
+        req,
+        res,
+        400,
+        'InvalidRequest',
+        'Invalid JSON request body',
+      )
       return true
     }
     console.error(`[QuantZing PDS] Error handling ${method} ${pathname}:`, err)

@@ -96,7 +96,8 @@ export function Root({
         color: 'primary',
         disabled: false,
         onPress: () => {
-          void setStringAsync(`https://bsky.app/chat/${preview.code}`)
+          const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://quantzing.quantrinity.in'
+          void setStringAsync(`${origin}/chat/${preview.code}`)
           Toast.show(l`Copied to clipboard`, {type: 'success'})
         },
       }

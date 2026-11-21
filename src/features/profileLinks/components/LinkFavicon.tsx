@@ -3,6 +3,7 @@ import {type StyleProp, View, type ViewStyle} from 'react-native'
 import {Image} from 'expo-image'
 import {getBlobCidString} from '@atproto/lex'
 
+import {QUANTZING_SERVICE} from '#/lib/constants'
 import {atoms as a} from '#/alf'
 import {ButtonIcon} from '#/components/Button'
 import {Globe_Stroke2_Corner0_Rounded as GlobeIcon} from '#/components/icons/Globe'
@@ -19,7 +20,7 @@ export function linkFaviconUrl(
 ): string | undefined {
   if (link.iconUrl) return link.iconUrl
   if (!link.icon || !did) return undefined
-  return `https://cdn.bsky.app/img/avatar_thumbnail/plain/${did}/${getBlobCidString(link.icon)}@png`
+  return `${QUANTZING_SERVICE}/blob/${encodeURIComponent(did)}/${encodeURIComponent(getBlobCidString(link.icon))}`
 }
 
 /**

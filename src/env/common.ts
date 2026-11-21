@@ -69,13 +69,13 @@ export const LOG_DEBUG: string = process.env.EXPO_PUBLIC_LOG_DEBUG || ''
  * The DID of the QuantZing appview to proxy to
  */
 export const BLUESKY_PROXY_DID: DidString =
-  process.env.EXPO_PUBLIC_BLUESKY_PROXY_DID || 'did:web:api.bsky.app'
+  process.env.EXPO_PUBLIC_BLUESKY_PROXY_DID || 'did:web:quantzing.com'
 
 /**
  * The DID of the chat service to proxy to
  */
 export const CHAT_PROXY_DID: DidString =
-  process.env.EXPO_PUBLIC_CHAT_PROXY_DID || 'did:web:api.bsky.chat'
+  process.env.EXPO_PUBLIC_CHAT_PROXY_DID || 'did:web:quantzing.com'
 
 /**
  * The DID of the moderation service to proxy requests to.
@@ -87,7 +87,7 @@ export const MOD_PROXY_DID: DidString | undefined =
  * Metrics API host
  */
 export const METRICS_API_HOST: string =
-  process.env.EXPO_PUBLIC_METRICS_API_HOST || 'https://events.quantzing.com'
+  process.env.EXPO_PUBLIC_METRICS_API_HOST || (typeof window !== 'undefined' && window.location?.origin ? `${window.location.origin}/api/quantzing/events` : 'https://quantzing.quantrinity.in/api/quantzing/events')
 
 /**
  * Growthbook API host
@@ -136,7 +136,7 @@ export const GCP_PROJECT_ID: number =
  * locally running server, see `env.example` for more.
  */
 export const GEOLOCATION_DEV_URL = process.env.GEOLOCATION_DEV_URL
-export const GEOLOCATION_PROD_URL = `https://ip.quantzing.com`
+export const GEOLOCATION_PROD_URL = typeof window !== 'undefined' && window.location?.origin ? `${window.location.origin}/api/quantzing` : 'https://quantzing.quantrinity.in/api/quantzing'
 export const GEOLOCATION_URL = IS_DEV
   ? (GEOLOCATION_DEV_URL ?? GEOLOCATION_PROD_URL)
   : GEOLOCATION_PROD_URL
@@ -146,7 +146,7 @@ export const GEOLOCATION_URL = IS_DEV
  * locally running server, see `env.example` for more.
  */
 export const LIVE_EVENTS_DEV_URL = process.env.LIVE_EVENTS_DEV_URL
-export const LIVE_EVENTS_PROD_URL = `https://live-events.workers.quantzing.com`
+export const LIVE_EVENTS_PROD_URL = typeof window !== 'undefined' && window.location?.origin ? `${window.location.origin}/api/quantzing/live-events` : 'https://quantzing.quantrinity.in/api/quantzing/live-events'
 export const LIVE_EVENTS_URL = IS_DEV
   ? (LIVE_EVENTS_DEV_URL ?? LIVE_EVENTS_PROD_URL)
   : LIVE_EVENTS_PROD_URL
@@ -156,7 +156,7 @@ export const LIVE_EVENTS_URL = IS_DEV
  * locally running server, see `env.example` for more.
  */
 export const APP_CONFIG_DEV_URL = process.env.APP_CONFIG_DEV_URL
-export const APP_CONFIG_PROD_URL = `https://app-config.workers.quantzing.com`
+export const APP_CONFIG_PROD_URL = typeof window !== 'undefined' && window.location?.origin ? `${window.location.origin}/api/quantzing/app-config` : 'https://quantzing.quantrinity.in/api/quantzing/app-config'
 export const APP_CONFIG_URL = IS_DEV
   ? (APP_CONFIG_DEV_URL ?? APP_CONFIG_PROD_URL)
   : APP_CONFIG_PROD_URL

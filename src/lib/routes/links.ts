@@ -1,5 +1,6 @@
 import {AtUri} from '@atproto/syntax'
 
+import {QUANTZING_SERVICE} from '#/lib/constants'
 import {isInvalidHandle} from '#/lib/strings/handles'
 import {type app} from '#/lexicons'
 
@@ -51,9 +52,9 @@ export function makeStarterPackLink(
   rkey?: string,
 ) {
   if (typeof starterPackOrName === 'string') {
-    return `https://bsky.app/start/${starterPackOrName}/${rkey}`
+    return `${QUANTZING_SERVICE}/start/${starterPackOrName}/${rkey}`
   } else {
     const uriRkey = new AtUri(starterPackOrName.uri).rkey
-    return `https://bsky.app/start/${starterPackOrName.creator.handle}/${uriRkey}`
+    return `${QUANTZING_SERVICE}/start/${starterPackOrName.creator.handle}/${uriRkey}`
   }
 }

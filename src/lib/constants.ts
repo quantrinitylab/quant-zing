@@ -5,24 +5,23 @@ import {api} from '@bsky/sdk'
 import {BLUESKY_PROXY_DID, CHAT_PROXY_DID, IS_DEV, MOD_PROXY_DID} from '#/env'
 import {type app} from '#/lexicons'
 
-export const LOCAL_DEV_SERVICE =
-  Platform.OS === 'android' ? 'http://10.0.2.2:2583' : 'http://localhost:2583'
-export const STAGING_SERVICE = 'https://staging.bsky.dev'
-export const BSKY_SERVICE = 'https://bsky.social'
-export const BSKY_SERVICE_DID = 'did:web:bsky.social'
-export const PUBLIC_BSKY_SERVICE = 'https://public.api.bsky.app'
 export const QUANTZING_SERVICE =
   Platform.OS === 'web' && typeof window !== 'undefined'
     ? window.location.origin
-    : 'https://quantzing.com'
+    : process.env.EXPO_PUBLIC_QUANTZING_URL || 'https://quantzing.quantrinity.in'
 export const QUANTZING_SERVICE_DID = 'did:web:quantzing.com'
+export const LOCAL_DEV_SERVICE =
+  Platform.OS === 'android' ? 'http://10.0.2.2:3008' : 'http://localhost:3008'
+export const STAGING_SERVICE = QUANTZING_SERVICE
+export const BSKY_SERVICE = QUANTZING_SERVICE
+export const BSKY_SERVICE_DID = QUANTZING_SERVICE_DID
+export const PUBLIC_BSKY_SERVICE = QUANTZING_SERVICE
 export const DEFAULT_SERVICE = QUANTZING_SERVICE
-const HELP_DESK_LANG = 'en-us'
-export const HELP_DESK_URL = `https://quantzing.com/help/${HELP_DESK_LANG}`
-export const CHAT_SERVICE = 'https://api.bsky.chat'
-export const EMBED_SERVICE = 'https://embed.bsky.app'
+export const HELP_DESK_URL = `${QUANTZING_SERVICE}/help`
+export const CHAT_SERVICE = QUANTZING_SERVICE
+export const EMBED_SERVICE = QUANTZING_SERVICE
 export const EMBED_SCRIPT = `${EMBED_SERVICE}/static/embed.js`
-export const BSKY_DOWNLOAD_URL = 'https://quantzing.com/download'
+export const BSKY_DOWNLOAD_URL = `${QUANTZING_SERVICE}/download`
 export const STARTER_PACK_DEFAULT_SIZE = 150
 export const STARTER_PACK_MAX_SIZE = 500
 export const CARD_ASPECT_RATIO = 1200 / 630
@@ -36,16 +35,7 @@ export const CARD_ASPECT_RATIO = 1200 / 630
 // -prf
 export const JOINED_THIS_WEEK = 560000 // estimate as of 12/18/24
 
-export const DISCOVER_DEBUG_DIDS: Record<string, true> = {
-  'did:plc:oisofpd7lj26yvgiivf3lxsi': true, // hailey.at
-  'did:plc:p2cp5gopk7mgjegy6wadk3ep': true, // samuel.bsky.team
-  'did:plc:ragtjsm2j2vknwkz3zp4oxrd': true, // pfrazee.com
-  'did:plc:vpkhqolt662uhesyj6nxm7ys': true, // why.bsky.team
-  'did:plc:3jpt2mvvsumj2r7eqk4gzzjz': true, // esb.lol
-  'did:plc:vjug55kidv6sye7ykr5faxxn': true, // emilyliu.me
-  'did:plc:tgqseeot47ymot4zro244fj3': true, // iwsmith.bsky.social
-  'did:plc:2dzyut5lxna5ljiaasgeuffz': true, // darrin.bsky.team
-}
+export const DISCOVER_DEBUG_DIDS: Record<string, true> = {}
 
 const BASE_FEEDBACK_FORM_URL = `${HELP_DESK_URL}/requests/new`
 export function FEEDBACK_FORM_URL({
@@ -94,18 +84,20 @@ export function IS_PROD_SERVICE(url?: string) {
   return url && url !== STAGING_SERVICE && !url.startsWith(LOCAL_DEV_SERVICE)
 }
 
+export const QUANTZING_OFFICIAL_DID = 'did:plc:quantzingofficialaaaaaaa'
+
 export const PROD_DEFAULT_FEED = (rkey: string) =>
-  `at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/${rkey}`
+  `at://${QUANTZING_OFFICIAL_DID}/app.bsky.feed.generator/${rkey}`
 
 export const STAGING_DEFAULT_FEED = (rkey: string) =>
-  `at://did:plc:yofh3kx63drvfljkibw5zuxo/app.bsky.feed.generator/${rkey}`
+  `at://${QUANTZING_OFFICIAL_DID}/app.bsky.feed.generator/${rkey}`
 
 export const PROD_FEEDS = [
   `feedgen|${PROD_DEFAULT_FEED('whats-hot')}`,
+  `feedgen|${PROD_DEFAULT_FEED('quanty-ai')}`,
+  `feedgen|${PROD_DEFAULT_FEED('builders')}`,
+  `feedgen|${PROD_DEFAULT_FEED('india-global')}`,
   `feedgen|${PROD_DEFAULT_FEED('thevids')}`,
-  `feedgen|${PROD_DEFAULT_FEED('atmosphere-activity')}`,
-  `feedgen|${PROD_DEFAULT_FEED('atmosphere-articles')}`,
-  `feedgen|${PROD_DEFAULT_FEED('atmosphere-galleries')}`,
 ]
 
 export const STAGING_FEEDS = [
@@ -123,30 +115,24 @@ export const IMAGE_SIZE_CONFIG_2K_1MB = {
   maxSize: 1000000,
 }
 
-export const STAGING_LINK_META_PROXY =
-  'https://cardyb.staging.bsky.dev/v1/extract?url='
+export const STAGING_LINK_META_PROXY = `${QUANTZING_SERVICE}/api/quantzing/link-meta?url=`
 
-export const PROD_LINK_META_PROXY = 'https://cardyb.bsky.app/v1/extract?url='
+export const PROD_LINK_META_PROXY = `${QUANTZING_SERVICE}/api/quantzing/link-meta?url=`
 
 export function LINK_META_PROXY(_serviceUrl: string) {
-  if (IS_DEV) {
-    return STAGING_LINK_META_PROXY
-  }
-
   return PROD_LINK_META_PROXY
 }
 
-export const STAGING_LINK_FAVICON_PROXY =
-  'https://cardyb.staging.bsky.dev/v1/favicon?url='
+export const STAGING_LINK_FAVICON_PROXY = `${QUANTZING_SERVICE}/api/quantzing/link-favicon?url=`
 
-export const PROD_LINK_FAVICON_PROXY = 'https://cardyb.bsky.app/v1/favicon?url='
+export const PROD_LINK_FAVICON_PROXY = `${QUANTZING_SERVICE}/api/quantzing/link-favicon?url=`
 
 /** Serves a page's favicon as a PNG, at most 64px. */
 export function LINK_FAVICON_PROXY() {
-  return IS_DEV ? STAGING_LINK_FAVICON_PROXY : PROD_LINK_FAVICON_PROXY
+  return PROD_LINK_FAVICON_PROXY
 }
 
-export const STATUS_PAGE_URL = 'https://quantzing.com/status'
+export const STATUS_PAGE_URL = `${QUANTZING_SERVICE}/health`
 
 // Hitslop constants
 export const createHitslop = (size: number): Insets => ({
@@ -162,24 +148,19 @@ export const LANG_DROPDOWN_HITSLOP = {top: 10, bottom: 10, left: 4, right: 4}
 export const BACK_HITSLOP = HITSLOP_30
 export const MAX_POST_LINES = 25
 
-export const BSKY_APP_ACCOUNT_DID = 'did:plc:z72i7hdynmk6r22z27h6tvur'
+export const BSKY_APP_ACCOUNT_DID = QUANTZING_OFFICIAL_DID
 
-export const BSKY_FEED_OWNER_DIDS = [
-  BSKY_APP_ACCOUNT_DID,
-  'did:plc:vpkhqolt662uhesyj6nxm7ys',
-  'did:plc:q6gjnaw2blty4crticxkmujt',
-]
+export const BSKY_FEED_OWNER_DIDS = [QUANTZING_OFFICIAL_DID]
 
-export const TRENDING_DID = 'did:plc:qrz3lhbyuxbeilrc6nekdqme'
-export const TRENDING_HANDLE = 'trending.bsky.app'
+export const TRENDING_DID = 'did:plc:quantzingnewsdesk2222222'
+export const TRENDING_HANDLE = 'news.quantzing.com'
 
 export const DISCOVER_FEED_URI =
-  'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot'
+  `at://${QUANTZING_OFFICIAL_DID}/app.bsky.feed.generator/whats-hot`
 export const VIDEO_FEED_URI =
-  'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/thevids'
-export const STAGING_VIDEO_FEED_URI =
-  'at://did:plc:yofh3kx63drvfljkibw5zuxo/app.bsky.feed.generator/thevids'
-export const VIDEO_FEED_URIS = [VIDEO_FEED_URI, STAGING_VIDEO_FEED_URI]
+  `at://${QUANTZING_OFFICIAL_DID}/app.bsky.feed.generator/thevids`
+export const STAGING_VIDEO_FEED_URI = VIDEO_FEED_URI
+export const VIDEO_FEED_URIS = [VIDEO_FEED_URI]
 export const DISCOVER_SAVED_FEED = {
   type: 'feed',
   value: DISCOVER_FEED_URI,
@@ -201,11 +182,9 @@ export const RECOMMENDED_SAVED_FEEDS: Pick<
   'type' | 'value' | 'pinned'
 >[] = [DISCOVER_SAVED_FEED, TIMELINE_SAVED_FEED]
 
-export const KNOWN_SHUTDOWN_FEEDS = [
-  'at://did:plc:wqowuobffl66jv3kpsvo7ak4/app.bsky.feed.generator/the-algorithm', // for you by skygaze
-]
+export const KNOWN_SHUTDOWN_FEEDS: string[] = []
 
-export const GIF_SERVICE = 'https://gifs.bsky.app'
+export const GIF_SERVICE = `${QUANTZING_SERVICE}/api/quantzing/gifs`
 
 export const GIF_KLIPY_SEARCH = (params: string) =>
   `${GIF_SERVICE}/klipy/v2/search?${params}`
@@ -214,8 +193,8 @@ export const GIF_KLIPY_FEATURED = (params: string) =>
 
 export const MAX_LABELERS = 20
 
-export const VIDEO_SERVICE = 'https://video.bsky.app'
-export const VIDEO_SERVICE_DID = 'did:web:video.bsky.app'
+export const VIDEO_SERVICE = QUANTZING_SERVICE
+export const VIDEO_SERVICE_DID = QUANTZING_SERVICE_DID
 
 export const VIDEO_MAX_DURATION_MS = 10 * 60 * 1000 // 10 minutes in milliseconds
 /**
@@ -252,9 +231,9 @@ export const urls = {
   },
 }
 
-export const PUBLIC_APPVIEW = 'https://api.bsky.app'
-export const PUBLIC_APPVIEW_DID = 'did:web:api.bsky.app'
-export const PUBLIC_STAGING_APPVIEW_DID = 'did:web:api.staging.bsky.dev'
+export const PUBLIC_APPVIEW = QUANTZING_SERVICE
+export const PUBLIC_APPVIEW_DID = QUANTZING_SERVICE_DID
+export const PUBLIC_STAGING_APPVIEW_DID = QUANTZING_SERVICE_DID
 
 export const DEV_ENV_APPVIEW =
   process.env.EXPO_PUBLIC_DEV_ENV_APPVIEW_URL || 'http://localhost:2584'
@@ -304,8 +283,8 @@ export const MOD_PROXY_SERVICE: Service = `${MOD_PROXY_DID || api.moderation.did
 export const NOTIF_SERVICE: Service = `${BLUESKY_PROXY_DID}#bsky_notif`
 
 export const webLinks = {
-  tos: `https://quantzing.com/support/tos`,
-  privacy: `https://quantzing.com/support/privacy-policy`,
-  community: `https://quantzing.com/support/community-guidelines`,
-  communityDeprecated: `https://quantzing.com/support/community-guidelines-deprecated`,
+  tos: `${QUANTZING_SERVICE}/terms`,
+  privacy: `${QUANTZING_SERVICE}/privacy`,
+  community: `${QUANTZING_SERVICE}/community-guidelines`,
+  communityDeprecated: `${QUANTZING_SERVICE}/community-guidelines`,
 }

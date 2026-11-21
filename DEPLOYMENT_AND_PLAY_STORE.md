@@ -45,7 +45,31 @@ curl -s http://127.0.0.1:3008/health
 
 ---
 
-## 2. Docker & Ubuntu/Debian VPS Cloud Deployment (`quantzing.com`)
+## 2. Live Oracle Cloud (OCI `ap-mumbai-1`) Deployment (`quantzing.quantrinity.in`)
+
+QuantZing runs on its own **dedicated, isolated Oracle Cloud ARM64 VM (`vm-quantzing`)** in `ap-mumbai-1`, completely separate from `vm-app` (`quantmail` / `quantai` / `quantchat`):
+
+| Property | Value |
+| :--- | :--- |
+| **VM Name** | `vm-quantzing` (`VM.Standard.A1.Flex`, 1 OCPU / 6 GB RAM, Ubuntu 24.04 ARM64) |
+| **Public IPv4** | `130.210.86.242` |
+| **Private IPv4** | `10.1.1.131` (`quant-vcn` / `quant-public`) |
+| **App Service** | `quantzing.service` (`systemd`, Node.js 24, `127.0.0.1:3008`, `QUANTZING_DATA_DIR=/var/lib/quantzing`) |
+| **Edge Proxy** | Caddy 2 (`:80` + `:443` auto-TLS for `quantzing.quantrinity.in`, `quantzing.com`, `quantzing.in`) |
+
+### Cloudflare DNS Record for `quantzing.quantrinity.in`
+
+In Cloudflare DNS for the **`quantrinity.in`** zone:
+
+| Type | Name | Content / IPv4 | Proxy Status |
+| :--- | :--- | :--- | :--- |
+| `A` | `quantzing` | `130.210.86.242` | DNS Only (grey) or Proxied (orange with SSL **Full**) |
+
+Once `quantzing.quantrinity.in` resolves to `130.210.86.242`, Caddy automatically issues a Let's Encrypt TLS certificate and serves **`https://quantzing.quantrinity.in`**.
+
+---
+
+## 3. Docker & Custom Domain Deployment (`quantzing.com` / `quantzing.in`)
 
 ### Required DNS Records
 

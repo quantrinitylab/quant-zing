@@ -20,7 +20,8 @@ export function createWidgetTopicUrl(
   link: string,
   {rank, recId}: {rank: number; recId?: string},
 ): string {
-  const url = new URL(link, 'https://bsky.app')
+  const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://quantzing.quantrinity.in'
+  const url = new URL(link, origin)
   url.searchParams.set(PARAMS.src, REF_SRC)
   url.searchParams.set(PARAMS.rank, String(rank))
   if (recId) {

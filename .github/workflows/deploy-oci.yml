@@ -1,0 +1,67 @@
+name: Deploy QuantZing to Oracle Cloud (OCI)
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: 'Target domain (default: quantzing.quantrinity.in)'
+        required: false
+        default: 'quantzing.quantrinity.in'
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    name: Build Sovereign Web Bundle & Deploy to vm-quantzing
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript & PDS syntax check
+        run: |
+          node --check ./scripts/quantzing-pds.mjs
+          node --check ./scripts/serve-quantzing.mjs
+          pnpm exec tsc --noEmit --project ./tsconfig.check.web.json
+
+      - name: Build QuantZing production web bundle
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+        run: |
+          pnpm exec expo export --platform web --no-minify --max-workers 2
+          node ./scripts/post-web-build.js
+          tar -czf /tmp/quantzing-release.tar.gz dist scripts/serve-quantzing.mjs scripts/quantzing-pds.mjs deploy/quantzing-adapter.mjs package.json
+
+      - name: Deploy to Oracle Cloud vm-quantzing
+        if: ${{ secrets.QUANTZING_OCI_SSH_KEY != '' }}
+        env:
+          SSH_KEY: ${{ secrets.QUANTZING_OCI_SSH_KEY }}
+          VM_IP: ${{ vars.QUANTZING_VM_IP || '130.210.86.242' }}
+          SSH_USER: ${{ vars.QUANTZING_SSH_USER || 'ubuntu' }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/quantzing_oci
+          chmod 600 ~/.ssh/quantzing_oci
+          scp -i ~/.ssh/quantzing_oci -o StrictHostKeyChecking=no /tmp/quantzing-release.tar.gz "$SSH_USER@$VM_IP:/tmp/quantzing-release.tar.gz"
+          ssh -i ~/.ssh/quantzing_oci -o StrictHostKeyChecking=no "$SSH_USER@$VM_IP" '
+            set -euo pipefail
+            mkdir -p /opt/quantzing
+            tar -xzf /tmp/quantzing-release.tar.gz -C /opt/quantzing
+            rm -f /tmp/quantzing-release.tar.gz
+            sudo systemctl restart quantzing
+            sleep 2
+            curl -fsS http://127.0.0.1:3008/health
+          '

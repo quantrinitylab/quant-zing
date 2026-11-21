@@ -607,7 +607,8 @@ export async function draftToComposerPosts(
       if (post.embedRecords && post.embedRecords.length > 0) {
         const record = post.embedRecords[0]
         const urip = new AtUri(record.record.uri)
-        const url = `https://bsky.app/profile/${urip.host}/post/${urip.rkey}`
+        const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://quantzing.quantrinity.in'
+        const url = `${origin}/profile/${urip.host}/post/${urip.rkey}`
         embed.quote = {type: 'link', uri: url as UriString}
       }
 

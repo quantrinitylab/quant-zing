@@ -314,9 +314,10 @@ export function InviteLinkDialog({
     case Step.MANAGE: {
       const linkEnabled = joinLink?.enabledStatus === 'enabled'
       const linkDisabled = joinLink?.enabledStatus === 'disabled'
+      const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://quantzing.quantrinity.in'
       const joinLinkURI = joinLink?.code
-        ? `https://bsky.app/chat/${joinLink.code}`
-        : 'https://bsky.app/'
+        ? `${origin}/chat/${joinLink.code}`
+        : `${origin}/`
       const createdAt = joinLink ? new Date(joinLink.createdAt) : null
       const currentOption =
         whoCanJoinOptions.find(

@@ -18,7 +18,8 @@ function stripLeadingAt(handle: string): string {
 export function getInviteShareUrl(handle: string): string {
   const bare = stripLeadingAt(handle)
   if (!bare) return ''
-  return `https://bsky.app/profile/${bare}`
+  const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://quantzing.quantrinity.in'
+  return `${origin}/profile/${bare}`
 }
 
 /**

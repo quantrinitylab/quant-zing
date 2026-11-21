@@ -43,7 +43,7 @@ export default function TopicScreen({
   }, [topic])
 
   const onShare = useCallback(() => {
-    const url = new URL('https://bsky.app')
+    const url = new URL(typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://quantzing.quantrinity.in')
     url.pathname = `/topic/${topic}`
     void shareUrl(url.toString())
   }, [topic])

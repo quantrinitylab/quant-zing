@@ -178,8 +178,9 @@ const server = http.createServer((req, res) => {
       JSON.stringify({
         ok: true,
         service: 'quant-zing',
-        engine: 'atproto-sovereign-hybrid',
+        engine: 'atproto-sovereign-pure',
         pds: true,
+        blueskyUpstream: false,
         port,
         distReady: fs.existsSync(path.join(distDir, 'index.html')),
         proxyRoutes: PROXY_ROUTES.map(r => ({
@@ -258,7 +259,7 @@ server.listen(port, host, () => {
     `[QuantZing] Live standalone ATProto web app running at http://localhost:${port}`,
   )
   console.log(
-    `[QuantZing] Sovereign PDS + Public AppView Hybrid active at /xrpc/*, /blob/*, /api/quantzing/*`,
+    `[QuantZing] 100% Sovereign PDS + AppView active at /xrpc/*, /blob/*, /api/quantzing/* (zero external Bluesky calls)`,
   )
   console.log(
     `[QuantZing] Same-origin QuantOS proxy active: /api/quant-ai -> :${PROXY_ROUTES[0].targetPort}, /api/quant-router -> :${PROXY_ROUTES[1].targetPort}, /api/quant-pay -> :${PROXY_ROUTES[2].targetPort}`,

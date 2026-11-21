@@ -85,20 +85,22 @@ async function resolveDidDoc(
   signal?: AbortSignal,
 ): Promise<DidDocument | null> {
   if (did.startsWith('did:plc:')) {
-    const res = await fetch(`https://plc.directory/${did}`, {signal})
+    const origin =
+      typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : 'https://quantzing.quantrinity.in'
+    const res = await fetch(
+      `${origin}/xrpc/com.atproto.repo.describeRepo?repo=${encodeURIComponent(did)}`,
+      {signal},
+    )
     if (!res.ok) {
-      logger.debug('pds-detection: plc.directory returned non-ok status', {
-        did,
-        status: res.status,
-      })
       if (isTransientHttpStatus(res.status)) {
-        throw new Error(
-          `Network request failed: plc.directory returned ${res.status}`,
-        )
+        throw new Error(`Network request failed: QuantZing PDS returned ${res.status}`)
       }
       return null
     }
-    return (await res.json()) as DidDocument
+    const payload = (await res.json()) as {didDoc?: DidDocument}
+    return payload.didDoc ?? null
   }
   if (did.startsWith('did:web:')) {
     const domain = did.slice('did:web:'.length)

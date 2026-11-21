@@ -50,8 +50,8 @@ www.quantzing.com {
 	redir https://quantzing.com{uri} permanent
 }
 
-# Primary QuantZing Web + ATProto PDS + QuantOS Proxy
-quantzing.com, quantzing.in {
+# Primary QuantZing Web + ATProto PDS + QuantOS Proxy (including live quantzing.quantrinity.in)
+quantzing.quantrinity.in, quantzing.com, quantzing.in {
 	import quantzing_security_headers
 	import quantzing_proxy
 }

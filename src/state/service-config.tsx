@@ -53,7 +53,7 @@ export function Provider({children}: {children: React.ReactNode}) {
       return {enabled: Boolean(cachedEnabled)}
     }
 
-    const enabled = Boolean(config?.topicsEnabled)
+    const enabled = config?.topicsEnabled ?? true
 
     // update cache
     device.set(['trendingBetaEnabled'], enabled)

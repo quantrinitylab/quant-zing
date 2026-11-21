@@ -30,7 +30,7 @@ const NATIVE_LINK_ACTION_CONFIG = {
 export const LINKING = {
   // TODO figure out what we are going to use
   // note: `bluesky://` is what is used in app.config.js
-  prefixes: ['bsky://', 'bluesky://', 'https://bsky.app'],
+  prefixes: ['quantzing://', 'https://quantzing.quantrinity.in', 'https://quantzing.com', 'https://quantzing.in'],
 
   getPathFromState(state: State) {
     // find the current node in the navigation tree

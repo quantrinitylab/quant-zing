@@ -4,20 +4,20 @@ import {type ParsedReportSubject} from '#/components/moderation/ReportDialog/typ
 import {IS_ANDROID, IS_IOS, IS_WEB} from '#/env'
 import {com, tools} from '#/lexicons'
 
-export const DMCA_LINK = 'https://bsky.social/about/support/copyright'
-export const SUPPORT_PAGE = 'https://bsky.social/about/support'
-export const NCII_FORM = 'https://forms.bsky.app/f/ncii'
+export const DMCA_LINK = '/copyright'
+export const SUPPORT_PAGE = '/help'
+export const NCII_FORM = '/help'
 
 /**
  * Identifies this client as the source of a report.
  */
 export const REPORT_MOD_TOOL_NAME = IS_IOS
-  ? `bsky-app/ios/${applicationId}`
+  ? `quantzing-app/ios/${applicationId}`
   : IS_ANDROID
-    ? `bsky-app/android/${applicationId}`
+    ? `quantzing-app/android/${applicationId}`
     : IS_WEB
-      ? `bsky-web/${window.location.hostname}`
-      : 'bsky' // Should never occur
+      ? `quantzing-web/${window.location.hostname}`
+      : 'quantzing'
 
 export const NEW_TO_OLD_REASON_MAPPING: Record<string, string> = {}
 

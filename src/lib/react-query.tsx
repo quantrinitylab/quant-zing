@@ -12,6 +12,7 @@ import {
   PersistQueryClientProvider,
 } from '@tanstack/react-query-persist-client'
 
+import {QUANTZING_SERVICE} from '#/lib/constants'
 import {createPersistedQueryStorage} from '#/lib/persisted-query-storage'
 import {listenNetworkConfirmed, listenNetworkLost} from '#/state/events'
 import {isQueryPersisted} from '#/state/queries/util'
@@ -35,7 +36,7 @@ async function checkIsOnline(): Promise<boolean> {
     setTimeout(() => {
       controller.abort()
     }, 15e3)
-    const res = await fetch('https://public.api.bsky.app/xrpc/_health', {
+    const res = await fetch(`${QUANTZING_SERVICE}/xrpc/_health`, {
       cache: 'no-store',
       signal: controller.signal,
     })

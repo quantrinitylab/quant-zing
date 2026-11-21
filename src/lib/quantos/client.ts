@@ -362,7 +362,7 @@ interface RawPostThreadResponse {
 }
 
 const PUBLIC_DISCOVER_FEED_URI =
-  'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot'
+  'at://did:plc:quantzingofficialaaaaaaa/app.bsky.feed.generator/whats-hot'
 
 export function trendLinkToFeedUri(link?: string): string | undefined {
   if (!link) return undefined

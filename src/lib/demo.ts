@@ -3,7 +3,7 @@ import {subDays, subMinutes} from 'date-fns'
 
 import {type app} from '#/lexicons'
 
-const DID = `did:plc:z72i7hdynmk6r22z27h6tvur`
+const DID = `did:plc:quantzingofficialaaaaaaa`
 const NOW = new Date()
 const POST_1_DATE = toDatetimeString(subMinutes(NOW, 2))
 const POST_2_DATE = toDatetimeString(subMinutes(NOW, 4))

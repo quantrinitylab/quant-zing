@@ -7,17 +7,15 @@ import {isInvalidHandle} from '#/lib/strings/handles'
 import {startUriToStarterPackUri} from '#/lib/strings/starter-pack'
 import {logger} from '#/logger'
 
-export const BSKY_APP_HOST = 'https://bsky.app'
-export const BSKY_HOSTING_ENDSWITH = '.host.bsky.network'
+export const BSKY_APP_HOST = QUANTZING_SERVICE
+export const BSKY_HOSTING_ENDSWITH = '.quantzing.com'
 const BSKY_TRUSTED_HOSTS = [
+  'quantzing\\.quantrinity\\.in',
+  'quantrinity\\.in',
   'quantzing\\.com',
   'quantzing\\.in',
   'localhost:3008',
   '127\\.0\\.0\\.1:3008',
-  'bsky\\.app',
-  'bsky\\.social',
-  'blueskyweb\\.xyz',
-  'blueskyweb\\.zendesk\\.com',
   ...(__DEV__ ? ['localhost:19006', 'localhost:8100'] : []),
 ]
 
@@ -69,6 +67,7 @@ export function isQuantZingHostedUrl(url: string): boolean {
     if (
       host === 'localhost:3008' ||
       host === '127.0.0.1:3008' ||
+      hostname === 'quantzing.quantrinity.in' ||
       hostname === 'quantzing.com' ||
       hostname.endsWith('.quantzing.com') ||
       hostname === 'quantzing.in' ||
@@ -94,7 +93,7 @@ export function toNiceDomain(url: string): string {
       return 'QuantZing'
     }
     if (`https://${urlp.host}` === BSKY_SERVICE) {
-      return 'Bluesky Social'
+      return 'QuantZing'
     }
     return urlp.host ? urlp.host : url
   } catch (e) {
@@ -120,8 +119,8 @@ export function toShortUrl(url: string): string {
 }
 
 export function toShareUrl(url: string): string {
-  if (!url.startsWith('https')) {
-    const urlp = new URL('https://bsky.app')
+  if (!url.startsWith('http')) {
+    const urlp = new URL(BSKY_APP_HOST)
     urlp.pathname = url
     url = urlp.toString()
   }
@@ -139,7 +138,7 @@ export function toNiceHostingUrl(url: string): string {
       return 'QuantZing'
     }
     if (urlp.host.endsWith(BSKY_HOSTING_ENDSWITH)) {
-      return 'Bluesky'
+      return 'QuantZing'
     }
     return urlp.host
   } catch {
@@ -170,7 +169,12 @@ export function isBlueskyHostedUrl(url: string): boolean {
 }
 
 export function isBskyAppUrl(url: string): boolean {
-  return url.startsWith('https://bsky.app/')
+  return (
+    url.startsWith(`${BSKY_APP_HOST}/`) ||
+    url.startsWith('https://quantzing.quantrinity.in/') ||
+    url.startsWith('https://quantzing.com/') ||
+    url.startsWith('https://quantzing.in/')
+  )
 }
 
 export function isRelativeUrl(url: string): boolean {
@@ -179,7 +183,7 @@ export function isRelativeUrl(url: string): boolean {
 
 export function isBskyRSSUrl(url: string): boolean {
   return (
-    (url.startsWith('https://bsky.app/') || isRelativeUrl(url)) &&
+    (isBskyAppUrl(url) || isRelativeUrl(url)) &&
     /\/rss\/?$/.test(url)
   )
 }
@@ -434,11 +438,11 @@ export function createProxiedUrl(url: string): string {
     return url
   }
 
-  return `https://go.bsky.app/redirect?u=${encodeURIComponent(url)}`
+  return url
 }
 
 export function isShortLink(url: string): boolean {
-  return url.startsWith('https://go.bsky.app/')
+  return url.startsWith(`${BSKY_APP_HOST}/go/`)
 }
 
 export function shortLinkToHref(url: string): string {
