@@ -1,0 +1,16 @@
+[Unit]
+Description=QuantZing Atomic Nightly Data Backup (db.json + blobs)
+Documentation=https://quantzing.com
+After=network-online.target local-fs.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/quantzing/hardening.env
+ExecStart=/opt/quantzing/deploy/backup-quantzing.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=quantzing-backup

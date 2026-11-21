@@ -1,0 +1,12 @@
+[Unit]
+Description=QuantZing Uptime Watchdog Timer (every 5 minutes)
+Documentation=https://quantzing.com
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=quantzing-monitor.service
+
+[Install]
+WantedBy=timers.target

@@ -139,6 +139,7 @@ export type CommonNavigatorParams = {
   CreatorStudio: undefined
   ZingSpaces: undefined
   QuantZingPro: undefined
+  Admin: undefined
   Terms: undefined
   Privacy: undefined
   Help: undefined

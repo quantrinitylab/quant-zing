@@ -1,0 +1,13 @@
+[Unit]
+Description=QuantZing Uptime & Resource Watchdog Health Check
+Documentation=https://quantzing.com
+After=network-online.target quantzing.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/quantzing/hardening.env
+ExecStart=/opt/quantzing/deploy/monitor-quantzing.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=quantzing-monitor

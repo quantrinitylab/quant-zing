@@ -35,6 +35,10 @@ jobs:
         run: |
           node --check ./scripts/quantzing-pds.mjs
           node --check ./scripts/serve-quantzing.mjs
+          node --check ./scripts/quantzing-admin.mjs
+          bash -n ./deploy/backup-quantzing.sh
+          bash -n ./deploy/monitor-quantzing.sh
+          bash -n ./deploy/setup-oci-hardening.sh
           pnpm exec tsc --noEmit --project ./tsconfig.check.web.json
 
       - name: Build QuantZing production web bundle
@@ -43,7 +47,7 @@ jobs:
         run: |
           pnpm exec expo export --platform web --max-workers 2
           node ./scripts/post-web-build.js
-          tar -czf /tmp/quantzing-release.tar.gz dist scripts/serve-quantzing.mjs scripts/quantzing-pds.mjs deploy/quantzing-adapter.mjs package.json
+          tar -czf /tmp/quantzing-release.tar.gz dist scripts/serve-quantzing.mjs scripts/quantzing-pds.mjs scripts/quantzing-admin.mjs deploy/quantzing-adapter.mjs deploy/backup-quantzing.sh deploy/monitor-quantzing.sh deploy/logrotate-quantzing deploy/setup-oci-hardening.sh deploy/systemd package.json
 
       - name: Deploy to Oracle Cloud vm-quantzing
         if: ${{ secrets.QUANTZING_OCI_SSH_KEY != '' }}
@@ -61,6 +65,7 @@ jobs:
             mkdir -p /opt/quantzing
             tar -xzf /tmp/quantzing-release.tar.gz -C /opt/quantzing
             rm -f /tmp/quantzing-release.tar.gz
+            chmod +x /opt/quantzing/deploy/backup-quantzing.sh /opt/quantzing/deploy/monitor-quantzing.sh /opt/quantzing/deploy/setup-oci-hardening.sh
             sudo systemctl restart quantzing
             sleep 2
             curl -fsS http://127.0.0.1:3008/health

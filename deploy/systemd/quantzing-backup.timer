@@ -1,0 +1,11 @@
+[Unit]
+Description=QuantZing Daily Nightly Backup Timer (03:00 IST / 21:30 UTC)
+Documentation=https://quantzing.com
+
+[Timer]
+OnCalendar=*-*-* 21:30:00 UTC
+Persistent=true
+Unit=quantzing-backup.service
+
+[Install]
+WantedBy=timers.target
