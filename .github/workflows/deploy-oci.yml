@@ -41,7 +41,7 @@ jobs:
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
         run: |
-          pnpm exec expo export --platform web --no-minify --max-workers 2
+          pnpm exec expo export --platform web --max-workers 2
           node ./scripts/post-web-build.js
           tar -czf /tmp/quantzing-release.tar.gz dist scripts/serve-quantzing.mjs scripts/quantzing-pds.mjs deploy/quantzing-adapter.mjs package.json
 

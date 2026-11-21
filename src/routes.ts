@@ -74,8 +74,8 @@ export const router = new Router<AllNavigatableRoutes>({
   Support: '/support',
   PrivacyPolicy: '/support/privacy',
   TermsOfService: '/support/tos',
-  CommunityGuidelines: '/support/community-guidelines',
-  CopyrightPolicy: '/support/copyright',
+  CommunityGuidelines: ['/support/community-guidelines', '/community-guidelines'],
+  CopyrightPolicy: ['/support/copyright', '/copyright'],
   // hashtags
   Hashtag: '/hashtag/:tag',
   Topic: '/topic/:topic',

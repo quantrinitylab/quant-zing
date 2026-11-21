@@ -29,7 +29,9 @@ const LEGACY_DISCOVER_FEED_URI =
 const GENESIS_VERSION = 2
 
 const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024
-const MAX_BLOB_BODY_BYTES = 25 * 1024 * 1024
+const MAX_BLOB_BODY_BYTES = 100 * 1024 * 1024
+const VIDEO_UPLOAD_PART_BYTES = 5 * 1024 * 1024
+const activeVideoUploads = new Map()
 
 // RFC 4648 base32 lowercase (used for CIDv1 multibase 'b' and did:plc)
 const BASE32_RFC4648 = 'abcdefghijklmnopqrstuvwxyz234567'
@@ -981,6 +983,10 @@ function createDefaultPreferences() {
       pinned: [DISCOVER_FEED_URI],
       saved: [DISCOVER_FEED_URI],
     },
+    {
+      $type: 'app.bsky.actor.defs#personalDetailsPref',
+      birthDate: '1998-01-01T00:00:00.000Z',
+    },
   ]
 }
 
@@ -1190,7 +1196,7 @@ function putLocalRecord(db, did, collection, rkey, recordValue) {
       : {uri: entry.uri, cid: entry.cid}
     const parentRef = {uri: entry.uri, cid: entry.cid}
     const replyRkey = generateTid()
-    const replyCreatedAt = new Date(Date.now() + 250).toISOString()
+    const replyCreatedAt = new Date(Date.now() + 1).toISOString()
     const facets = buildFacetsForText(db, replyText)
     const replyValue = {
       $type: 'app.bsky.feed.post',
@@ -1420,6 +1426,21 @@ function hydrateEmbedView(db, authorDid, embed, viewerDid, origin, depth = 0) {
           }
         })
         .filter(Boolean),
+    }
+  }
+
+  if (type === 'app.bsky.embed.video' && embed.video) {
+    const cid = extractBlobCid(embed.video)
+    const playlist = blobUrl(origin, authorDid, embed.video)
+    if (cid && playlist) {
+      return {
+        $type: 'app.bsky.embed.video#view',
+        cid,
+        playlist,
+        ...(embed.alt ? {alt: embed.alt} : {}),
+        ...(embed.aspectRatio ? {aspectRatio: embed.aspectRatio} : {}),
+        ...(embed.presentation ? {presentation: embed.presentation} : {}),
+      }
     }
   }
 
@@ -1828,7 +1849,7 @@ function buildLocalNotifications(db, viewerDid, origin, limit = 40) {
     })
   }
 
-  // 3. Replies & Mentions targeting viewer
+  // 3. Replies, Quotes & Mentions targeting viewer
   const handleNeedle = `@${viewerAcc.handle.toLowerCase()}`
   const shortNeedle = `@${viewerAcc.handle.split('.')[0].toLowerCase()}`
   for (const rec of getAllLocalRecords(db, 'app.bsky.feed.post')) {
@@ -1837,20 +1858,37 @@ function buildLocalNotifications(db, viewerDid, origin, limit = 40) {
     if (!authorAcc) continue
     const parentUri = rec.value?.reply?.parent?.uri
     const isReplyToViewer = parentUri && viewerPostUris.has(parentUri)
+    const quotedUri =
+      rec.value?.embed?.$type === 'app.bsky.embed.record'
+        ? rec.value?.embed?.record?.uri
+        : rec.value?.embed?.$type === 'app.bsky.embed.recordWithMedia'
+          ? rec.value?.embed?.record?.record?.uri
+          : null
+    const isQuoteOfViewer = quotedUri && viewerPostUris.has(quotedUri)
     const textLower = String(rec.value?.text || '').toLowerCase()
     const isMention =
       textLower.includes(handleNeedle) ||
       new RegExp(`(?:^|\\s)${shortNeedle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(
         textLower,
       )
-    if (!isReplyToViewer && !isMention) continue
+    if (!isReplyToViewer && !isQuoteOfViewer && !isMention) continue
     const indexedAt = rec.indexedAt || rec.value?.createdAt || new Date().toISOString()
+    const reason = isReplyToViewer
+      ? 'reply'
+      : isQuoteOfViewer
+        ? 'quote'
+        : 'mention'
+    const reasonSubject = isReplyToViewer
+      ? parentUri
+      : isQuoteOfViewer
+        ? quotedUri
+        : undefined
     notifications.push({
       uri: rec.uri,
       cid: rec.cid,
       author: buildLocalProfileView(db, authorAcc, viewerDid, origin, false),
-      reason: isReplyToViewer ? 'reply' : 'mention',
-      ...(isReplyToViewer ? {reasonSubject: parentUri} : {}),
+      reason,
+      ...(reasonSubject ? {reasonSubject} : {}),
       record: rec.value,
       isRead: indexedAt <= seenAt,
       indexedAt,
@@ -1862,6 +1900,222 @@ function buildLocalNotifications(db, viewerDid, origin, limit = 40) {
     String(b.indexedAt || '').localeCompare(String(a.indexedAt || '')),
   )
   return notifications.slice(0, limit)
+}
+
+function buildGroupedNotifications(
+  db,
+  viewerDid,
+  origin,
+  feed = 'all',
+  limit = 30,
+) {
+  const viewerAcc = db.accounts[viewerDid]
+  if (!viewerAcc) {
+    return {groups: [], relatedViews: [], seenAt: new Date().toISOString()}
+  }
+  const seenAt = viewerAcc.notificationsSeenAt || '1970-01-01T00:00:00.000Z'
+  const raw = buildLocalNotifications(db, viewerDid, origin, 100)
+
+  const followingSet = new Set(
+    Object.values(getCollectionMap(db, viewerDid, 'app.bsky.graph.follow'))
+      .map(r => r.value?.subject)
+      .filter(Boolean),
+  )
+
+  const filtered = raw.filter(n => {
+    if (feed === 'people-i-follow') return followingSet.has(n.author?.did)
+    if (feed === 'conversations')
+      return n.reason === 'reply' || n.reason === 'quote' || n.reason === 'mention'
+    if (feed === 'followers') return n.reason === 'follow'
+    if (feed === 'activity') return n.reason === 'like' || n.reason === 'repost'
+    return true
+  })
+
+  const profileViews = new Map()
+  const postViews = new Map()
+
+  const registerProfile = did => {
+    if (!did || profileViews.has(did)) return
+    const acc = db.accounts[did]
+    if (!acc) return
+    profileViews.set(did, {
+      $type: 'app.bsky.actor.defs#profileViewBasic',
+      ...buildLocalProfileView(db, acc, viewerDid, origin, false),
+    })
+  }
+
+  const registerPost = uri => {
+    if (!uri || postViews.has(uri)) return
+    const parsed = parseAtUri(uri)
+    if (!parsed || !db.accounts[parsed.repo]) return
+    const rec = db.records?.[parsed.repo]?.[parsed.collection]?.[parsed.rkey]
+    if (!rec) return
+    const pv = buildLocalPostView(db, rec, viewerDid, origin)
+    if (pv) postViews.set(uri, pv)
+  }
+
+  const groups = []
+  const likeBuckets = new Map()
+  const repostBuckets = new Map()
+  let followBucket = null
+
+  for (const n of filtered) {
+    const actorDid = n.author?.did
+    if (!actorDid) continue
+    registerProfile(actorDid)
+
+    if (n.reason === 'follow') {
+      if (!followBucket) {
+        followBucket = {
+          $type: 'app.bsky.notification.getGroupedNotifications#group',
+          id: `follow:${n.indexedAt}`,
+          kind: {
+            $type: 'app.bsky.notification.getGroupedNotifications#followGroup',
+            items: [],
+          },
+          count: 0,
+          isRead: n.isRead,
+          indexedAt: n.indexedAt,
+        }
+        groups.push(followBucket)
+      }
+      if (!followBucket.kind.items.some(i => i.actor === actorDid)) {
+        followBucket.kind.items.push({
+          $type: 'app.bsky.notification.getGroupedNotifications#followItem',
+          actor: actorDid,
+        })
+        followBucket.count = followBucket.kind.items.length
+        if (!n.isRead) followBucket.isRead = false
+      }
+      continue
+    }
+
+    if (n.reason === 'like' && n.reasonSubject) {
+      registerPost(n.reasonSubject)
+      if (!postViews.has(n.reasonSubject)) continue
+      let bucket = likeBuckets.get(n.reasonSubject)
+      if (!bucket) {
+        bucket = {
+          $type: 'app.bsky.notification.getGroupedNotifications#group',
+          id: `like:${n.reasonSubject}`,
+          kind: {
+            $type: 'app.bsky.notification.getGroupedNotifications#likeGroup',
+            post: n.reasonSubject,
+            items: [],
+          },
+          count: 0,
+          isRead: n.isRead,
+          indexedAt: n.indexedAt,
+        }
+        likeBuckets.set(n.reasonSubject, bucket)
+        groups.push(bucket)
+      }
+      if (!bucket.kind.items.some(i => i.actor === actorDid)) {
+        bucket.kind.items.push({
+          $type: 'app.bsky.notification.getGroupedNotifications#likeItem',
+          actor: actorDid,
+        })
+        bucket.count = bucket.kind.items.length
+        if (!n.isRead) bucket.isRead = false
+      }
+      continue
+    }
+
+    if (n.reason === 'repost' && n.reasonSubject) {
+      registerPost(n.reasonSubject)
+      if (!postViews.has(n.reasonSubject)) continue
+      let bucket = repostBuckets.get(n.reasonSubject)
+      if (!bucket) {
+        bucket = {
+          $type: 'app.bsky.notification.getGroupedNotifications#group',
+          id: `repost:${n.reasonSubject}`,
+          kind: {
+            $type: 'app.bsky.notification.getGroupedNotifications#repostGroup',
+            post: n.reasonSubject,
+            items: [],
+          },
+          count: 0,
+          isRead: n.isRead,
+          indexedAt: n.indexedAt,
+        }
+        repostBuckets.set(n.reasonSubject, bucket)
+        groups.push(bucket)
+      }
+      if (!bucket.kind.items.some(i => i.actor === actorDid)) {
+        bucket.kind.items.push({
+          $type: 'app.bsky.notification.getGroupedNotifications#repostItem',
+          actor: actorDid,
+        })
+        bucket.count = bucket.kind.items.length
+        if (!n.isRead) bucket.isRead = false
+      }
+      continue
+    }
+
+    if (n.reason === 'reply' && n.reasonSubject) {
+      registerPost(n.uri)
+      registerPost(n.reasonSubject)
+      if (!postViews.has(n.uri)) continue
+      groups.push({
+        $type: 'app.bsky.notification.getGroupedNotifications#group',
+        id: `reply:${n.uri}`,
+        kind: {
+          $type: 'app.bsky.notification.getGroupedNotifications#replyNotification',
+          post: n.uri,
+          parent: n.reasonSubject,
+        },
+        count: 1,
+        isRead: n.isRead,
+        indexedAt: n.indexedAt,
+      })
+      continue
+    }
+
+    if (n.reason === 'quote' && n.reasonSubject) {
+      registerPost(n.uri)
+      registerPost(n.reasonSubject)
+      if (!postViews.has(n.uri)) continue
+      groups.push({
+        $type: 'app.bsky.notification.getGroupedNotifications#group',
+        id: `quote:${n.uri}`,
+        kind: {
+          $type: 'app.bsky.notification.getGroupedNotifications#quoteNotification',
+          post: n.uri,
+          parent: n.reasonSubject,
+        },
+        count: 1,
+        isRead: n.isRead,
+        indexedAt: n.indexedAt,
+      })
+      continue
+    }
+
+    if (n.reason === 'mention') {
+      registerPost(n.uri)
+      if (!postViews.has(n.uri)) continue
+      groups.push({
+        $type: 'app.bsky.notification.getGroupedNotifications#group',
+        id: `mention:${n.uri}`,
+        kind: {
+          $type: 'app.bsky.notification.getGroupedNotifications#mentionNotification',
+          post: n.uri,
+        },
+        count: 1,
+        isRead: n.isRead,
+        indexedAt: n.indexedAt,
+      })
+    }
+  }
+
+  groups.sort((a, b) =>
+    String(b.indexedAt || '').localeCompare(String(a.indexedAt || '')),
+  )
+
+  return {
+    groups: groups.slice(0, limit),
+    seenAt,
+    relatedViews: [...profileViews.values(), ...postViews.values()],
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1885,7 +2139,7 @@ function isPrivateOrBlockedHost(hostname) {
   )
 }
 
-function fetchLinkMetaSafe(rawUrl) {
+function fetchLinkMetaSafe(rawUrl, redirectsLeft = 3) {
   return new Promise(resolve => {
     let parsed
     try {
@@ -1919,6 +2173,20 @@ function fetchLinkMetaSafe(rawUrl) {
         },
       },
       res => {
+        const status = res.statusCode || 200
+        if (
+          status >= 300 &&
+          status < 400 &&
+          res.headers.location &&
+          redirectsLeft > 0
+        ) {
+          res.resume()
+          try {
+            const nextUrl = new URL(res.headers.location, parsed).toString()
+            fetchLinkMetaSafe(nextUrl, redirectsLeft - 1).then(resolve)
+            return
+          } catch {}
+        }
         let html = ''
         res.setEncoding('utf8')
         res.on('data', chunk => {
@@ -1942,11 +2210,15 @@ function fetchLinkMetaSafe(rawUrl) {
           const imgMatch = html.match(
             /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
           )
+          const rawTitle = (titleMatch?.[1] || parsed.hostname).trim()
+          const cleanTitle = /^30[1278]\s+/i.test(rawTitle)
+            ? parsed.hostname
+            : rawTitle
           resolve({
             error: '',
             likely_type: 'html',
             url: rawUrl,
-            title: (titleMatch?.[1] || parsed.hostname).trim().slice(0, 200),
+            title: cleanTitle.slice(0, 200),
             description: (descMatch?.[1] || '').trim().slice(0, 400),
             image: imgMatch?.[1]?.trim() || '',
           })
@@ -1998,8 +2270,10 @@ function buildConvoView(db, convo, viewerDid, origin) {
     m => m.sender?.did !== viewerDid && m.rev > readRev,
   ).length
   return {
+    $type: 'chat.bsky.convo.defs#convoView',
     id: convo.id,
     rev: convo.rev || '1',
+    kind: {$type: 'chat.bsky.convo.defs#directConvo'},
     members,
     ...(lastMsg ? {lastMessage: lastMsg} : {}),
     muted: Boolean(convo.mutedBy?.[viewerDid]),
@@ -2224,16 +2498,50 @@ export async function handleQuantZingPds(req, res) {
       return true
     }
     const meta = db.blobs[cid]
-    const data = fs.readFileSync(blobFile)
+    const stat = fs.statSync(blobFile)
+    const total = stat.size
+    const contentType = meta?.mimeType || 'application/octet-stream'
+    const rangeHeader = String(req.headers.range || '')
+
+    if (rangeHeader.startsWith('bytes=')) {
+      const [startStr, endStr] = rangeHeader.slice(6).split('-')
+      const start = startStr ? Math.max(0, parseInt(startStr, 10) || 0) : 0
+      const end = endStr
+        ? Math.min(total - 1, parseInt(endStr, 10) || total - 1)
+        : total - 1
+      if (start >= total || end < start) {
+        res.writeHead(
+          416,
+          corsHeaders(req, {'content-range': `bytes */${total}`}),
+        )
+        res.end()
+        return true
+      }
+      const chunkLen = end - start + 1
+      res.writeHead(
+        206,
+        corsHeaders(req, {
+          'content-type': contentType,
+          'content-length': chunkLen,
+          'content-range': `bytes ${start}-${end}/${total}`,
+          'accept-ranges': 'bytes',
+          'cache-control': 'public, max-age=31536000, immutable',
+        }),
+      )
+      fs.createReadStream(blobFile, {start, end}).pipe(res)
+      return true
+    }
+
     res.writeHead(
       200,
       corsHeaders(req, {
-        'content-type': meta?.mimeType || 'application/octet-stream',
-        'content-length': data.length,
+        'content-type': contentType,
+        'content-length': total,
+        'accept-ranges': 'bytes',
         'cache-control': 'public, max-age=31536000, immutable',
       }),
     )
-    res.end(data)
+    fs.createReadStream(blobFile).pipe(res)
     return true
   }
 
@@ -2787,6 +3095,22 @@ export async function handleQuantZingPds(req, res) {
       }
       const rec = db.records?.[localAcc.did]?.[collection]?.[rkey]
       if (!rec) {
+        if (collection === 'chat.bsky.actor.declaration' && rkey === 'self') {
+          const decl = putLocalRecord(
+            db,
+            localAcc.did,
+            'chat.bsky.actor.declaration',
+            'self',
+            {allowIncoming: 'all'},
+          )
+          saveDb(db)
+          sendJson(req, res, 200, {
+            uri: decl.uri,
+            cid: decl.cid,
+            value: decl.value,
+          })
+          return true
+        }
         sendXrpcError(
           req,
           res,
@@ -2921,6 +3245,16 @@ export async function handleQuantZingPds(req, res) {
         auth.account.preferences.length === 0
       ) {
         auth.account.preferences = createDefaultPreferences()
+        saveDb(db)
+      } else if (
+        !auth.account.preferences.some(
+          p => p?.$type === 'app.bsky.actor.defs#personalDetailsPref',
+        )
+      ) {
+        auth.account.preferences.push({
+          $type: 'app.bsky.actor.defs#personalDetailsPref',
+          birthDate: '1998-01-01T00:00:00.000Z',
+        })
         saveDb(db)
       }
       sendJson(req, res, 200, {preferences: auth.account.preferences})
@@ -3889,11 +4223,17 @@ export async function handleQuantZingPds(req, res) {
     ) {
       const auth = getAuthedContext(req, db)
       if (auth.error) {
-        sendJson(req, res, 200, {notifications: [], priority: false})
+        sendJson(req, res, 200, {
+          groups: [],
+          relatedViews: [],
+          seenAt: new Date().toISOString(),
+        })
         return true
       }
-      const notifications = buildLocalNotifications(db, auth.did, origin, 30)
-      sendJson(req, res, 200, {notifications, priority: false})
+      const feed = searchParams.get('feed') || 'all'
+      const limit = Math.min(50, Math.max(1, Number(searchParams.get('limit') || 30)))
+      const payload = buildGroupedNotifications(db, auth.did, origin, feed, limit)
+      sendJson(req, res, 200, payload)
       return true
     }
 
@@ -3913,8 +4253,10 @@ export async function handleQuantZingPds(req, res) {
       const auth = getAuthedContext(req, db)
       if (auth.account) {
         const body = await readJsonBody(req)
+        const nowFloor = new Date(Date.now() + 500).toISOString()
+        const reqSeen = typeof body.seenAt === 'string' ? body.seenAt : nowFloor
         auth.account.notificationsSeenAt =
-          body.seenAt || new Date().toISOString()
+          reqSeen > nowFloor ? reqSeen : nowFloor
         saveDb(db)
       }
       sendEmpty(req, res, 200)
@@ -4024,11 +4366,13 @@ export async function handleQuantZingPds(req, res) {
       db.convos = db.convos || {}
 
       if (nsid === 'chat.bsky.convo.listConvos' && method === 'GET') {
-        const convos = viewerDid
-          ? Object.values(db.convos)
-              .filter(c => c.members?.includes(viewerDid))
-              .map(c => buildConvoView(db, c, viewerDid, origin))
-          : []
+        const statusFilter = searchParams.get('status')
+        const convos =
+          viewerDid && statusFilter !== 'request'
+            ? Object.values(db.convos)
+                .filter(c => c.members?.includes(viewerDid))
+                .map(c => buildConvoView(db, c, viewerDid, origin))
+            : []
         sendJson(req, res, 200, {convos})
         return true
       }
@@ -4071,6 +4415,21 @@ export async function handleQuantZingPds(req, res) {
         sendJson(req, res, 200, {
           convo: buildConvoView(db, convo, viewerDid, origin),
         })
+        return true
+      }
+
+      if (nsid === 'chat.bsky.convo.getConvoMembers' && method === 'GET') {
+        const convoId = searchParams.get('convoId') || ''
+        const convo = db.convos[convoId]
+        if (!convo) {
+          sendJson(req, res, 200, {members: []})
+          return true
+        }
+        const members = (convo.members || [])
+          .map(did => db.accounts[did])
+          .filter(Boolean)
+          .map(acc => buildLocalProfileView(db, acc, viewerDid, origin, false))
+        sendJson(req, res, 200, {members})
         return true
       }
 
@@ -4164,13 +4523,193 @@ export async function handleQuantZingPds(req, res) {
         nsid === 'chat.bsky.convo.getConvoAvailability' &&
         method === 'GET'
       ) {
-        const members = searchParams.getAll('members')
-        const canChat = members.every(m => Boolean(findLocalAccount(db, m)))
-        sendJson(req, res, 200, {canChat})
+        const rawMembers = searchParams.getAll('members')
+        const canChat = rawMembers.every(m => Boolean(findLocalAccount(db, m)))
+        let existingConvo
+        if (canChat && viewerDid) {
+          const allMembers = [...new Set([viewerDid, ...rawMembers])].sort()
+          const key = allMembers.join('|')
+          const found = Object.values(db.convos).find(
+            c => [...(c.members || [])].sort().join('|') === key,
+          )
+          if (found) {
+            existingConvo = buildConvoView(db, found, viewerDid, origin)
+          }
+        }
+        sendJson(req, res, 200, {
+          canChat,
+          ...(existingConvo ? {convo: existingConvo} : {}),
+        })
         return true
       }
 
       sendJson(req, res, 200, {convos: [], messages: []})
+      return true
+    }
+
+    if (nsid === 'com.atproto.identity.updateHandle' && method === 'POST') {
+      const auth = getAuthedContext(req, db)
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        return true
+      }
+      const body = await readJsonBody(req)
+      const nextHandle = normalizeHandle(body.handle)
+      if (!isValidHandleFormat(nextHandle)) {
+        sendXrpcError(req, res, 400, 'InvalidHandle', 'Invalid handle format')
+        return true
+      }
+      const taken = Object.values(db.accounts).find(
+        a => a.did !== auth.did && a.handle.toLowerCase() === nextHandle,
+      )
+      if (taken) {
+        sendXrpcError(req, res, 400, 'HandleNotAvailable', 'That handle is already taken')
+        return true
+      }
+      auth.account.handle = nextHandle
+      saveDb(db)
+      sendEmpty(req, res, 200)
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // 11B. Sovereign Video Upload & Streaming (app.bsky.video.*)
+    // -----------------------------------------------------------------------
+
+    if (nsid === 'app.bsky.video.getUploadLimits' && method === 'GET') {
+      sendJson(req, res, 200, {
+        canUpload: true,
+        remainingDailyVideos: 100,
+        remainingDailyBytes: 500 * 1024 * 1024,
+      })
+      return true
+    }
+
+    if (nsid === 'app.bsky.video.startUpload' && method === 'POST') {
+      const auth = getAuthedContext(req, db)
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        return true
+      }
+      const body = await readJsonBody(req)
+      const sizeBytes = Math.max(1, Number(body.sizeBytes || 1))
+      const mimeType = String(body.mimeType || 'video/mp4')
+      const partSizeBytes = VIDEO_UPLOAD_PART_BYTES
+      const partCount = Math.max(1, Math.ceil(sizeBytes / partSizeBytes))
+      const jobId = `qzvid_${generateTid()}`
+      const expiresAt = new Date(Date.now() + 30 * 60_000).toISOString()
+      activeVideoUploads.set(jobId, {
+        jobId,
+        did: auth.did,
+        sizeBytes,
+        mimeType,
+        name: String(body.name || `${jobId}.mp4`),
+        partSizeBytes,
+        partCount,
+        expiresAt,
+        state: 'created',
+        parts: new Map(),
+        jobStatus: null,
+      })
+      sendJson(req, res, 200, {jobId, partSizeBytes, partCount, expiresAt})
+      return true
+    }
+
+    if (nsid === 'app.bsky.video.uploadPart' && method === 'POST') {
+      const auth = getAuthedContext(req, db)
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        return true
+      }
+      const jobId = searchParams.get('jobId') || ''
+      const partNumber = Math.max(1, Number(searchParams.get('partNumber') || 1))
+      const job = activeVideoUploads.get(jobId)
+      if (!job) {
+        sendXrpcError(req, res, 404, 'NotFound', 'Video upload session not found')
+        return true
+      }
+      const chunk = await readRawBody(req, MAX_BLOB_BODY_BYTES)
+      job.parts.set(partNumber, chunk)
+      sendJson(req, res, 200, {partNumber, sizeBytes: chunk.length})
+      return true
+    }
+
+    if (nsid === 'app.bsky.video.finishUpload' && method === 'POST') {
+      const auth = getAuthedContext(req, db)
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        return true
+      }
+      const body = await readJsonBody(req)
+      const jobId = String(body.jobId || '')
+      const job = activeVideoUploads.get(jobId)
+      if (!job) {
+        sendXrpcError(req, res, 404, 'NotFound', 'Video upload session not found')
+        return true
+      }
+      const ordered = [...job.parts.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([, buf]) => buf)
+      const fullBuf = Buffer.concat(ordered)
+      const blob = storeLocalBlob(db, auth.did, fullBuf, job.mimeType)
+      saveDb(db)
+      job.parts.clear()
+      job.state = 'completed'
+      job.jobStatus = {
+        jobId,
+        did: auth.did,
+        state: 'JOB_STATE_COMPLETED',
+        progress: 100,
+        blob,
+      }
+      sendJson(req, res, 200, {
+        completedJobId: jobId,
+        jobStatus: job.jobStatus,
+      })
+      return true
+    }
+
+    if (nsid === 'app.bsky.video.getUploadStatus' && method === 'GET') {
+      const jobId = searchParams.get('jobId') || ''
+      const job = activeVideoUploads.get(jobId)
+      if (!job) {
+        sendXrpcError(req, res, 404, 'NotFound', 'Video upload session not found')
+        return true
+      }
+      sendJson(req, res, 200, {
+        jobId: job.jobId,
+        partSizeBytes: job.partSizeBytes,
+        partCount: job.partCount,
+        receivedParts: [...job.parts.keys()].sort((a, b) => a - b),
+        expiresAt: job.expiresAt,
+        state: job.state,
+        ...(job.state === 'completed'
+          ? {completedJobId: job.jobId, jobStatus: job.jobStatus}
+          : {}),
+      })
+      return true
+    }
+
+    if (nsid === 'app.bsky.video.getJobStatus' && method === 'GET') {
+      const jobId = searchParams.get('jobId') || ''
+      const job = activeVideoUploads.get(jobId)
+      if (!job || !job.jobStatus) {
+        sendXrpcError(req, res, 404, 'NotFound', 'Video job not found')
+        return true
+      }
+      sendJson(req, res, 200, {jobStatus: job.jobStatus})
+      return true
+    }
+
+    if (nsid === 'app.bsky.video.abortUpload' && method === 'POST') {
+      const body = await readJsonBody(req)
+      const jobId = String(body.jobId || '')
+      const job = activeVideoUploads.get(jobId)
+      if (job) {
+        job.parts.clear()
+        job.state = 'aborted'
+      }
+      sendJson(req, res, 200, {state: 'aborted'})
       return true
     }
 

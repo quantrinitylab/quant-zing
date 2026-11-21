@@ -314,6 +314,16 @@ function useHLS({
 
   useEffect(() => {
     if (!videoRef.current) return
+    const isHlsPlaylist = /\.m3u8(?:$|\?)/i.test(playlist)
+    if (!isHlsPlaylist) {
+      const video = videoRef.current
+      video.src = playlist
+      video.load()
+      return () => {
+        video.removeAttribute('src')
+        video.load()
+      }
+    }
     if (!Hls) return
     if (!Hls.isSupported() || !canPlayBskyVideoCodecs()) {
       throw new HLSUnsupportedError()
