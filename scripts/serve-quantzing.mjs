@@ -7,8 +7,74 @@ import {handleQuantZingPds, isQuantZingPdsRoute} from './quantzing-pds.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const distDir = path.resolve(__dirname, '..', 'dist')
+const opsPortalDir = path.resolve(__dirname, '..', 'ops-portal')
 const port = Number(process.env.PORT || 3008)
 const host = process.env.HOST || '127.0.0.1'
+
+const OPS_SECURITY_HEADERS = {
+  'x-robots-tag': 'noindex, nofollow',
+  'x-frame-options': 'DENY',
+  'referrer-policy': 'no-referrer',
+  'x-content-type-options': 'nosniff',
+  'cache-control': 'no-store',
+}
+
+function getRequestHostname(req) {
+  const raw = String(
+    req?.headers?.['x-forwarded-host'] || req?.headers?.host || '',
+  )
+    .split(',')[0]
+    .trim()
+    .toLowerCase()
+  if (!raw) return ''
+  if (raw.startsWith('[')) {
+    const endIdx = raw.indexOf(']')
+    return endIdx !== -1 ? raw.slice(1, endIdx) : raw
+  }
+  return raw.replace(/:\d+$/, '')
+}
+
+function isDedicatedOpsHost(hostname) {
+  return (
+    (hostname.startsWith('ops.') && hostname.length > 4) ||
+    (hostname.startsWith('quantzing-ops.') && hostname.length > 14)
+  )
+}
+
+export function isOpsRequestHost(req) {
+  const hostname = getRequestHostname(req)
+  if (!hostname) return false
+  if (isDedicatedOpsHost(hostname)) return true
+  if (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1'
+  ) {
+    return true
+  }
+  const extraRaw = String(process.env.QUANTZING_OPS_HOSTS || '')
+  if (extraRaw.trim()) {
+    for (const part of extraRaw.split(',')) {
+      const cleaned = part
+        .trim()
+        .toLowerCase()
+        .replace(/:\d+$/, '')
+      if (cleaned && hostname === cleaned) return true
+    }
+  }
+  return false
+}
+
+function isRestrictedOpsPath(pathname) {
+  return (
+    pathname === '/ops' ||
+    pathname.startsWith('/ops/') ||
+    pathname === '/api/quantzing/admin' ||
+    pathname.startsWith('/api/quantzing/admin/') ||
+    pathname === '/api/quantzing/ops' ||
+    pathname.startsWith('/api/quantzing/ops/')
+  )
+}
 
 const PROXY_ROUTES = [
   {
@@ -153,14 +219,19 @@ function proxyRequest(req, res, route) {
 }
 
 function resolveStaticFile(pathname) {
-  let clean = decodeURIComponent(pathname.split('?')[0])
+  let clean
+  try {
+    clean = decodeURIComponent(pathname.split('?')[0])
+  } catch {
+    return null
+  }
   if (clean.startsWith('/static/')) {
     clean = clean.slice('/static'.length)
   }
   const normalized = path.normalize(clean).replace(/^(\.\.[/\\])+/, '')
-  const candidate = path.join(distDir, normalized)
+  const candidate = path.resolve(distDir, normalized.replace(/^[/\\]+/, ''))
   if (
-    candidate.startsWith(distDir) &&
+    candidate.startsWith(`${distDir}${path.sep}`) &&
     fs.existsSync(candidate) &&
     fs.statSync(candidate).isFile()
   ) {
@@ -169,10 +240,78 @@ function resolveStaticFile(pathname) {
   return null
 }
 
+function resolveOpsStaticFile(subPathname) {
+  let clean
+  try {
+    clean = decodeURIComponent(String(subPathname || '/').split('?')[0])
+  } catch {
+    return null
+  }
+  if (clean === '/' || clean === '') {
+    clean = '/index.html'
+  }
+  const normalized = path.normalize(clean).replace(/^(\.\.[/\\])+/, '')
+  const candidate = path.resolve(opsPortalDir, normalized.replace(/^[/\\]+/, ''))
+  if (
+    candidate.startsWith(`${opsPortalDir}${path.sep}`) &&
+    fs.existsSync(candidate) &&
+    fs.statSync(candidate).isFile()
+  ) {
+    return candidate
+  }
+  return null
+}
+
+function serveOpsPortal(req, res, subPathname) {
+  const cleanSub = String(subPathname || '/').split('?')[0]
+  let filePath = resolveOpsStaticFile(cleanSub)
+  const extRequested = path.extname(cleanSub).toLowerCase()
+
+  if (!filePath) {
+    if (extRequested && extRequested !== '.html') {
+      res.writeHead(404, {
+        ...OPS_SECURITY_HEADERS,
+        'content-type': 'text/plain; charset=utf-8',
+      })
+      res.end('Not found')
+      return
+    }
+    filePath = path.join(opsPortalDir, 'index.html')
+  }
+
+  if (!fs.existsSync(filePath)) {
+    res.writeHead(503, {
+      ...OPS_SECURITY_HEADERS,
+      'content-type': 'text/plain; charset=utf-8',
+    })
+    res.end('QuantZing Ops Portal is not built/installed at ops-portal/.')
+    return
+  }
+
+  const ext = path.extname(filePath).toLowerCase()
+  const contentType = MIME[ext] || 'application/octet-stream'
+  const headers = {
+    ...OPS_SECURITY_HEADERS,
+    'content-type': contentType,
+    'x-powered-by': 'QuantZing Ops / QuantOS',
+  }
+
+  const acceptEncoding = String(req.headers['accept-encoding'] || '')
+  if (COMPRESSIBLE.has(ext) && acceptEncoding.includes('gzip')) {
+    headers['content-encoding'] = 'gzip'
+    res.writeHead(200, headers)
+    fs.createReadStream(filePath).pipe(zlib.createGzip()).pipe(res)
+  } else {
+    res.writeHead(200, headers)
+    fs.createReadStream(filePath).pipe(res)
+  }
+}
+
 const server = http.createServer((req, res) => {
   const urlPath = req.url || '/'
+  const pathname = urlPath.split('?')[0]
 
-  if (urlPath === '/health' || urlPath === '/_health') {
+  if (pathname === '/health' || pathname === '/_health') {
     res.writeHead(200, {'content-type': 'application/json; charset=utf-8'})
     res.end(
       JSON.stringify({
@@ -183,6 +322,7 @@ const server = http.createServer((req, res) => {
         blueskyUpstream: false,
         port,
         distReady: fs.existsSync(path.join(distDir, 'index.html')),
+        opsPortalReady: fs.existsSync(path.join(opsPortalDir, 'index.html')),
         proxyRoutes: PROXY_ROUTES.map(r => ({
           prefix: r.prefix,
           service: r.service,
@@ -190,6 +330,22 @@ const server = http.createServer((req, res) => {
         })),
       }),
     )
+    return
+  }
+
+  const hostname = getRequestHostname(req)
+  const isOpsHost = isOpsRequestHost(req)
+  const rootOpsHost = isOpsHost && isDedicatedOpsHost(hostname)
+
+  // Strict Host-Based Isolation: hide /ops, /api/quantzing/admin/*, /api/quantzing/ops/* on public consumer hosts
+  if (!isOpsHost && isRestrictedOpsPath(pathname)) {
+    const payload = JSON.stringify({error: 'NotFound', message: 'Not found'})
+    res.writeHead(404, {
+      'content-type': 'application/json; charset=utf-8',
+      'content-length': Buffer.byteLength(payload),
+      'cache-control': 'no-store',
+    })
+    res.end(payload)
     return
   }
 
@@ -206,7 +362,42 @@ const server = http.createServer((req, res) => {
     return
   }
 
+  // Dedicated Ops Subdomain (ops.* or quantzing-ops.*): serve ops-portal/ at root /
+  if (rootOpsHost) {
+    const subPath =
+      pathname === '/ops' || pathname === '/ops/'
+        ? '/index.html'
+        : pathname.startsWith('/ops/')
+          ? pathname.slice('/ops'.length)
+          : pathname
+    serveOpsPortal(req, res, subPath)
+    return
+  }
+
+  // Local dev / allowed ops host: serve ops-portal/ at /ops and /ops/*
+  if (isOpsHost && (pathname === '/ops' || pathname.startsWith('/ops/'))) {
+    const subPath =
+      pathname === '/ops' || pathname === '/ops/'
+        ? '/index.html'
+        : pathname.slice('/ops'.length)
+    serveOpsPortal(req, res, subPath)
+    return
+  }
+
   let filePath = resolveStaticFile(urlPath)
+
+  // Fallback for relative ops-portal assets (e.g. ./styles.css) when loaded via /ops without trailing slash
+  if (
+    !filePath &&
+    isOpsHost &&
+    String(req.headers.referer || '').includes('/ops')
+  ) {
+    const opsFallback = resolveOpsStaticFile(pathname)
+    if (opsFallback && path.basename(opsFallback) !== 'index.html') {
+      serveOpsPortal(req, res, pathname)
+      return
+    }
+  }
   const isAssetRequest =
     urlPath.startsWith('/_expo/') ||
     urlPath.startsWith('/static/_expo/') ||
@@ -260,6 +451,9 @@ server.listen(port, host, () => {
   )
   console.log(
     `[QuantZing] 100% Sovereign PDS + AppView active at /xrpc/*, /blob/*, /api/quantzing/* (zero external Bluesky calls)`,
+  )
+  console.log(
+    `[QuantZing] Employee Ops Portal active at http://localhost:${port}/ops (and root / on ops.* / quantzing-ops.* hosts)`,
   )
   console.log(
     `[QuantZing] Same-origin QuantOS proxy active: /api/quant-ai -> :${PROXY_ROUTES[0].targetPort}, /api/quant-router -> :${PROXY_ROUTES[1].targetPort}, /api/quant-pay -> :${PROXY_ROUTES[2].targetPort}`,

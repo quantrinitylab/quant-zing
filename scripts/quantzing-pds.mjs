@@ -94,6 +94,8 @@ function createEmptyDb() {
     labels: {},
     mutes: {},
     auditLog: [],
+    pendingApprovals: [],
+    staffInvites: [],
   }
 }
 
@@ -168,7 +170,7 @@ function base64UrlDecodeJson(segment) {
   return JSON.parse(raw)
 }
 
-function signJwt(db, {did, scope, ttlSeconds}) {
+function signJwt(db, {did, scope, ttlSeconds, tv}) {
   const now = Math.floor(Date.now() / 1000)
   const header = base64UrlEncode(JSON.stringify({alg: 'HS256', typ: 'at+jwt'}))
   const payload = base64UrlEncode(
@@ -179,6 +181,7 @@ function signJwt(db, {did, scope, ttlSeconds}) {
       iat: now,
       exp: now + ttlSeconds,
       jti: crypto.randomBytes(12).toString('hex'),
+      tv: Number(tv) || 1,
     }),
   )
   const signingInput = `${header}.${payload}`
@@ -190,16 +193,19 @@ function signJwt(db, {did, scope, ttlSeconds}) {
 }
 
 function mintTokens(db, did) {
+  const tv = Number(db.accounts?.[did]?.tokenVersion) || 1
   return {
     accessJwt: signJwt(db, {
       did,
       scope: 'com.atproto.access',
       ttlSeconds: 30 * 24 * 60 * 60,
+      tv,
     }),
     refreshJwt: signJwt(db, {
       did,
       scope: 'com.atproto.refresh',
       ttlSeconds: 90 * 24 * 60 * 60,
+      tv,
     }),
   }
 }
@@ -548,7 +554,11 @@ function ensureSovereignGenesis(db) {
         passwordHash: 'system',
         createdAt: spec.createdAt,
         active: true,
-        role: spec.did === QUANTZING_OFFICIAL_DID ? 'admin' : 'user',
+        role: spec.did === QUANTZING_OFFICIAL_DID ? 'super_admin' : 'user',
+        department: spec.did === QUANTZING_OFFICIAL_DID ? 'Leadership' : '',
+        tokenVersion: 1,
+        offboardedAt: null,
+        lastOpsLoginAt: null,
         status: 'active',
         statusReason: '',
         suspendedUntil: null,
@@ -808,11 +818,15 @@ function getAdminHelpers() {
     sendXrpcError,
     readJsonBody,
     getAuthedContext,
+    signJwt,
+    mintTokens,
+    createPlcDid,
     findLocalAccount,
     findLocalPostByUri,
     verifyPassword,
     hashPassword,
     normalizeHandle,
+    isValidHandleFormat,
     parseAtUri,
     generateTid,
     computeCid,
@@ -822,6 +836,7 @@ function getAdminHelpers() {
     blobUrl,
     getCollectionMap,
     getAllLocalRecords,
+    putLocalRecord,
     countLocalInteractions,
     createDefaultPreferences,
     createDefaultNotificationPreferences,
@@ -867,6 +882,12 @@ function loadDb() {
         mutes:
           parsed.mutes && typeof parsed.mutes === 'object' ? parsed.mutes : {},
         auditLog: Array.isArray(parsed.auditLog) ? parsed.auditLog : [],
+        pendingApprovals: Array.isArray(parsed.pendingApprovals)
+          ? parsed.pendingApprovals
+          : [],
+        staffInvites: Array.isArray(parsed.staffInvites)
+          ? parsed.staffInvites
+          : [],
       }
       cachedDbPath = dbPath
       if (ensureSovereignGenesis(cachedDb)) {
@@ -998,15 +1019,62 @@ function extractBearerToken(req) {
   return match ? match[1].trim() : null
 }
 
-function getAuthedContext(req, db, {expectedScope = null} = {}) {
+function getAuthedContext(
+  req,
+  db,
+  {expectedScope = null, allowedScopes = null} = {},
+) {
   const token = extractBearerToken(req)
-  if (!token) return {error: 'AuthenticationRequired', status: 401}
+  if (!token) {
+    return {
+      error: 'AuthenticationRequired',
+      status: 401,
+      message: 'Authentication required',
+    }
+  }
   const verified = verifyJwt(db, token, expectedScope)
   if (!verified) {
-    return {error: 'InvalidToken', status: 401}
+    return {
+      error: 'InvalidToken',
+      status: 401,
+      message: 'Invalid token',
+    }
   }
   if (verified.expired) {
-    return {error: 'ExpiredToken', status: 400}
+    return {
+      error: 'ExpiredToken',
+      status: 400,
+      message: 'Token has expired',
+    }
+  }
+  const tokenTv = Number(verified.payload.tv) || 1
+  const accountTv = Number(verified.account.tokenVersion) || 1
+  if (tokenTv !== accountTv) {
+    return {
+      error: 'InvalidToken',
+      status: 401,
+      message: 'Session has been revoked',
+    }
+  }
+  if (Array.isArray(allowedScopes) && allowedScopes.length > 0) {
+    if (!allowedScopes.includes(verified.payload.scope)) {
+      return {
+        error: 'InvalidToken',
+        status: 401,
+        message: 'Invalid token scope',
+      }
+    }
+  } else if (!expectedScope) {
+    if (
+      verified.payload.scope !== 'com.atproto.access' &&
+      verified.payload.scope !== 'quantzing.ops'
+    ) {
+      return {
+        error: 'InvalidToken',
+        status: 401,
+        message: 'Invalid token scope',
+      }
+    }
   }
   return {
     token,
@@ -1021,6 +1089,15 @@ function getOptionalViewerDid(req, db) {
   if (!token) return null
   const verified = verifyJwt(db, token)
   if (!verified || verified.expired) return null
+  const tokenTv = Number(verified.payload.tv) || 1
+  const accountTv = Number(verified.account.tokenVersion) || 1
+  if (tokenTv !== accountTv) return null
+  if (
+    verified.payload.scope !== 'com.atproto.access' &&
+    verified.payload.scope !== 'quantzing.ops'
+  ) {
+    return null
+  }
   return verified.account.did
 }
 
@@ -2598,7 +2675,9 @@ export async function handleQuantZingPds(req, res) {
   if (
     pathname === '/api/quantzing/appeals' ||
     pathname === '/api/quantzing/admin' ||
-    pathname.startsWith('/api/quantzing/admin/')
+    pathname.startsWith('/api/quantzing/admin/') ||
+    pathname === '/api/quantzing/ops' ||
+    pathname.startsWith('/api/quantzing/ops/')
   ) {
     return await handleQuantZingAdmin(req, res, {
       db,
@@ -2848,7 +2927,11 @@ export async function handleQuantZingPds(req, res) {
         passwordHash: hash,
         createdAt,
         active: true,
-        role: isConfiguredAdminHandle(handle) ? 'admin' : 'user',
+        role: isConfiguredAdminHandle(handle) ? 'super_admin' : 'user',
+        department: isConfiguredAdminHandle(handle) ? 'Leadership' : '',
+        tokenVersion: 1,
+        offboardedAt: null,
+        lastOpsLoginAt: null,
         status: 'active',
         statusReason: '',
         suspendedUntil: null,
@@ -2966,7 +3049,7 @@ export async function handleQuantZingPds(req, res) {
           res,
           auth.status,
           auth.error,
-          'Authentication required',
+          auth.message || 'Authentication required',
         )
         return true
       }
@@ -2993,7 +3076,7 @@ export async function handleQuantZingPds(req, res) {
           res,
           auth.status,
           auth.error,
-          'Invalid refresh token',
+          auth.message || 'Invalid refresh token',
         )
         return true
       }
@@ -3021,7 +3104,13 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'com.atproto.server.deleteSession' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, db, {
+        allowedScopes: [
+          'com.atproto.access',
+          'com.atproto.refresh',
+          'quantzing.ops',
+        ],
+      })
       if (auth.payload?.jti) {
         db.revokedTokens.push(auth.payload.jti)
         if (db.revokedTokens.length > 500) {
@@ -3041,7 +3130,7 @@ export async function handleQuantZingPds(req, res) {
           res,
           auth.status,
           auth.error,
-          'Authentication required',
+          auth.message || 'Authentication required',
         )
         return true
       }
@@ -3070,7 +3159,7 @@ export async function handleQuantZingPds(req, res) {
           res,
           auth.status,
           auth.error,
-          'Authentication required',
+          auth.message || 'Authentication required',
         )
         return true
       }
@@ -3078,6 +3167,7 @@ export async function handleQuantZingPds(req, res) {
         did: auth.did,
         scope: 'com.atproto.serviceAuth',
         ttlSeconds: 300,
+        tv: Number(auth.account?.tokenVersion) || 1,
       })
       sendJson(req, res, 200, {token})
       return true
@@ -4687,6 +4777,9 @@ export async function handleQuantZingPds(req, res) {
         subjectDid,
         subjectCid,
         status: 'open',
+        claimedByDid: null,
+        claimedByHandle: null,
+        claimedAt: null,
       })
       saveDb(db)
 

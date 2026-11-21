@@ -4,7 +4,7 @@ import path from 'node:path'
 import zlib from 'node:zlib'
 
 // ---------------------------------------------------------------------------
-// QuantZing Sovereign Admin, Trust & Safety, Moderation & Rate Limiter Module
+// QuantZing Enterprise Employee Ops, Granular RBAC, Trust & Safety & Rate Limiter
 // Zero external dependencies (Node built-ins only)
 // ---------------------------------------------------------------------------
 
@@ -14,8 +14,266 @@ export const FOUNDER_EMAIL = 'founder@quantzing.com'
 export const MOD_LABELER_DID = 'did:plc:quantzingmod000000000000'
 
 const MAX_AUDIT_LOG_ENTRIES = 5000
+const OPS_SESSION_TTL_SECONDS = 8 * 3600
 const STRONG_PASSWORD_ALPHABET =
   'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789-_+=@#'
+
+// ---------------------------------------------------------------------------
+// 5 Granular Department Roles & Permission Matrix
+// ---------------------------------------------------------------------------
+
+export const ROLE_PERMISSIONS = {
+  super_admin: [
+    'overview.read',
+    'reports.read',
+    'reports.claim',
+    'reports.takedown',
+    'reports.label',
+    'reports.enforce',
+    'posts.read',
+    'posts.moderate',
+    'users.read',
+    'users.inspect',
+    'users.pii_full',
+    'users.verify',
+    'users.enforce',
+    'appeals.read',
+    'appeals.resolve',
+    'approvals.read',
+    'approvals.review',
+    'staff.read',
+    'staff.manage',
+    'audit.read',
+    'backups.manage',
+  ],
+  l2_trust_safety: [
+    'overview.read',
+    'reports.read',
+    'reports.claim',
+    'reports.takedown',
+    'reports.label',
+    'reports.enforce',
+    'posts.read',
+    'posts.moderate',
+    'users.read',
+    'users.inspect',
+    'users.enforce',
+    'appeals.read',
+    'appeals.resolve',
+    'approvals.read',
+    'audit.read',
+  ],
+  l1_moderator: [
+    'overview.read',
+    'reports.read',
+    'reports.claim',
+    'reports.takedown',
+    'reports.label',
+    'posts.read',
+    'posts.moderate',
+  ],
+  verification_ops: [
+    'overview.read',
+    'users.read',
+    'users.inspect',
+    'users.verify',
+  ],
+  support_agent: [
+    'overview.read',
+    'users.read',
+    'users.inspect',
+    'appeals.read',
+  ],
+}
+
+export const STAFF_ROLES = new Set(Object.keys(ROLE_PERMISSIONS))
+
+const ROLE_DEFAULT_DEPARTMENT = {
+  super_admin: 'Leadership',
+  l2_trust_safety: 'Trust & Safety',
+  l1_moderator: 'Content Moderation',
+  verification_ops: 'Verification',
+  support_agent: 'Support',
+  user: '',
+}
+
+const ROLE_SORT_ORDER = {
+  super_admin: 0,
+  l2_trust_safety: 1,
+  l1_moderator: 2,
+  verification_ops: 3,
+  support_agent: 4,
+  user: 5,
+}
+
+export const ROLE_META = {
+  super_admin: {
+    id: 'super_admin',
+    label: 'Super Admin',
+    department: 'Leadership',
+    description:
+      'Full sovereign platform control, Four-Eyes approval authority, staff lifecycle, PII access, and backups.',
+    permissions: ROLE_PERMISSIONS.super_admin,
+  },
+  l2_trust_safety: {
+    id: 'l2_trust_safety',
+    label: 'L2 Trust & Safety',
+    department: 'Trust & Safety',
+    description:
+      'Account enforcement, appeals resolution, escalations, and audit log review. High-profile enforcements require Four-Eyes approval.',
+    permissions: ROLE_PERMISSIONS.l2_trust_safety,
+  },
+  l1_moderator: {
+    id: 'l1_moderator',
+    label: 'L1 Moderator',
+    department: 'Content Moderation',
+    description:
+      'Shift queue report triage, post takedowns, and content labeling. No account enforcement or user PII access.',
+    permissions: ROLE_PERMISSIONS.l1_moderator,
+  },
+  verification_ops: {
+    id: 'verification_ops',
+    label: 'Verification Ops',
+    department: 'Verification',
+    description:
+      'Identity review, reason-logged account inspection, and verified badge management.',
+    permissions: ROLE_PERMISSIONS.verification_ops,
+  },
+  support_agent: {
+    id: 'support_agent',
+    label: 'Support Agent',
+    department: 'Support',
+    description:
+      'Appeals queue triage and reason-logged user account inspection with masked PII.',
+    permissions: ROLE_PERMISSIONS.support_agent,
+  },
+}
+
+const VALID_ROLE_INPUTS = new Map([
+  ['super_admin', 'super_admin'],
+  ['admin', 'super_admin'],
+  ['l2_trust_safety', 'l2_trust_safety'],
+  ['moderator', 'l2_trust_safety'],
+  ['l1_moderator', 'l1_moderator'],
+  ['verification_ops', 'verification_ops'],
+  ['support_agent', 'support_agent'],
+  ['user', 'user'],
+])
+
+export function normalizeRole(raw) {
+  const key = String(raw || '')
+    .trim()
+    .toLowerCase()
+  return VALID_ROLE_INPUTS.get(key) || 'user'
+}
+
+export function isStaffRole(role) {
+  return STAFF_ROLES.has(normalizeRole(role))
+}
+
+export function defaultDepartmentForRole(role) {
+  return ROLE_DEFAULT_DEPARTMENT[normalizeRole(role)] || ''
+}
+
+export function getPermissionsForRole(role) {
+  const norm = normalizeRole(role)
+  return ROLE_PERMISSIONS[norm] ? [...ROLE_PERMISSIONS[norm]] : []
+}
+
+export function hasPermission(role, permission) {
+  const norm = normalizeRole(role)
+  const list = ROLE_PERMISSIONS[norm]
+  if (!Array.isArray(list)) return false
+  return list.includes(permission)
+}
+
+export function isProtectedAccount(account) {
+  if (!account || typeof account !== 'object') return false
+  return Boolean(
+    account.verified === true ||
+      account.isOfficial === true ||
+      isStaffRole(account.role),
+  )
+}
+
+export function maskEmailForRole(email, role) {
+  const norm = normalizeRole(role)
+  if (norm === 'super_admin') {
+    return String(email || '')
+  }
+  if (norm === 'l1_moderator' || !isStaffRole(norm)) {
+    return '[redacted]'
+  }
+  const str = String(email || '').trim()
+  if (!str) return ''
+  const atIdx = str.indexOf('@')
+  if (atIdx <= 0) return '[redacted]'
+  const local = str.slice(0, atIdx)
+  const domain = str.slice(atIdx + 1)
+  if (local.length <= 2) {
+    return `${local[0]}***@${domain}`
+  }
+  return `${local[0]}***${local[local.length - 1]}@${domain}`
+}
+
+// ---------------------------------------------------------------------------
+// Host-Based Isolation (Public Consumer App vs Employee Ops Portal)
+// ---------------------------------------------------------------------------
+
+function getRequestHostname(req) {
+  const raw = String(
+    req?.headers?.['x-forwarded-host'] || req?.headers?.host || '',
+  )
+    .split(',')[0]
+    .trim()
+    .toLowerCase()
+  if (!raw) return ''
+  if (raw.startsWith('[')) {
+    const endIdx = raw.indexOf(']')
+    return endIdx !== -1 ? raw.slice(1, endIdx) : raw
+  }
+  return raw.replace(/:\d+$/, '')
+}
+
+function isDedicatedOpsHost(hostname) {
+  return (
+    (hostname.startsWith('ops.') && hostname.length > 4) ||
+    (hostname.startsWith('quantzing-ops.') && hostname.length > 14)
+  )
+}
+
+export function isOpsRequestHost(req) {
+  const hostname = getRequestHostname(req)
+  if (!hostname) return false
+  if (isDedicatedOpsHost(hostname)) return true
+  if (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1'
+  ) {
+    return true
+  }
+  const extraRaw = String(process.env.QUANTZING_OPS_HOSTS || '')
+  if (extraRaw.trim()) {
+    for (const part of extraRaw.split(',')) {
+      const cleaned = part
+        .trim()
+        .toLowerCase()
+        .replace(/:\d+$/, '')
+      if (cleaned && hostname === cleaned) return true
+    }
+  }
+  return false
+}
+
+function buildInviteUrl(req, origin, token) {
+  const hostname = getRequestHostname(req)
+  const baseOrigin = String(origin || '').replace(/\/+$/, '')
+  if (isDedicatedOpsHost(hostname)) {
+    return `${baseOrigin}/?invite=${encodeURIComponent(token)}`
+  }
+  return `${baseOrigin}/ops?invite=${encodeURIComponent(token)}`
+}
 
 // ---------------------------------------------------------------------------
 // Sliding-Window Rate Limiter (Zero Dependencies)
@@ -108,7 +366,11 @@ export function enforceRateLimit(
   res,
   {bucketKey, maxRequests, windowMs, auth = null, sendJson},
 ) {
-  if (auth && !auth.error && auth.account?.role === 'admin') {
+  if (
+    auth &&
+    !auth.error &&
+    normalizeRole(auth.account?.role) === 'super_admin'
+  ) {
     return false
   }
   const rl = checkRateLimit(bucketKey, maxRequests, windowMs)
@@ -172,6 +434,14 @@ function generateStrongPassword(length = 24) {
   return out
 }
 
+function safeTokenEquals(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false
+  const bufA = Buffer.from(a, 'utf8')
+  const bufB = Buffer.from(b, 'utf8')
+  if (bufA.length !== bufB.length) return false
+  return crypto.timingSafeEqual(bufA, bufB)
+}
+
 // ---------------------------------------------------------------------------
 // DB Schema Extensions & Founder Admin Bootstrap
 // ---------------------------------------------------------------------------
@@ -186,6 +456,14 @@ export function ensureAdminState(db, helpers) {
   }
   if (!Array.isArray(db.appeals)) {
     db.appeals = []
+    mutated = true
+  }
+  if (!Array.isArray(db.pendingApprovals)) {
+    db.pendingApprovals = []
+    mutated = true
+  }
+  if (!Array.isArray(db.staffInvites)) {
+    db.staffInvites = []
     mutated = true
   }
   if (!db.takedowns || typeof db.takedowns !== 'object') {
@@ -278,7 +556,11 @@ export function ensureAdminState(db, helpers) {
       passwordHash: hash,
       createdAt,
       active: true,
-      role: 'admin',
+      role: 'super_admin',
+      department: 'Leadership',
+      tokenVersion: 1,
+      offboardedAt: null,
+      lastOpsLoginAt: null,
       status: 'active',
       statusReason: '',
       suspendedUntil: null,
@@ -298,8 +580,12 @@ export function ensureAdminState(db, helpers) {
     db.accounts[FOUNDER_DID] = founderAcc
     mutated = true
   } else {
-    if (founderAcc.role !== 'admin') {
-      founderAcc.role = 'admin'
+    if (founderAcc.role !== 'super_admin') {
+      founderAcc.role = 'super_admin'
+      mutated = true
+    }
+    if (founderAcc.department !== 'Leadership') {
+      founderAcc.department = 'Leadership'
       mutated = true
     }
     if (!founderAcc.isOfficial) {
@@ -343,33 +629,59 @@ export function ensureAdminState(db, helpers) {
     mutated = true
   }
 
-  // Ensure @quantzing.quantzing.com has role: 'admin'
+  // Ensure @quantzing.quantzing.com has role: 'super_admin', department: 'Leadership'
   const officialAcc = db.accounts[helpers.QUANTZING_OFFICIAL_DID]
-  if (officialAcc && officialAcc.role !== 'admin') {
-    officialAcc.role = 'admin'
-    mutated = true
+  if (officialAcc) {
+    if (officialAcc.role !== 'super_admin') {
+      officialAcc.role = 'super_admin'
+      mutated = true
+    }
+    if (officialAcc.department !== 'Leadership') {
+      officialAcc.department = 'Leadership'
+      mutated = true
+    }
   }
 
   const configuredAdminHandles = getConfiguredAdminHandles()
 
-  // Backfill required moderation/admin fields on all existing accounts
+  // Backfill required moderation, RBAC & ops fields on all existing accounts
   for (const acc of Object.values(db.accounts)) {
     if (!acc || typeof acc !== 'object') continue
-    if (
-      acc.role !== 'admin' &&
-      acc.role !== 'moderator' &&
-      acc.role !== 'user'
-    ) {
-      acc.role = 'user'
+    const normalizedRole = normalizeRole(acc.role)
+    if (acc.role !== normalizedRole) {
+      acc.role = normalizedRole
       mutated = true
     }
     if (
       configuredAdminHandles.size > 0 &&
       acc.handle &&
       configuredAdminHandles.has(acc.handle.toLowerCase()) &&
-      acc.role !== 'admin'
+      acc.role !== 'super_admin'
     ) {
-      acc.role = 'admin'
+      acc.role = 'super_admin'
+      mutated = true
+    }
+    if (
+      typeof acc.tokenVersion !== 'number' ||
+      !Number.isFinite(acc.tokenVersion) ||
+      acc.tokenVersion < 1
+    ) {
+      acc.tokenVersion = 1
+      mutated = true
+    }
+    if (
+      typeof acc.department !== 'string' ||
+      (isStaffRole(acc.role) && !acc.department.trim())
+    ) {
+      acc.department = defaultDepartmentForRole(acc.role)
+      mutated = true
+    }
+    if (acc.offboardedAt === undefined) {
+      acc.offboardedAt = null
+      mutated = true
+    }
+    if (acc.lastOpsLoginAt === undefined) {
+      acc.lastOpsLoginAt = null
       mutated = true
     }
     if (
@@ -502,16 +814,28 @@ export function isPostHiddenForViewer(db, postRec, viewerDid, getCollectionMap) 
 // Audit Log & Label Helpers
 // ---------------------------------------------------------------------------
 
-export function recordAudit(db, auth, action, target, details = {}) {
+export function recordAudit(
+  db,
+  auth,
+  action,
+  target,
+  details = {},
+  req = null,
+) {
   db.auditLog = Array.isArray(db.auditLog) ? db.auditLog : []
+  const ip = req ? getClientIp(req) : details?.ip || '127.0.0.1'
+  const cleanDetails =
+    details && typeof details === 'object' ? {...details, ip} : {ip}
   const entry = {
     id: `aud_${Date.now().toString(36)}_${crypto.randomBytes(4).toString('hex')}`,
     timestamp: new Date().toISOString(),
     actorDid: auth?.did || 'system',
     actorHandle: auth?.account?.handle || 'system',
+    actorRole: auth?.account ? normalizeRole(auth.account.role) : 'system',
+    ip,
     action: String(action || ''),
     target: String(target || ''),
-    details: details && typeof details === 'object' ? details : {},
+    details: cleanDetails,
   }
   db.auditLog.push(entry)
   if (db.auditLog.length > MAX_AUDIT_LOG_ENTRIES) {
@@ -575,6 +899,10 @@ function formatReportView(db, r, origin, helpers) {
     subjectType: r.subjectType || (r.subjectUri ? 'post' : 'account'),
     subjectUri: r.subjectUri || null,
     subjectDid: subjectDid || null,
+    claimedByDid: r.claimedByDid || null,
+    claimedByHandle: r.claimedByHandle || null,
+    claimedAt: r.claimedAt || null,
+    pendingApprovalId: r.pendingApprovalId || null,
     resolutionAction: r.resolutionAction || null,
     resolutionNote: r.resolutionNote || null,
     resolvedBy: r.resolvedBy || null,
@@ -605,8 +933,11 @@ function formatReportView(db, r, origin, helpers) {
           avatar:
             helpers.blobUrl(origin, subjectAcc.did, subjectAcc.profile?.avatar) ||
             null,
+          role: normalizeRole(subjectAcc.role),
           status: subjectAcc.status || 'active',
           verified: Boolean(subjectAcc.verified),
+          isOfficial: Boolean(subjectAcc.isOfficial),
+          isProtected: isProtectedAccount(subjectAcc),
         }
       : null,
     subjectPost: postRec
@@ -631,18 +962,36 @@ function formatReportView(db, r, origin, helpers) {
   }
 }
 
-function formatAdminUser(db, acc, origin, followersCount, helpers) {
+function formatAppealView(db, a) {
+  const acc = db.accounts[a.appellantDid]
+  return {
+    ...a,
+    claimedByDid: a.claimedByDid || null,
+    claimedByHandle: a.claimedByHandle || null,
+    claimedAt: a.claimedAt || null,
+    appellantStatus: acc?.status || 'active',
+    appellantDisplayName:
+      acc?.profile?.displayName ||
+      a.appellantHandle?.split('.')[0] ||
+      a.appellantDid,
+  }
+}
+
+function formatAdminUser(db, acc, origin, followersCount, helpers, viewerRole) {
   return {
     did: acc.did,
     handle: acc.handle,
     displayName: acc.profile?.displayName || acc.handle.split('.')[0],
-    email: acc.email || '',
+    email: maskEmailForRole(acc.email || '', viewerRole),
     avatar: helpers.blobUrl(origin, acc.did, acc.profile?.avatar) || null,
-    role: acc.role || 'user',
+    role: normalizeRole(acc.role),
+    department: acc.department || '',
     status: acc.status || 'active',
     statusReason: acc.statusReason || '',
     suspendedUntil: acc.suspendedUntil || null,
     verified: Boolean(acc.verified),
+    isOfficial: Boolean(acc.isOfficial),
+    isProtected: isProtectedAccount(acc),
     warningsCount: Array.isArray(acc.warnings) ? acc.warnings.length : 0,
     postsCount: Object.keys(
       helpers.getCollectionMap(db, acc.did, 'app.bsky.feed.post'),
@@ -674,15 +1023,21 @@ function buildDailySeries(isoDates, days = 14) {
   return keys.map(date => ({date, count: counts.get(date) || 0}))
 }
 
-function requireStaffAuth(req, res, db, helpers, {requireAdmin = false} = {}) {
-  const auth = helpers.getAuthedContext(req, db)
+// ---------------------------------------------------------------------------
+// RBAC Authentication & Permission Enforcement
+// ---------------------------------------------------------------------------
+
+function requirePermission(req, res, db, helpers, perm = null) {
+  const auth = helpers.getAuthedContext(req, db, {
+    allowedScopes: ['com.atproto.access', 'quantzing.ops'],
+  })
   if (auth.error) {
     helpers.sendXrpcError(
       req,
       res,
-      401,
+      auth.status || 401,
       auth.error,
-      'Authentication required',
+      auth.message || 'Authentication required',
     )
     return null
   }
@@ -693,30 +1048,36 @@ function requireStaffAuth(req, res, db, helpers, {requireAdmin = false} = {}) {
     helpers.sendXrpcError(req, res, enf.status, enf.error, enf.message)
     return null
   }
-  const role = auth.account.role || 'user'
-  if (requireAdmin) {
-    if (role !== 'admin') {
-      helpers.sendXrpcError(
-        req,
-        res,
-        403,
-        'Forbidden',
-        'Admin role required',
-      )
-      return null
-    }
-  } else if (role !== 'admin' && role !== 'moderator') {
+  const role = normalizeRole(auth.account.role)
+  if (!isStaffRole(role)) {
     helpers.sendXrpcError(
       req,
       res,
       403,
       'Forbidden',
-      'Admin or moderator role required',
+      'Authorized QuantZing staff account required',
     )
     return null
   }
+  if (perm && !hasPermission(role, perm)) {
+    helpers.sendXrpcError(
+      req,
+      res,
+      403,
+      'Forbidden',
+      `Insufficient permissions: requires ${perm}`,
+    )
+    return null
+  }
+  auth.role = role
+  auth.department = auth.account.department || defaultDepartmentForRole(role)
+  auth.permissions = getPermissionsForRole(role)
   return auth
 }
+
+// ---------------------------------------------------------------------------
+// Enforcement & Four-Eyes Dual Approval Primitives
+// ---------------------------------------------------------------------------
 
 function applyUserAccountSuspension(db, target, {reason, suspendHours, by}) {
   const hours =
@@ -768,9 +1129,87 @@ function applyUserAccountWarn(target, {reason, by, generateTid}) {
   target.statusReason = reason || 'Policy warning'
 }
 
+function queueFourEyesApproval(
+  req,
+  res,
+  db,
+  auth,
+  helpers,
+  {action, target, reason, suspendHours = null, report = null},
+) {
+  const now = new Date().toISOString()
+  const normalizedHours =
+    action === 'suspend'
+      ? Number.isFinite(Number(suspendHours)) && Number(suspendHours) > 0
+        ? Number(suspendHours)
+        : 24
+      : null
+
+  db.pendingApprovals = Array.isArray(db.pendingApprovals)
+    ? db.pendingApprovals
+    : []
+
+  const approval = {
+    id: `apr_${helpers.generateTid()}`,
+    createdAt: now,
+    status: 'pending',
+    action,
+    targetDid: target.did,
+    targetHandle: target.handle,
+    targetDisplayName:
+      target.profile?.displayName || target.handle.split('.')[0],
+    targetVerified: Boolean(target.verified),
+    requestedByDid: auth.did,
+    requestedByHandle: auth.account.handle,
+    requestedByRole: auth.role,
+    reason:
+      reason ||
+      (action === 'ban'
+        ? 'High-profile ban request'
+        : 'High-profile suspension request'),
+    suspendHours: normalizedHours,
+    reportId: report ? report.id : null,
+    reviewedByDid: null,
+    reviewedByHandle: null,
+    reviewedAt: null,
+    reviewNote: null,
+  }
+
+  db.pendingApprovals.push(approval)
+  if (report) {
+    report.pendingApprovalId = approval.id
+  }
+
+  recordAudit(
+    db,
+    auth,
+    'approval.requested',
+    approval.id,
+    {
+      action,
+      targetDid: target.did,
+      targetHandle: target.handle,
+      targetVerified: Boolean(target.verified),
+      reason: approval.reason,
+      suspendHours: normalizedHours,
+      reportId: approval.reportId,
+    },
+    req,
+  )
+
+  helpers.saveDb(db)
+  helpers.sendJson(req, res, 202, {
+    ok: true,
+    pendingApproval: true,
+    message:
+      'High-profile account action queued for Super-Admin Four-Eyes approval',
+    approval,
+  })
+}
+
 // ---------------------------------------------------------------------------
-// Sovereign Admin & Appeals REST API Router
-// Handles /api/quantzing/admin/* and /api/quantzing/appeals
+// Enterprise Employee Ops, Admin & Appeals REST API Router
+// Handles /api/quantzing/admin/*, /api/quantzing/ops/*, and /api/quantzing/appeals
 // ---------------------------------------------------------------------------
 
 export async function handleQuantZingAdmin(req, res, ctx) {
@@ -779,15 +1218,18 @@ export async function handleQuantZingAdmin(req, res, ctx) {
   const isAdminRoute =
     pathname === '/api/quantzing/admin' ||
     pathname.startsWith('/api/quantzing/admin/')
+  const isOpsRoute =
+    pathname === '/api/quantzing/ops' ||
+    pathname.startsWith('/api/quantzing/ops/')
   const isAppealsRoute = pathname === '/api/quantzing/appeals'
 
-  if (!isAdminRoute && !isAppealsRoute) {
+  if (!isAdminRoute && !isOpsRoute && !isAppealsRoute) {
     return false
   }
 
   try {
     // -----------------------------------------------------------------------
-    // 9. POST /api/quantzing/appeals (User-facing; Bearer JWT OR credentials)
+    // User-facing POST /api/quantzing/appeals (Allowed on ALL hosts!)
     // -----------------------------------------------------------------------
     if (isAppealsRoute) {
       if (method !== 'POST') {
@@ -877,6 +1319,9 @@ export async function handleQuantZingAdmin(req, res, ctx) {
         subjectUri,
         message: message.slice(0, 4000),
         status: 'open',
+        claimedByDid: null,
+        claimedByHandle: null,
+        claimedAt: null,
         resolvedBy: null,
         resolvedAt: null,
         resolutionNote: null,
@@ -888,40 +1333,484 @@ export async function handleQuantZingAdmin(req, res, ctx) {
     }
 
     // -----------------------------------------------------------------------
-    // 1. GET /api/quantzing/admin/me (Always 200; never leaks data if guest)
+    // Host-Based Isolation Guard: /api/quantzing/admin/* & /api/quantzing/ops/*
+    // MUST return 404 on public consumer hosts so internal APIs are invisible
     // -----------------------------------------------------------------------
-    if (pathname === '/api/quantzing/admin/me' && method === 'GET') {
-      const auth = helpers.getAuthedContext(req, db)
-      if (auth.error || !auth.account) {
-        helpers.sendJson(req, res, 200, {
-          ok: true,
-          isAdmin: false,
-          isStaff: false,
-          role: 'guest',
-          did: null,
-          handle: null,
+    if (!isOpsRequestHost(req)) {
+      helpers.sendXrpcError(req, res, 404, 'NotFound', 'Not found')
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // OPS-1. POST /api/quantzing/ops/login (Dedicated 8h Staff Session Login)
+    // -----------------------------------------------------------------------
+    if (pathname === '/api/quantzing/ops/login' && method === 'POST') {
+      if (
+        enforceRateLimit(req, res, {
+          bucketKey: `login:${getClientIp(req)}`,
+          maxRequests: Number(process.env.QUANTZING_RATE_LIMIT_LOGIN_MAX) || 40,
+          windowMs: 15 * 60 * 1000,
+          auth: null,
+          sendJson: helpers.sendJson,
         })
+      ) {
         return true
       }
-      const role = auth.account.role || 'user'
-      const isAdmin = role === 'admin'
-      const isStaff = role === 'admin' || role === 'moderator'
+
+      const body = await helpers.readJsonBody(req)
+      const identifier = String(body.identifier || '').trim()
+      const password = typeof body.password === 'string' ? body.password : ''
+
+      if (!identifier || !password) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          401,
+          'AuthenticationRequired',
+          'Invalid identifier or password',
+        )
+        return true
+      }
+
+      const account = helpers.findLocalAccount(db, identifier)
+      if (
+        !account ||
+        !helpers.verifyPassword(
+          password,
+          account.passwordSalt,
+          account.passwordHash,
+        )
+      ) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          401,
+          'AuthenticationRequired',
+          'Invalid identifier or password',
+        )
+        return true
+      }
+
+      const enf = checkAccountEnforcement(db, account, {saveDb: helpers.saveDb})
+      if (!enf.allowed) {
+        helpers.sendXrpcError(req, res, enf.status, enf.error, enf.message)
+        return true
+      }
+
+      const role = normalizeRole(account.role)
+      if (!isStaffRole(role)) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          403,
+          'Forbidden',
+          'Authorized QuantZing staff account required',
+        )
+        return true
+      }
+
+      const nowMs = Date.now()
+      const nowIso = new Date(nowMs).toISOString()
+      const expiresAt = new Date(
+        nowMs + OPS_SESSION_TTL_SECONDS * 1000,
+      ).toISOString()
+      const accessJwt = helpers.signJwt(db, {
+        did: account.did,
+        scope: 'quantzing.ops',
+        ttlSeconds: OPS_SESSION_TTL_SECONDS,
+        tv: Number(account.tokenVersion) || 1,
+      })
+
+      account.lastOpsLoginAt = nowIso
+      const department = account.department || defaultDepartmentForRole(role)
+      const cfAccessEmail =
+        String(req.headers['cf-access-authenticated-user-email'] || '').trim() ||
+        null
+
+      recordAudit(
+        db,
+        {did: account.did, account},
+        'staff.login',
+        account.did,
+        {
+          role,
+          department,
+          cfAccessEmail,
+          expiresAt,
+        },
+        req,
+      )
+
+      helpers.saveDb(db)
       helpers.sendJson(req, res, 200, {
         ok: true,
-        isAdmin,
-        isStaff,
-        role,
-        did: auth.did,
-        handle: auth.account.handle,
+        accessJwt,
+        expiresAt,
+        staff: {
+          did: account.did,
+          handle: account.handle,
+          displayName:
+            account.profile?.displayName || account.handle.split('.')[0],
+          email: account.email || '',
+          role,
+          department,
+          permissions: getPermissionsForRole(role),
+          cfAccessEmail,
+        },
       })
       return true
     }
 
     // -----------------------------------------------------------------------
-    // 2. GET /api/quantzing/admin/overview
+    // OPS-2. GET /api/quantzing/ops/invite-info?token=... (Ops-host, unauthed)
+    // -----------------------------------------------------------------------
+    if (pathname === '/api/quantzing/ops/invite-info' && method === 'GET') {
+      const token = String(searchParams.get('token') || '').trim()
+      if (!token) {
+        helpers.sendXrpcError(req, res, 404, 'NotFound', 'Invite not found')
+        return true
+      }
+
+      const invite = (db.staffInvites || []).find(inv =>
+        safeTokenEquals(inv?.token, token),
+      )
+      if (!invite) {
+        helpers.sendXrpcError(req, res, 404, 'NotFound', 'Invite not found')
+        return true
+      }
+
+      if (invite.status === 'accepted') {
+        helpers.sendXrpcError(
+          req,
+          res,
+          410,
+          'InviteUsed',
+          'This staff invite has already been accepted',
+        )
+        return true
+      }
+      if (invite.status === 'revoked') {
+        helpers.sendXrpcError(
+          req,
+          res,
+          410,
+          'InviteRevoked',
+          'This staff invite has been revoked',
+        )
+        return true
+      }
+      if (Date.parse(invite.expiresAt) <= Date.now()) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          410,
+          'InviteExpired',
+          'This staff invite has expired',
+        )
+        return true
+      }
+
+      helpers.sendJson(req, res, 200, {
+        ok: true,
+        invite: {
+          email: invite.email,
+          role: invite.role,
+          department: invite.department,
+          expiresAt: invite.expiresAt,
+          createdByHandle: invite.createdByHandle,
+        },
+      })
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // OPS-3. POST /api/quantzing/ops/accept-invite (Ops-host, unauthed)
+    // -----------------------------------------------------------------------
+    if (pathname === '/api/quantzing/ops/accept-invite' && method === 'POST') {
+      if (
+        enforceRateLimit(req, res, {
+          bucketKey: `signup:${getClientIp(req)}`,
+          maxRequests: Number(process.env.QUANTZING_RATE_LIMIT_SIGNUP_MAX) || 20,
+          windowMs: 15 * 60 * 1000,
+          auth: null,
+          sendJson: helpers.sendJson,
+        })
+      ) {
+        return true
+      }
+
+      const body = await helpers.readJsonBody(req)
+      const token = String(body.token || '').trim()
+      if (!token) {
+        helpers.sendXrpcError(req, res, 404, 'NotFound', 'Invite not found')
+        return true
+      }
+
+      const invite = (db.staffInvites || []).find(inv =>
+        safeTokenEquals(inv?.token, token),
+      )
+      if (!invite) {
+        helpers.sendXrpcError(req, res, 404, 'NotFound', 'Invite not found')
+        return true
+      }
+      if (invite.status === 'accepted') {
+        helpers.sendXrpcError(
+          req,
+          res,
+          410,
+          'InviteUsed',
+          'This staff invite has already been accepted',
+        )
+        return true
+      }
+      if (invite.status === 'revoked') {
+        helpers.sendXrpcError(
+          req,
+          res,
+          410,
+          'InviteRevoked',
+          'This staff invite has been revoked',
+        )
+        return true
+      }
+      if (Date.parse(invite.expiresAt) <= Date.now()) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          410,
+          'InviteExpired',
+          'This staff invite has expired',
+        )
+        return true
+      }
+
+      const handle = helpers.normalizeHandle(body.handle)
+      if (!helpers.isValidHandleFormat(handle)) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidHandle',
+          'Invalid handle format (use lowercase letters, numbers, and hyphens)',
+        )
+        return true
+      }
+
+      const password = typeof body.password === 'string' ? body.password : ''
+      if (password.length < 8) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidPassword',
+          'Staff password must be at least 8 characters',
+        )
+        return true
+      }
+
+      const inviteEmailLower = String(invite.email || '').trim().toLowerCase()
+      for (const acc of Object.values(db.accounts || {})) {
+        if (acc.handle?.toLowerCase() === handle) {
+          helpers.sendXrpcError(
+            req,
+            res,
+            400,
+            'HandleNotAvailable',
+            'That handle is already taken on QuantZing',
+          )
+          return true
+        }
+        if (
+          inviteEmailLower &&
+          acc.email &&
+          acc.email.toLowerCase() === inviteEmailLower
+        ) {
+          helpers.sendXrpcError(
+            req,
+            res,
+            400,
+            'InvalidRequest',
+            'An account with that email already exists',
+          )
+          return true
+        }
+      }
+
+      const did = helpers.createPlcDid()
+      const {salt, hash} = helpers.hashPassword(password)
+      const nowMs = Date.now()
+      const nowIso = new Date(nowMs).toISOString()
+      const expiresAt = new Date(
+        nowMs + OPS_SESSION_TTL_SECONDS * 1000,
+      ).toISOString()
+      const role = normalizeRole(invite.role)
+      const department = invite.department || defaultDepartmentForRole(role)
+      const displayName =
+        String(body.displayName || '').trim().slice(0, 64) ||
+        handle.split('.')[0]
+      const description = `${ROLE_META[role]?.label || role} — QuantZing ${department}`
+
+      const account = {
+        did,
+        handle,
+        email: inviteEmailLower,
+        emailConfirmed: true,
+        emailAuthFactor: false,
+        passwordSalt: salt,
+        passwordHash: hash,
+        createdAt: nowIso,
+        active: true,
+        role,
+        department,
+        tokenVersion: 1,
+        offboardedAt: null,
+        lastOpsLoginAt: nowIso,
+        status: 'active',
+        statusReason: '',
+        suspendedUntil: null,
+        warnings: [],
+        verified: false,
+        profile: {
+          displayName,
+          description,
+          avatar: null,
+          banner: null,
+          createdAt: nowIso,
+        },
+        preferences: helpers.createDefaultPreferences(),
+        notificationPreferences: helpers.createDefaultNotificationPreferences(),
+      }
+
+      db.accounts[did] = account
+      if (typeof helpers.putLocalRecord === 'function') {
+        helpers.putLocalRecord(db, did, 'app.bsky.actor.profile', 'self', {
+          $type: 'app.bsky.actor.profile',
+          displayName,
+          description,
+          createdAt: nowIso,
+        })
+      }
+
+      invite.status = 'accepted'
+      invite.acceptedByDid = did
+      invite.acceptedAt = nowIso
+
+      const accessJwt = helpers.signJwt(db, {
+        did,
+        scope: 'quantzing.ops',
+        ttlSeconds: OPS_SESSION_TTL_SECONDS,
+        tv: 1,
+      })
+
+      recordAudit(
+        db,
+        {did, account},
+        'staff.onboard',
+        did,
+        {
+          inviteId: invite.id,
+          handle,
+          role,
+          department,
+          invitedBy: invite.createdByHandle,
+        },
+        req,
+      )
+
+      helpers.saveDb(db)
+      helpers.sendJson(req, res, 201, {
+        ok: true,
+        accessJwt,
+        expiresAt,
+        staff: {
+          did,
+          handle,
+          displayName,
+          email: account.email,
+          role,
+          department,
+          permissions: getPermissionsForRole(role),
+        },
+      })
+      return true
+    }
+
+    // Unknown /api/quantzing/ops/* route
+    if (isOpsRoute) {
+      helpers.sendXrpcError(
+        req,
+        res,
+        404,
+        'NotFound',
+        `Unknown ops endpoint: ${method} ${pathname}`,
+      )
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // 1. GET /api/quantzing/admin/me
+    // -----------------------------------------------------------------------
+    if (pathname === '/api/quantzing/admin/me' && method === 'GET') {
+      const cfAccessEmail =
+        String(req.headers['cf-access-authenticated-user-email'] || '').trim() ||
+        null
+      const auth = helpers.getAuthedContext(req, db, {
+        allowedScopes: ['com.atproto.access', 'quantzing.ops'],
+      })
+      if (auth.error) {
+        if (
+          auth.error === 'InvalidToken' &&
+          auth.message === 'Session has been revoked'
+        ) {
+          helpers.sendXrpcError(
+            req,
+            res,
+            401,
+            'InvalidToken',
+            'Session has been revoked',
+          )
+          return true
+        }
+        helpers.sendJson(req, res, 200, {
+          ok: true,
+          isAdmin: false,
+          isStaff: false,
+          role: 'guest',
+          department: null,
+          permissions: [],
+          did: null,
+          handle: null,
+          displayName: null,
+          cfAccessEmail,
+        })
+        return true
+      }
+
+      const role = normalizeRole(auth.account.role)
+      const isAdmin = role === 'super_admin'
+      const isStaff = isStaffRole(role)
+      helpers.sendJson(req, res, 200, {
+        ok: true,
+        isAdmin,
+        isStaff,
+        role,
+        department: auth.account.department || defaultDepartmentForRole(role),
+        permissions: getPermissionsForRole(role),
+        did: auth.did,
+        handle: auth.account.handle,
+        displayName:
+          auth.account.profile?.displayName ||
+          auth.account.handle.split('.')[0],
+        cfAccessEmail,
+      })
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // 2. GET /api/quantzing/admin/overview (requires overview.read)
     // -----------------------------------------------------------------------
     if (pathname === '/api/quantzing/admin/overview' && method === 'GET') {
-      const auth = requireStaffAuth(req, res, db, helpers)
+      const auth = requirePermission(req, res, db, helpers, 'overview.read')
       if (!auth) return true
 
       let restoredAny = false
@@ -950,7 +1839,7 @@ export async function handleQuantZingAdmin(req, res, ctx) {
         else activeUsers++
 
         if (acc.verified === true) verifiedUsers++
-        if (acc.role === 'admin' || acc.role === 'moderator') staffUsers++
+        if (isStaffRole(acc.role)) staffUsers++
         if (acc.createdAt) signupDates.push(acc.createdAt)
       }
       if (restoredAny) helpers.saveDb(db)
@@ -987,8 +1876,17 @@ export async function handleQuantZingAdmin(req, res, ctx) {
 
       const reports = Array.isArray(db.reports) ? db.reports : []
       const openReports = reports.filter(r => r.status === 'open').length
+      const unclaimedReports = reports.filter(
+        r => r.status === 'open' && !r.claimedByDid,
+      ).length
       const appeals = Array.isArray(db.appeals) ? db.appeals : []
       const openAppeals = appeals.filter(a => a.status === 'open').length
+      const approvals = Array.isArray(db.pendingApprovals)
+        ? db.pendingApprovals
+        : []
+      const pendingApprovals = approvals.filter(
+        a => a.status === 'pending',
+      ).length
       const takenDownPosts = Object.keys(db.takedowns?.posts || {}).length
 
       let activeLabels = 0
@@ -1022,8 +1920,10 @@ export async function handleQuantZingAdmin(req, res, ctx) {
           totalConvos: convoValues.length,
           totalMessages,
           openReports,
+          unclaimedReports,
           totalReports: reports.length,
           openAppeals,
+          pendingApprovals,
           takenDownPosts,
           activeLabels,
         },
@@ -1045,15 +1945,26 @@ export async function handleQuantZingAdmin(req, res, ctx) {
     }
 
     // -----------------------------------------------------------------------
-    // 3. GET /api/quantzing/admin/reports?status=open|resolved|dismissed|all
+    // 3. GET /api/quantzing/admin/reports?status=...&claimed=mine|unclaimed|all
     // -----------------------------------------------------------------------
     if (pathname === '/api/quantzing/admin/reports' && method === 'GET') {
-      const auth = requireStaffAuth(req, res, db, helpers)
+      const auth = requirePermission(req, res, db, helpers, 'reports.read')
       if (!auth) return true
 
       const statusFilter = (searchParams.get('status') || 'all').toLowerCase()
+      const claimedFilter = (searchParams.get('claimed') || 'all').toLowerCase()
+
       const reports = (db.reports || [])
-        .filter(r => statusFilter === 'all' || r.status === statusFilter)
+        .filter(r => {
+          if (statusFilter !== 'all' && r.status !== statusFilter) return false
+          if (claimedFilter === 'mine' && r.claimedByDid !== auth.did) {
+            return false
+          }
+          if (claimedFilter === 'unclaimed' && r.claimedByDid) {
+            return false
+          }
+          return true
+        })
         .slice()
         .sort((a, b) =>
           String(b.createdAt || '').localeCompare(String(a.createdAt || '')),
@@ -1065,16 +1976,67 @@ export async function handleQuantZingAdmin(req, res, ctx) {
     }
 
     // -----------------------------------------------------------------------
-    // 4. POST /api/quantzing/admin/reports/:id/resolve
+    // 3b. POST /api/quantzing/admin/reports/claim-next (requires reports.claim)
     // -----------------------------------------------------------------------
-    const reportResolveMatch = pathname.match(
-      /^\/api\/quantzing\/admin\/reports\/([^/]+)\/resolve$/,
-    )
-    if (reportResolveMatch && method === 'POST') {
-      const auth = requireStaffAuth(req, res, db, helpers)
+    if (
+      pathname === '/api/quantzing/admin/reports/claim-next' &&
+      method === 'POST'
+    ) {
+      const auth = requirePermission(req, res, db, helpers, 'reports.claim')
       if (!auth) return true
 
-      const reportId = decodeURIComponent(reportResolveMatch[1])
+      const candidates = (db.reports || [])
+        .filter(r => (r.status || 'open') === 'open' && !r.claimedByDid)
+        .slice()
+        .sort((a, b) =>
+          String(a.createdAt || '').localeCompare(String(b.createdAt || '')),
+        )
+
+      const nextReport = candidates[0] || null
+      if (!nextReport) {
+        helpers.sendJson(req, res, 200, {
+          ok: true,
+          report: null,
+          message: 'No unclaimed open reports',
+        })
+        return true
+      }
+
+      nextReport.claimedByDid = auth.did
+      nextReport.claimedByHandle = auth.account.handle
+      nextReport.claimedAt = new Date().toISOString()
+
+      recordAudit(
+        db,
+        auth,
+        'report.claim',
+        String(nextReport.id),
+        {
+          mode: 'claim-next',
+          subjectUri: nextReport.subjectUri || null,
+          subjectDid: nextReport.subjectDid || null,
+        },
+        req,
+      )
+      helpers.saveDb(db)
+      helpers.sendJson(req, res, 200, {
+        ok: true,
+        report: formatReportView(db, nextReport, origin, helpers),
+      })
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // 3c. POST /api/quantzing/admin/reports/:id/claim (requires reports.claim)
+    // -----------------------------------------------------------------------
+    const reportClaimMatch = pathname.match(
+      /^\/api\/quantzing\/admin\/reports\/([^/]+)\/claim$/,
+    )
+    if (reportClaimMatch && method === 'POST') {
+      const auth = requirePermission(req, res, db, helpers, 'reports.claim')
+      if (!auth) return true
+
+      const reportId = decodeURIComponent(reportClaimMatch[1])
       const report = (db.reports || []).find(
         r => String(r.id) === String(reportId),
       )
@@ -1084,23 +2046,155 @@ export async function handleQuantZingAdmin(req, res, ctx) {
       }
 
       const body = await helpers.readJsonBody(req)
+      const force = body.force === true
+
+      if (report.claimedByDid && report.claimedByDid !== auth.did) {
+        if (!(auth.role === 'super_admin' && force)) {
+          helpers.sendXrpcError(
+            req,
+            res,
+            409,
+            'AlreadyClaimed',
+            `Ticket already claimed by @${report.claimedByHandle || report.claimedByDid}`,
+          )
+          return true
+        }
+      }
+
+      const previousOwner = report.claimedByHandle || null
+      report.claimedByDid = auth.did
+      report.claimedByHandle = auth.account.handle
+      report.claimedAt = new Date().toISOString()
+
+      recordAudit(
+        db,
+        auth,
+        'report.claim',
+        String(report.id),
+        {
+          forced: Boolean(
+            force && previousOwner && previousOwner !== auth.account.handle,
+          ),
+          previousOwner:
+            previousOwner && previousOwner !== auth.account.handle
+              ? previousOwner
+              : undefined,
+        },
+        req,
+      )
+      helpers.saveDb(db)
+      helpers.sendJson(req, res, 200, {
+        ok: true,
+        report: formatReportView(db, report, origin, helpers),
+      })
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // 3d. POST /api/quantzing/admin/reports/:id/release (requires reports.claim)
+    // -----------------------------------------------------------------------
+    const reportReleaseMatch = pathname.match(
+      /^\/api\/quantzing\/admin\/reports\/([^/]+)\/release$/,
+    )
+    if (reportReleaseMatch && method === 'POST') {
+      const auth = requirePermission(req, res, db, helpers, 'reports.claim')
+      if (!auth) return true
+
+      const reportId = decodeURIComponent(reportReleaseMatch[1])
+      const report = (db.reports || []).find(
+        r => String(r.id) === String(reportId),
+      )
+      if (!report) {
+        helpers.sendXrpcError(req, res, 404, 'NotFound', 'Report not found')
+        return true
+      }
+
+      if (
+        report.claimedByDid &&
+        report.claimedByDid !== auth.did &&
+        auth.role !== 'super_admin'
+      ) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          403,
+          'Forbidden',
+          'Only the ticket assignee or a Super Admin can release this ticket',
+        )
+        return true
+      }
+
+      const previousOwner = report.claimedByHandle || null
+      report.claimedByDid = null
+      report.claimedByHandle = null
+      report.claimedAt = null
+
+      recordAudit(
+        db,
+        auth,
+        'report.release',
+        String(report.id),
+        {previousOwner: previousOwner || undefined},
+        req,
+      )
+      helpers.saveDb(db)
+      helpers.sendJson(req, res, 200, {
+        ok: true,
+        report: formatReportView(db, report, origin, helpers),
+      })
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // 4. POST /api/quantzing/admin/reports/:id/resolve (Action-scoped RBAC + Four-Eyes)
+    // -----------------------------------------------------------------------
+    const reportResolveMatch = pathname.match(
+      /^\/api\/quantzing\/admin\/reports\/([^/]+)\/resolve$/,
+    )
+    if (reportResolveMatch && method === 'POST') {
+      const auth = requirePermission(req, res, db, helpers, null)
+      if (!auth) return true
+
+      const body = await helpers.readJsonBody(req)
       const action = String(body.action || '').trim()
-      const validActions = new Set([
-        'dismiss',
-        'label',
-        'takedown_post',
-        'warn_user',
-        'suspend_user',
-        'ban_user',
-      ])
-      if (!validActions.has(action)) {
+      const actionPermissionMap = {
+        dismiss: 'reports.label',
+        label: 'reports.label',
+        takedown_post: 'reports.takedown',
+        warn_user: 'reports.enforce',
+        suspend_user: 'reports.enforce',
+        ban_user: 'reports.enforce',
+      }
+
+      const requiredPerm = actionPermissionMap[action]
+      if (!requiredPerm) {
         helpers.sendXrpcError(
           req,
           res,
           400,
           'InvalidRequest',
-          `Invalid action "${action}". Expected one of: ${[...validActions].join(', ')}`,
+          `Invalid action "${action}". Expected one of: ${Object.keys(actionPermissionMap).join(', ')}`,
         )
+        return true
+      }
+
+      if (!hasPermission(auth.role, requiredPerm)) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          403,
+          'Forbidden',
+          `Insufficient permissions for "${action}": requires ${requiredPerm}`,
+        )
+        return true
+      }
+
+      const reportId = decodeURIComponent(reportResolveMatch[1])
+      const report = (db.reports || []).find(
+        r => String(r.id) === String(reportId),
+      )
+      if (!report) {
+        helpers.sendXrpcError(req, res, 404, 'NotFound', 'Report not found')
         return true
       }
 
@@ -1126,18 +2220,30 @@ export async function handleQuantZingAdmin(req, res, ctx) {
       }
 
       if (
-        (action === 'warn_user' ||
-          action === 'suspend_user' ||
-          action === 'ban_user') &&
-        auth.account.role === 'moderator' &&
-        targetAcc?.role === 'admin'
+        (action === 'suspend_user' || action === 'ban_user') &&
+        targetDid === FOUNDER_DID
       ) {
         helpers.sendXrpcError(
           req,
           res,
           403,
           'Forbidden',
-          'Moderators cannot take enforcement actions against admins',
+          'Cannot suspend or ban the sovereign founder admin account',
+        )
+        return true
+      }
+
+      if (
+        action === 'warn_user' &&
+        auth.role !== 'super_admin' &&
+        normalizeRole(targetAcc?.role) === 'super_admin'
+      ) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          403,
+          'Forbidden',
+          'Cannot warn a Super Admin account',
         )
         return true
       }
@@ -1205,6 +2311,17 @@ export async function handleQuantZingAdmin(req, res, ctx) {
           )
           return true
         }
+        // Four-Eyes Dual Approval Rule for protected accounts
+        if (auth.role !== 'super_admin' && isProtectedAccount(targetAcc)) {
+          queueFourEyesApproval(req, res, db, auth, helpers, {
+            action: 'suspend',
+            target: targetAcc,
+            reason: note || report.reason || 'Suspended by moderation',
+            suspendHours: body.suspendHours,
+            report,
+          })
+          return true
+        }
         applyUserAccountSuspension(db, targetAcc, {
           reason: note || report.reason || 'Suspended by moderation',
           suspendHours: body.suspendHours,
@@ -1222,6 +2339,16 @@ export async function handleQuantZingAdmin(req, res, ctx) {
           )
           return true
         }
+        // Four-Eyes Dual Approval Rule for protected accounts
+        if (auth.role !== 'super_admin' && isProtectedAccount(targetAcc)) {
+          queueFourEyesApproval(req, res, db, auth, helpers, {
+            action: 'ban',
+            target: targetAcc,
+            reason: note || report.reason || 'Banned by moderation',
+            report,
+          })
+          return true
+        }
         applyUserAccountBan(db, targetAcc, {
           reason: note || report.reason || 'Banned by moderation',
           by: auth.account.handle,
@@ -1235,14 +2362,21 @@ export async function handleQuantZingAdmin(req, res, ctx) {
       report.resolvedByDid = auth.did
       report.resolvedAt = now
 
-      recordAudit(db, auth, 'report.resolve', String(report.id), {
-        action,
-        note,
-        subjectUri: report.subjectUri || null,
-        subjectDid: targetDid || null,
-        labelVal: body.labelVal || undefined,
-        suspendHours: body.suspendHours || undefined,
-      })
+      recordAudit(
+        db,
+        auth,
+        'report.resolve',
+        String(report.id),
+        {
+          action,
+          note,
+          subjectUri: report.subjectUri || null,
+          subjectDid: targetDid || null,
+          labelVal: body.labelVal || undefined,
+          suspendHours: body.suspendHours || undefined,
+        },
+        req,
+      )
 
       helpers.saveDb(db)
       helpers.sendJson(req, res, 200, {
@@ -1253,14 +2387,225 @@ export async function handleQuantZingAdmin(req, res, ctx) {
     }
 
     // -----------------------------------------------------------------------
-    // 5. GET /api/quantzing/admin/users?q=&filter=all|verified|suspended|banned|staff
+    // 5. GET /api/quantzing/admin/approvals?status=pending|approved|rejected|all
+    // -----------------------------------------------------------------------
+    if (pathname === '/api/quantzing/admin/approvals' && method === 'GET') {
+      const auth = requirePermission(req, res, db, helpers, 'approvals.read')
+      if (!auth) return true
+
+      const statusFilter = (searchParams.get('status') || 'all').toLowerCase()
+      const approvals = (db.pendingApprovals || [])
+        .filter(a => statusFilter === 'all' || a.status === statusFilter)
+        .slice()
+        .sort((a, b) =>
+          String(b.createdAt || '').localeCompare(String(a.createdAt || '')),
+        )
+
+      helpers.sendJson(req, res, 200, {ok: true, approvals})
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // 5b. POST /api/quantzing/admin/approvals/:id/review (Super-Admin ONLY)
+    // -----------------------------------------------------------------------
+    const approvalReviewMatch = pathname.match(
+      /^\/api\/quantzing\/admin\/approvals\/([^/]+)\/review$/,
+    )
+    if (approvalReviewMatch && method === 'POST') {
+      const auth = requirePermission(req, res, db, helpers, 'approvals.review')
+      if (!auth) return true
+
+      const approvalId = decodeURIComponent(approvalReviewMatch[1])
+      const approval = (db.pendingApprovals || []).find(
+        a => String(a.id) === String(approvalId),
+      )
+      if (!approval) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          404,
+          'NotFound',
+          'Approval request not found',
+        )
+        return true
+      }
+
+      if (approval.status !== 'pending') {
+        helpers.sendXrpcError(
+          req,
+          res,
+          409,
+          'AlreadyReviewed',
+          `Approval request has already been ${approval.status}`,
+        )
+        return true
+      }
+
+      const body = await helpers.readJsonBody(req)
+      const decision = String(body.decision || '').trim()
+      if (decision !== 'approve' && decision !== 'reject') {
+        helpers.sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'decision must be "approve" or "reject"',
+        )
+        return true
+      }
+
+      // Enforce strict Four-Eyes invariant
+      if (approval.requestedByDid === auth.did) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          403,
+          'FourEyesViolation',
+          'Requester cannot approve their own high-risk action',
+        )
+        return true
+      }
+
+      const note = String(body.note || '').trim()
+      const now = new Date().toISOString()
+
+      if (decision === 'approve') {
+        const target = db.accounts[approval.targetDid]
+        if (!target) {
+          helpers.sendXrpcError(
+            req,
+            res,
+            404,
+            'NotFound',
+            'Target account not found',
+          )
+          return true
+        }
+        if (target.did === FOUNDER_DID) {
+          helpers.sendXrpcError(
+            req,
+            res,
+            403,
+            'Forbidden',
+            'Cannot enforce against the sovereign founder admin account',
+          )
+          return true
+        }
+
+        const actingBy = `${approval.requestedByHandle} (approved by ${auth.account.handle})`
+        if (approval.action === 'ban') {
+          applyUserAccountBan(db, target, {
+            reason: approval.reason,
+            by: actingBy,
+          })
+        } else {
+          applyUserAccountSuspension(db, target, {
+            reason: approval.reason,
+            suspendHours: approval.suspendHours,
+            by: actingBy,
+          })
+        }
+
+        approval.status = 'approved'
+        approval.reviewedByDid = auth.did
+        approval.reviewedByHandle = auth.account.handle
+        approval.reviewedAt = now
+        approval.reviewNote = note || null
+
+        if (approval.reportId !== null && approval.reportId !== undefined) {
+          const linkedReport = (db.reports || []).find(
+            r => String(r.id) === String(approval.reportId),
+          )
+          if (linkedReport) {
+            linkedReport.status = 'resolved'
+            linkedReport.resolutionAction =
+              approval.action === 'ban' ? 'ban_user' : 'suspend_user'
+            linkedReport.resolutionNote = note
+              ? `${approval.reason} [Approved by @${auth.account.handle}: ${note}]`
+              : approval.reason
+            linkedReport.resolvedBy = auth.account.handle
+            linkedReport.resolvedByDid = auth.did
+            linkedReport.resolvedAt = now
+            linkedReport.pendingApprovalId = null
+          }
+        }
+
+        recordAudit(
+          db,
+          auth,
+          'approval.approve',
+          approval.id,
+          {
+            action: approval.action,
+            targetDid: approval.targetDid,
+            targetHandle: approval.targetHandle,
+            requestedByHandle: approval.requestedByHandle,
+            reportId: approval.reportId || null,
+            note: note || undefined,
+          },
+          req,
+        )
+
+        helpers.saveDb(db)
+        helpers.sendJson(req, res, 200, {
+          ok: true,
+          approval,
+          executed: true,
+        })
+        return true
+      }
+
+      // decision === 'reject'
+      approval.status = 'rejected'
+      approval.reviewedByDid = auth.did
+      approval.reviewedByHandle = auth.account.handle
+      approval.reviewedAt = now
+      approval.reviewNote = note || null
+
+      if (approval.reportId !== null && approval.reportId !== undefined) {
+        const linkedReport = (db.reports || []).find(
+          r => String(r.id) === String(approval.reportId),
+        )
+        if (linkedReport && linkedReport.pendingApprovalId === approval.id) {
+          linkedReport.pendingApprovalId = null
+        }
+      }
+
+      recordAudit(
+        db,
+        auth,
+        'approval.reject',
+        approval.id,
+        {
+          action: approval.action,
+          targetDid: approval.targetDid,
+          targetHandle: approval.targetHandle,
+          requestedByHandle: approval.requestedByHandle,
+          reportId: approval.reportId || null,
+          note: note || undefined,
+        },
+        req,
+      )
+
+      helpers.saveDb(db)
+      helpers.sendJson(req, res, 200, {
+        ok: true,
+        approval,
+        executed: false,
+      })
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // 6. GET /api/quantzing/admin/users?q=&filter=all|verified|suspended|banned|staff
     // -----------------------------------------------------------------------
     if (pathname === '/api/quantzing/admin/users' && method === 'GET') {
-      const auth = requireStaffAuth(req, res, db, helpers)
+      const auth = requirePermission(req, res, db, helpers, 'users.read')
       if (!auth) return true
 
       const q = (searchParams.get('q') || '').trim().toLowerCase()
       const filter = (searchParams.get('filter') || 'all').toLowerCase()
+      const canSearchRawEmail = hasPermission(auth.role, 'users.pii_full')
 
       const followersCountByDid = new Map()
       for (const rec of helpers.getAllLocalRecords(db, 'app.bsky.graph.follow')) {
@@ -1288,24 +2633,20 @@ export async function handleQuantZingAdmin(req, res, ctx) {
         if (filter === 'verified' && acc.verified !== true) continue
         if (filter === 'suspended' && acc.status !== 'suspended') continue
         if (filter === 'banned' && acc.status !== 'banned') continue
-        if (
-          filter === 'staff' &&
-          acc.role !== 'admin' &&
-          acc.role !== 'moderator'
-        ) {
-          continue
-        }
+        if (filter === 'staff' && !isStaffRole(acc.role)) continue
 
         if (q) {
           const handle = String(acc.handle || '').toLowerCase()
           const dn = String(acc.profile?.displayName || '').toLowerCase()
-          const email = String(acc.email || '').toLowerCase()
           const did = String(acc.did || '').toLowerCase()
+          const email = canSearchRawEmail
+            ? String(acc.email || '').toLowerCase()
+            : ''
           if (
             !handle.includes(q) &&
             !dn.includes(q) &&
-            !email.includes(q) &&
-            !did.includes(q)
+            !did.includes(q) &&
+            !(canSearchRawEmail && email.includes(q))
           ) {
             continue
           }
@@ -1318,6 +2659,7 @@ export async function handleQuantZingAdmin(req, res, ctx) {
             origin,
             followersCountByDid.get(acc.did) || 0,
             helpers,
+            auth.role,
           ),
         )
       }
@@ -1333,16 +2675,16 @@ export async function handleQuantZingAdmin(req, res, ctx) {
     }
 
     // -----------------------------------------------------------------------
-    // 6. POST /api/quantzing/admin/users/:did/action
+    // 6b. POST /api/quantzing/admin/users/:did/inspect (Mandatory Reason-Logged)
     // -----------------------------------------------------------------------
-    const userActionMatch = pathname.match(
-      /^\/api\/quantzing\/admin\/users\/([^/]+)\/action$/,
+    const userInspectMatch = pathname.match(
+      /^\/api\/quantzing\/admin\/users\/([^/]+)\/inspect$/,
     )
-    if (userActionMatch && method === 'POST') {
-      const auth = requireStaffAuth(req, res, db, helpers)
+    if (userInspectMatch && method === 'POST') {
+      const auth = requirePermission(req, res, db, helpers, 'users.inspect')
       if (!auth) return true
 
-      const targetRef = decodeURIComponent(userActionMatch[1])
+      const targetRef = decodeURIComponent(userInspectMatch[1])
       const target =
         db.accounts[targetRef] || helpers.findLocalAccount(db, targetRef)
       if (!target) {
@@ -1351,17 +2693,131 @@ export async function handleQuantZingAdmin(req, res, ctx) {
       }
 
       const body = await helpers.readJsonBody(req)
+      const ticketId = String(body.ticketId || '').trim()
+      const reason = String(body.reason || '').trim()
+      if (ticketId.length < 3 || reason.length < 3) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'Both ticketId and reason (minimum 3 characters each) are required to inspect an account',
+        )
+        return true
+      }
+
+      recordAudit(
+        db,
+        auth,
+        'user.inspect',
+        target.did,
+        {
+          ticketId,
+          reason,
+          ip: getClientIp(req),
+          targetHandle: target.handle,
+        },
+        req,
+      )
+      helpers.saveDb(db)
+
+      const recentReportsAgainst = (db.reports || [])
+        .filter(r => {
+          const subjectDid =
+            r.subjectDid ||
+            (r.subjectUri ? helpers.parseAtUri(r.subjectUri)?.repo : null)
+          return subjectDid === target.did
+        })
+        .slice()
+        .sort((a, b) =>
+          String(b.createdAt || '').localeCompare(String(a.createdAt || '')),
+        )
+        .slice(0, 10)
+        .map(r => ({
+          id: r.id,
+          createdAt: r.createdAt,
+          status: r.status || 'open',
+          reasonType: r.reasonType || 'com.atproto.moderation.defs#reasonOther',
+          reason: r.reason || '',
+          subjectType: r.subjectType || (r.subjectUri ? 'post' : 'account'),
+          subjectUri: r.subjectUri || null,
+          resolutionAction: r.resolutionAction || null,
+          resolvedBy: r.resolvedBy || null,
+          resolvedAt: r.resolvedAt || null,
+        }))
+
+      const recentAppeals = (db.appeals || [])
+        .filter(a => a.appellantDid === target.did)
+        .slice()
+        .sort((a, b) =>
+          String(b.createdAt || '').localeCompare(String(a.createdAt || '')),
+        )
+        .slice(0, 10)
+        .map(a => formatAppealView(db, a))
+
+      const postsCount = Object.keys(
+        helpers.getCollectionMap(db, target.did, 'app.bsky.feed.post'),
+      ).length
+      const followingCount = Object.keys(
+        helpers.getCollectionMap(db, target.did, 'app.bsky.graph.follow'),
+      ).length
+      let followersCount = 0
+      for (const rec of helpers.getAllLocalRecords(db, 'app.bsky.graph.follow')) {
+        if (rec?.value?.subject === target.did) followersCount++
+      }
+
+      helpers.sendJson(req, res, 200, {
+        ok: true,
+        inspection: {
+          did: target.did,
+          handle: target.handle,
+          displayName:
+            target.profile?.displayName || target.handle.split('.')[0],
+          email: maskEmailForRole(target.email || '', auth.role),
+          role: normalizeRole(target.role),
+          department: target.department || '',
+          status: target.status || 'active',
+          statusReason: target.statusReason || '',
+          suspendedUntil: target.suspendedUntil || null,
+          verified: Boolean(target.verified),
+          createdAt: target.createdAt || '',
+          warnings: Array.isArray(target.warnings) ? target.warnings : [],
+          recentReportsAgainst,
+          recentAppeals,
+          postsCount,
+          followersCount,
+          followingCount,
+          dmAccessNote:
+            'Private DMs are strictly inaccessible to staff unless explicitly reported.',
+        },
+      })
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // 6c. POST /api/quantzing/admin/users/:did/action (Action-scoped RBAC + Four-Eyes)
+    // -----------------------------------------------------------------------
+    const userActionMatch = pathname.match(
+      /^\/api\/quantzing\/admin\/users\/([^/]+)\/action$/,
+    )
+    if (userActionMatch && method === 'POST') {
+      const auth = requirePermission(req, res, db, helpers, null)
+      if (!auth) return true
+
+      const body = await helpers.readJsonBody(req)
       const action = String(body.action || '').trim()
-      const validActions = new Set([
-        'verify',
-        'unverify',
-        'warn',
-        'suspend',
-        'ban',
-        'restore',
-        'set_role',
-      ])
-      if (!validActions.has(action)) {
+      const actionPermissionMap = {
+        verify: 'users.verify',
+        unverify: 'users.verify',
+        warn: 'users.enforce',
+        suspend: 'users.enforce',
+        ban: 'users.enforce',
+        restore: 'users.enforce',
+        set_role: 'staff.manage',
+      }
+
+      const requiredPerm = actionPermissionMap[action]
+      if (!requiredPerm) {
         helpers.sendXrpcError(
           req,
           res,
@@ -1372,45 +2828,53 @@ export async function handleQuantZingAdmin(req, res, ctx) {
         return true
       }
 
+      if (!hasPermission(auth.role, requiredPerm)) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          403,
+          'Forbidden',
+          `Insufficient permissions for "${action}": requires ${requiredPerm}`,
+        )
+        return true
+      }
+
+      const targetRef = decodeURIComponent(userActionMatch[1])
+      const target =
+        db.accounts[targetRef] || helpers.findLocalAccount(db, targetRef)
+      if (!target) {
+        helpers.sendXrpcError(req, res, 404, 'NotFound', 'User not found')
+        return true
+      }
+
       const reason = String(body.reason || '').trim()
 
       if (action === 'set_role') {
-        if (auth.account.role !== 'admin') {
-          helpers.sendXrpcError(
-            req,
-            res,
-            403,
-            'Forbidden',
-            'Admin role required to change user roles',
-          )
-          return true
-        }
-        const nextRole = String(body.role || '').trim()
-        if (
-          nextRole !== 'user' &&
-          nextRole !== 'moderator' &&
-          nextRole !== 'admin'
-        ) {
+        const rawNextRole = String(body.role || '')
+          .trim()
+          .toLowerCase()
+        if (!VALID_ROLE_INPUTS.has(rawNextRole)) {
           helpers.sendXrpcError(
             req,
             res,
             400,
             'InvalidRequest',
-            'role must be "user", "moderator", or "admin"',
+            'role must be one of: user, l1_moderator, l2_trust_safety, verification_ops, support_agent, super_admin',
           )
           return true
         }
-        if (target.did === auth.did && nextRole !== 'admin') {
+        const nextRole = VALID_ROLE_INPUTS.get(rawNextRole)
+        if (target.did === auth.did && nextRole !== 'super_admin') {
           helpers.sendXrpcError(
             req,
             res,
             400,
             'InvalidRequest',
-            'Cannot demote your own admin role',
+            'Cannot demote your own super_admin role',
           )
           return true
         }
-        if (target.did === FOUNDER_DID && nextRole !== 'admin') {
+        if (target.did === FOUNDER_DID && nextRole !== 'super_admin') {
           helpers.sendXrpcError(
             req,
             res,
@@ -1420,19 +2884,29 @@ export async function handleQuantZingAdmin(req, res, ctx) {
           )
           return true
         }
+        const previousRole = normalizeRole(target.role)
         target.role = nextRole
+        const requestedDept = String(body.department || '').trim()
+        target.department = requestedDept || defaultDepartmentForRole(nextRole)
+        if (nextRole === 'user' && isStaffRole(previousRole)) {
+          target.tokenVersion = (Number(target.tokenVersion) || 1) + 1
+          target.offboardedAt = new Date().toISOString()
+        }
       } else if (action === 'verify') {
         target.verified = true
       } else if (action === 'unverify') {
         target.verified = false
       } else if (action === 'warn') {
-        if (auth.account.role === 'moderator' && target.role === 'admin') {
+        if (
+          auth.role !== 'super_admin' &&
+          normalizeRole(target.role) === 'super_admin'
+        ) {
           helpers.sendXrpcError(
             req,
             res,
             403,
             'Forbidden',
-            'Moderators cannot warn admins',
+            'Cannot warn a Super Admin account',
           )
           return true
         }
@@ -1452,16 +2926,6 @@ export async function handleQuantZingAdmin(req, res, ctx) {
           )
           return true
         }
-        if (auth.account.role === 'moderator' && target.role === 'admin') {
-          helpers.sendXrpcError(
-            req,
-            res,
-            403,
-            'Forbidden',
-            'Moderators cannot suspend admins',
-          )
-          return true
-        }
         if (target.did === FOUNDER_DID) {
           helpers.sendXrpcError(
             req,
@@ -1470,6 +2934,16 @@ export async function handleQuantZingAdmin(req, res, ctx) {
             'Forbidden',
             'Cannot suspend the sovereign founder admin account',
           )
+          return true
+        }
+        // Four-Eyes Dual Approval Rule for protected accounts
+        if (auth.role !== 'super_admin' && isProtectedAccount(target)) {
+          queueFourEyesApproval(req, res, db, auth, helpers, {
+            action: 'suspend',
+            target,
+            reason: reason || 'Suspended by Trust & Safety',
+            suspendHours: body.suspendHours,
+          })
           return true
         }
         applyUserAccountSuspension(db, target, {
@@ -1488,16 +2962,6 @@ export async function handleQuantZingAdmin(req, res, ctx) {
           )
           return true
         }
-        if (auth.account.role === 'moderator' && target.role === 'admin') {
-          helpers.sendXrpcError(
-            req,
-            res,
-            403,
-            'Forbidden',
-            'Moderators cannot ban admins',
-          )
-          return true
-        }
         if (target.did === FOUNDER_DID) {
           helpers.sendXrpcError(
             req,
@@ -1506,6 +2970,15 @@ export async function handleQuantZingAdmin(req, res, ctx) {
             'Forbidden',
             'Cannot ban the sovereign founder admin account',
           )
+          return true
+        }
+        // Four-Eyes Dual Approval Rule for protected accounts
+        if (auth.role !== 'super_admin' && isProtectedAccount(target)) {
+          queueFourEyesApproval(req, res, db, auth, helpers, {
+            action: 'ban',
+            target,
+            reason: reason || 'Banned by Trust & Safety',
+          })
           return true
         }
         applyUserAccountBan(db, target, {
@@ -1519,12 +2992,20 @@ export async function handleQuantZingAdmin(req, res, ctx) {
         delete db.takedowns.accounts[target.did]
       }
 
-      recordAudit(db, auth, `user.${action}`, target.did, {
-        handle: target.handle,
-        reason: reason || undefined,
-        suspendHours: body.suspendHours || undefined,
-        role: action === 'set_role' ? target.role : undefined,
-      })
+      recordAudit(
+        db,
+        auth,
+        `user.${action}`,
+        target.did,
+        {
+          handle: target.handle,
+          reason: reason || undefined,
+          suspendHours: body.suspendHours || undefined,
+          role: action === 'set_role' ? target.role : undefined,
+          department: action === 'set_role' ? target.department : undefined,
+        },
+        req,
+      )
 
       helpers.saveDb(db)
 
@@ -1535,16 +3016,23 @@ export async function handleQuantZingAdmin(req, res, ctx) {
 
       helpers.sendJson(req, res, 200, {
         ok: true,
-        user: formatAdminUser(db, target, origin, followersCount, helpers),
+        user: formatAdminUser(
+          db,
+          target,
+          origin,
+          followersCount,
+          helpers,
+          auth.role,
+        ),
       })
       return true
     }
 
     // -----------------------------------------------------------------------
-    // 7. GET /api/quantzing/admin/posts?q=&filter=all|active|removed|labeled
+    // 7. GET /api/quantzing/admin/posts (requires posts.read)
     // -----------------------------------------------------------------------
     if (pathname === '/api/quantzing/admin/posts' && method === 'GET') {
-      const auth = requireStaffAuth(req, res, db, helpers)
+      const auth = requirePermission(req, res, db, helpers, 'posts.read')
       if (!auth) return true
 
       const q = (searchParams.get('q') || '').trim().toLowerCase()
@@ -1607,10 +3095,10 @@ export async function handleQuantZingAdmin(req, res, ctx) {
     }
 
     // -----------------------------------------------------------------------
-    // 8. POST /api/quantzing/admin/posts/action
+    // 8. POST /api/quantzing/admin/posts/action (requires posts.moderate)
     // -----------------------------------------------------------------------
     if (pathname === '/api/quantzing/admin/posts/action' && method === 'POST') {
-      const auth = requireStaffAuth(req, res, db, helpers)
+      const auth = requirePermission(req, res, db, helpers, 'posts.moderate')
       if (!auth) return true
 
       const body = await helpers.readJsonBody(req)
@@ -1661,10 +3149,17 @@ export async function handleQuantZingAdmin(req, res, ctx) {
         removeLabel(db, uri, labelVal)
       }
 
-      recordAudit(db, auth, `post.${action}`, uri, {
-        reason: reason || undefined,
-        labelVal: labelVal || undefined,
-      })
+      recordAudit(
+        db,
+        auth,
+        `post.${action}`,
+        uri,
+        {
+          reason: reason || undefined,
+          labelVal: labelVal || undefined,
+        },
+        req,
+      )
 
       helpers.saveDb(db)
       helpers.sendJson(req, res, 200, {
@@ -1677,43 +3172,163 @@ export async function handleQuantZingAdmin(req, res, ctx) {
     }
 
     // -----------------------------------------------------------------------
-    // 10. GET /api/quantzing/admin/appeals?status=open|approved|rejected|all
+    // 9. GET /api/quantzing/admin/appeals?status=...&claimed=mine|unclaimed|all
     // -----------------------------------------------------------------------
     if (pathname === '/api/quantzing/admin/appeals' && method === 'GET') {
-      const auth = requireStaffAuth(req, res, db, helpers)
+      const auth = requirePermission(req, res, db, helpers, 'appeals.read')
       if (!auth) return true
 
       const statusFilter = (searchParams.get('status') || 'all').toLowerCase()
+      const claimedFilter = (searchParams.get('claimed') || 'all').toLowerCase()
+
       const appeals = (db.appeals || [])
-        .filter(a => statusFilter === 'all' || a.status === statusFilter)
+        .filter(a => {
+          if (statusFilter !== 'all' && a.status !== statusFilter) return false
+          if (claimedFilter === 'mine' && a.claimedByDid !== auth.did) {
+            return false
+          }
+          if (claimedFilter === 'unclaimed' && a.claimedByDid) {
+            return false
+          }
+          return true
+        })
         .slice()
         .sort((a, b) =>
           String(b.createdAt || '').localeCompare(String(a.createdAt || '')),
         )
-        .map(a => {
-          const acc = db.accounts[a.appellantDid]
-          return {
-            ...a,
-            appellantStatus: acc?.status || 'active',
-            appellantDisplayName:
-              acc?.profile?.displayName ||
-              a.appellantHandle?.split('.')[0] ||
-              a.appellantDid,
-          }
-        })
+        .map(a => formatAppealView(db, a))
 
       helpers.sendJson(req, res, 200, {ok: true, appeals})
       return true
     }
 
     // -----------------------------------------------------------------------
-    // 11. POST /api/quantzing/admin/appeals/:id/resolve
+    // 9b. POST /api/quantzing/admin/appeals/:id/claim (requires appeals.read)
+    // -----------------------------------------------------------------------
+    const appealClaimMatch = pathname.match(
+      /^\/api\/quantzing\/admin\/appeals\/([^/]+)\/claim$/,
+    )
+    if (appealClaimMatch && method === 'POST') {
+      const auth = requirePermission(req, res, db, helpers, 'appeals.read')
+      if (!auth) return true
+
+      const appealId = decodeURIComponent(appealClaimMatch[1])
+      const appeal = (db.appeals || []).find(
+        a => String(a.id) === String(appealId),
+      )
+      if (!appeal) {
+        helpers.sendXrpcError(req, res, 404, 'NotFound', 'Appeal not found')
+        return true
+      }
+
+      const body = await helpers.readJsonBody(req)
+      const force = body.force === true
+
+      if (appeal.claimedByDid && appeal.claimedByDid !== auth.did) {
+        if (!(auth.role === 'super_admin' && force)) {
+          helpers.sendXrpcError(
+            req,
+            res,
+            409,
+            'AlreadyClaimed',
+            `Ticket already claimed by @${appeal.claimedByHandle || appeal.claimedByDid}`,
+          )
+          return true
+        }
+      }
+
+      const previousOwner = appeal.claimedByHandle || null
+      appeal.claimedByDid = auth.did
+      appeal.claimedByHandle = auth.account.handle
+      appeal.claimedAt = new Date().toISOString()
+
+      recordAudit(
+        db,
+        auth,
+        'appeal.claim',
+        String(appeal.id),
+        {
+          forced: Boolean(
+            force && previousOwner && previousOwner !== auth.account.handle,
+          ),
+          previousOwner:
+            previousOwner && previousOwner !== auth.account.handle
+              ? previousOwner
+              : undefined,
+        },
+        req,
+      )
+      helpers.saveDb(db)
+      helpers.sendJson(req, res, 200, {
+        ok: true,
+        appeal: formatAppealView(db, appeal),
+      })
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // 9c. POST /api/quantzing/admin/appeals/:id/release (requires appeals.read)
+    // -----------------------------------------------------------------------
+    const appealReleaseMatch = pathname.match(
+      /^\/api\/quantzing\/admin\/appeals\/([^/]+)\/release$/,
+    )
+    if (appealReleaseMatch && method === 'POST') {
+      const auth = requirePermission(req, res, db, helpers, 'appeals.read')
+      if (!auth) return true
+
+      const appealId = decodeURIComponent(appealReleaseMatch[1])
+      const appeal = (db.appeals || []).find(
+        a => String(a.id) === String(appealId),
+      )
+      if (!appeal) {
+        helpers.sendXrpcError(req, res, 404, 'NotFound', 'Appeal not found')
+        return true
+      }
+
+      if (
+        appeal.claimedByDid &&
+        appeal.claimedByDid !== auth.did &&
+        auth.role !== 'super_admin'
+      ) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          403,
+          'Forbidden',
+          'Only the ticket assignee or a Super Admin can release this ticket',
+        )
+        return true
+      }
+
+      const previousOwner = appeal.claimedByHandle || null
+      appeal.claimedByDid = null
+      appeal.claimedByHandle = null
+      appeal.claimedAt = null
+
+      recordAudit(
+        db,
+        auth,
+        'appeal.release',
+        String(appeal.id),
+        {previousOwner: previousOwner || undefined},
+        req,
+      )
+      helpers.saveDb(db)
+      helpers.sendJson(req, res, 200, {
+        ok: true,
+        appeal: formatAppealView(db, appeal),
+      })
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // 9d. POST /api/quantzing/admin/appeals/:id/resolve (requires appeals.resolve)
     // -----------------------------------------------------------------------
     const appealResolveMatch = pathname.match(
       /^\/api\/quantzing\/admin\/appeals\/([^/]+)\/resolve$/,
     )
     if (appealResolveMatch && method === 'POST') {
-      const auth = requireStaffAuth(req, res, db, helpers)
+      const auth = requirePermission(req, res, db, helpers, 'appeals.resolve')
       if (!auth) return true
 
       const appealId = decodeURIComponent(appealResolveMatch[1])
@@ -1761,39 +3376,436 @@ export async function handleQuantZingAdmin(req, res, ctx) {
         }
       }
 
-      recordAudit(db, auth, `appeal.${decision}`, String(appeal.id), {
-        type: appeal.type,
-        appellantDid: appeal.appellantDid,
-        subjectUri: appeal.subjectUri || null,
-        note: note || undefined,
-      })
+      recordAudit(
+        db,
+        auth,
+        `appeal.${decision}`,
+        String(appeal.id),
+        {
+          type: appeal.type,
+          appellantDid: appeal.appellantDid,
+          subjectUri: appeal.subjectUri || null,
+          note: note || undefined,
+        },
+        req,
+      )
 
       helpers.saveDb(db)
-      helpers.sendJson(req, res, 200, {ok: true, appeal})
+      helpers.sendJson(req, res, 200, {
+        ok: true,
+        appeal: formatAppealView(db, appeal),
+      })
       return true
     }
 
     // -----------------------------------------------------------------------
-    // 12. GET /api/quantzing/admin/audit?limit=100
+    // 10. Staff Team Management, Invite Onboarding & 1-Click Offboard
+    // -----------------------------------------------------------------------
+
+    // 10a. GET /api/quantzing/admin/staff (requires staff.read)
+    if (pathname === '/api/quantzing/admin/staff' && method === 'GET') {
+      const auth = requirePermission(req, res, db, helpers, 'staff.read')
+      if (!auth) return true
+
+      const reports = Array.isArray(db.reports) ? db.reports : []
+      const appeals = Array.isArray(db.appeals) ? db.appeals : []
+      const auditEntries = Array.isArray(db.auditLog) ? db.auditLog : []
+
+      const staff = []
+      for (const acc of Object.values(db.accounts || {})) {
+        const role = normalizeRole(acc.role)
+        if (!isStaffRole(role)) continue
+
+        let ticketsResolved = 0
+        let openClaimed = 0
+        for (const r of reports) {
+          if (
+            (r.status === 'resolved' || r.status === 'dismissed') &&
+            (r.resolvedByDid === acc.did || r.resolvedBy === acc.handle)
+          ) {
+            ticketsResolved++
+          }
+          if ((r.status || 'open') === 'open' && r.claimedByDid === acc.did) {
+            openClaimed++
+          }
+        }
+        for (const a of appeals) {
+          if (
+            (a.status === 'approved' || a.status === 'rejected') &&
+            (a.resolvedByDid === acc.did || a.resolvedBy === acc.handle)
+          ) {
+            ticketsResolved++
+          }
+          if ((a.status || 'open') === 'open' && a.claimedByDid === acc.did) {
+            openClaimed++
+          }
+        }
+        let totalAuditActions = 0
+        for (const e of auditEntries) {
+          if (e.actorDid === acc.did) totalAuditActions++
+        }
+
+        staff.push({
+          did: acc.did,
+          handle: acc.handle,
+          displayName: acc.profile?.displayName || acc.handle.split('.')[0],
+          email: acc.email || '',
+          role,
+          department: acc.department || defaultDepartmentForRole(role),
+          status: acc.status || 'active',
+          lastOpsLoginAt: acc.lastOpsLoginAt || null,
+          createdAt: acc.createdAt || '',
+          isFounder: acc.did === FOUNDER_DID,
+          metrics: {
+            ticketsResolved,
+            openClaimed,
+            totalAuditActions,
+          },
+        })
+      }
+
+      staff.sort((a, b) => {
+        const rDiff =
+          (ROLE_SORT_ORDER[a.role] ?? 99) - (ROLE_SORT_ORDER[b.role] ?? 99)
+        if (rDiff !== 0) return rDiff
+        return String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
+      })
+
+      const nowMs = Date.now()
+      const invites = (db.staffInvites || [])
+        .slice()
+        .sort((a, b) =>
+          String(b.createdAt || '').localeCompare(String(a.createdAt || '')),
+        )
+        .map(inv => {
+          const isExpired =
+            inv.status === 'pending' && Date.parse(inv.expiresAt) <= nowMs
+          const invitePreview = inv.token
+            ? `${inv.token.slice(0, 6)}...${inv.token.slice(-4)}`
+            : ''
+          return {
+            id: inv.id,
+            email: inv.email,
+            role: inv.role,
+            department: inv.department,
+            note: inv.note || '',
+            createdByDid: inv.createdByDid,
+            createdByHandle: inv.createdByHandle,
+            createdAt: inv.createdAt,
+            expiresAt: inv.expiresAt,
+            status: isExpired ? 'expired' : inv.status,
+            acceptedByDid: inv.acceptedByDid || null,
+            acceptedAt: inv.acceptedAt || null,
+            invitePreview,
+            ...(inv.status === 'pending' && !isExpired
+              ? {
+                  inviteUrl:
+                    inv.inviteUrl || buildInviteUrl(req, origin, inv.token),
+                }
+              : {}),
+          }
+        })
+
+      helpers.sendJson(req, res, 200, {
+        ok: true,
+        staff,
+        invites,
+        roles: ROLE_META,
+      })
+      return true
+    }
+
+    // 10b. POST /api/quantzing/admin/staff/invite (requires staff.manage)
+    if (pathname === '/api/quantzing/admin/staff/invite' && method === 'POST') {
+      const auth = requirePermission(req, res, db, helpers, 'staff.manage')
+      if (!auth) return true
+
+      const body = await helpers.readJsonBody(req)
+      const email = String(body.email || '')
+        .trim()
+        .toLowerCase()
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'A valid employee email address is required',
+        )
+        return true
+      }
+
+      const rawRole = String(body.role || '')
+        .trim()
+        .toLowerCase()
+      const normalizedRole = VALID_ROLE_INPUTS.get(rawRole)
+      if (!normalizedRole || !STAFF_ROLES.has(normalizedRole)) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          `Invalid staff role "${body.role || ''}". Must be one of: ${[...STAFF_ROLES].join(', ')}`,
+        )
+        return true
+      }
+
+      const department =
+        String(body.department || '').trim() ||
+        defaultDepartmentForRole(normalizedRole)
+      const expiresHours =
+        Number.isFinite(Number(body.expiresHours)) &&
+        Number(body.expiresHours) > 0
+          ? Math.min(720, Number(body.expiresHours))
+          : 72
+      const note = String(body.note || '')
+        .trim()
+        .slice(0, 500)
+
+      const token = crypto.randomBytes(16).toString('hex')
+      const nowMs = Date.now()
+      const inviteUrl = buildInviteUrl(req, origin, token)
+      const invite = {
+        id: `inv_${helpers.generateTid()}`,
+        token,
+        email,
+        role: normalizedRole,
+        department,
+        note,
+        createdByDid: auth.did,
+        createdByHandle: auth.account.handle,
+        createdAt: new Date(nowMs).toISOString(),
+        expiresAt: new Date(nowMs + expiresHours * 3600_000).toISOString(),
+        status: 'pending',
+        acceptedByDid: null,
+        acceptedAt: null,
+        inviteUrl,
+      }
+
+      db.staffInvites = Array.isArray(db.staffInvites) ? db.staffInvites : []
+      db.staffInvites.push(invite)
+
+      recordAudit(
+        db,
+        auth,
+        'staff.invite',
+        invite.id,
+        {
+          email,
+          role: normalizedRole,
+          department,
+          expiresAt: invite.expiresAt,
+        },
+        req,
+      )
+      helpers.saveDb(db)
+
+      helpers.sendJson(req, res, 201, {
+        ok: true,
+        invite: {
+          ...invite,
+          invitePreview: `${token.slice(0, 6)}...${token.slice(-4)}`,
+        },
+        inviteUrl,
+      })
+      return true
+    }
+
+    // 10c. DELETE /api/quantzing/admin/staff/invites/:id (requires staff.manage)
+    const inviteDeleteMatch = pathname.match(
+      /^\/api\/quantzing\/admin\/staff\/invites\/([^/]+)$/,
+    )
+    if (inviteDeleteMatch && method === 'DELETE') {
+      const auth = requirePermission(req, res, db, helpers, 'staff.manage')
+      if (!auth) return true
+
+      const inviteId = decodeURIComponent(inviteDeleteMatch[1])
+      const invite = (db.staffInvites || []).find(
+        inv => String(inv.id) === String(inviteId),
+      )
+      if (!invite) {
+        helpers.sendXrpcError(req, res, 404, 'NotFound', 'Invite not found')
+        return true
+      }
+      if (invite.status === 'accepted') {
+        helpers.sendXrpcError(
+          req,
+          res,
+          409,
+          'AlreadyAccepted',
+          'Invite has already been accepted',
+        )
+        return true
+      }
+
+      invite.status = 'revoked'
+      invite.revokedAt = new Date().toISOString()
+      invite.revokedByDid = auth.did
+      invite.revokedByHandle = auth.account.handle
+
+      recordAudit(
+        db,
+        auth,
+        'staff.invite_revoke',
+        invite.id,
+        {
+          email: invite.email,
+          role: invite.role,
+        },
+        req,
+      )
+      helpers.saveDb(db)
+      helpers.sendJson(req, res, 200, {ok: true})
+      return true
+    }
+
+    // 10d. POST /api/quantzing/admin/staff/:did/offboard (1-Click Kill Switch)
+    const staffOffboardMatch = pathname.match(
+      /^\/api\/quantzing\/admin\/staff\/([^/]+)\/offboard$/,
+    )
+    if (staffOffboardMatch && method === 'POST') {
+      const auth = requirePermission(req, res, db, helpers, 'staff.manage')
+      if (!auth) return true
+
+      const targetRef = decodeURIComponent(staffOffboardMatch[1])
+      const target =
+        db.accounts[targetRef] || helpers.findLocalAccount(db, targetRef)
+      if (!target) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          404,
+          'NotFound',
+          'Staff member not found',
+        )
+        return true
+      }
+
+      if (target.did === auth.did) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'Cannot offboard your own account',
+        )
+        return true
+      }
+
+      if (target.did === FOUNDER_DID) {
+        helpers.sendXrpcError(
+          req,
+          res,
+          403,
+          'Forbidden',
+          'Cannot offboard the sovereign founder admin account',
+        )
+        return true
+      }
+
+      const body = await helpers.readJsonBody(req)
+      const previousRole = normalizeRole(target.role)
+      const nowIso = new Date().toISOString()
+
+      target.role = 'user'
+      target.department = ''
+      target.tokenVersion = (Number(target.tokenVersion) || 1) + 1
+      target.offboardedAt = nowIso
+
+      let releasedReports = 0
+      for (const r of db.reports || []) {
+        if (r.claimedByDid === target.did) {
+          r.claimedByDid = null
+          r.claimedByHandle = null
+          r.claimedAt = null
+          releasedReports++
+        }
+      }
+      let releasedAppeals = 0
+      for (const a of db.appeals || []) {
+        if (a.claimedByDid === target.did) {
+          a.claimedByDid = null
+          a.claimedByHandle = null
+          a.claimedAt = null
+          releasedAppeals++
+        }
+      }
+
+      recordAudit(
+        db,
+        auth,
+        'staff.offboard',
+        target.did,
+        {
+          handle: target.handle,
+          previousRole,
+          newTokenVersion: target.tokenVersion,
+          releasedReports,
+          releasedAppeals,
+          reason: String(body.reason || '').trim() || undefined,
+        },
+        req,
+      )
+      helpers.saveDb(db)
+      helpers.sendJson(req, res, 200, {
+        ok: true,
+        did: target.did,
+        handle: target.handle,
+        revokedSessions: true,
+        releasedReports,
+        releasedAppeals,
+      })
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // 11. GET /api/quantzing/admin/audit?limit=100 (requires audit.read)
     // -----------------------------------------------------------------------
     if (pathname === '/api/quantzing/admin/audit' && method === 'GET') {
-      const auth = requireStaffAuth(req, res, db, helpers)
+      const auth = requirePermission(req, res, db, helpers, 'audit.read')
       if (!auth) return true
 
       const limit = Math.min(
         500,
         Math.max(1, Number(searchParams.get('limit') || 100) || 100),
       )
-      const entries = [...(db.auditLog || [])].reverse().slice(0, limit)
+      const actionFilter = (searchParams.get('action') || '')
+        .trim()
+        .toLowerCase()
+      const actorFilter = (searchParams.get('actor') || '')
+        .trim()
+        .toLowerCase()
+
+      let entries = [...(db.auditLog || [])].reverse()
+      if (actionFilter) {
+        entries = entries.filter(e =>
+          String(e.action || '')
+            .toLowerCase()
+            .includes(actionFilter),
+        )
+      }
+      if (actorFilter) {
+        entries = entries.filter(
+          e =>
+            String(e.actorHandle || '')
+              .toLowerCase()
+              .includes(actorFilter) ||
+            String(e.actorDid || '')
+              .toLowerCase()
+              .includes(actorFilter),
+        )
+      }
+      entries = entries.slice(0, limit)
+
       helpers.sendJson(req, res, 200, {ok: true, entries})
       return true
     }
 
     // -----------------------------------------------------------------------
-    // 13. GET /api/quantzing/admin/backups
+    // 12. GET /api/quantzing/admin/backups (requires backups.manage)
     // -----------------------------------------------------------------------
     if (pathname === '/api/quantzing/admin/backups' && method === 'GET') {
-      const auth = requireStaffAuth(req, res, db, helpers)
+      const auth = requirePermission(req, res, db, helpers, 'backups.manage')
       if (!auth) return true
 
       const backupsDir = path.join(helpers.getDataDir(), 'backups')
@@ -1826,10 +3838,10 @@ export async function handleQuantZingAdmin(req, res, ctx) {
     }
 
     // -----------------------------------------------------------------------
-    // 14. POST /api/quantzing/admin/backup (Admin role strictly required)
+    // 13. POST /api/quantzing/admin/backup (requires backups.manage)
     // -----------------------------------------------------------------------
     if (pathname === '/api/quantzing/admin/backup' && method === 'POST') {
-      const auth = requireStaffAuth(req, res, db, helpers, {requireAdmin: true})
+      const auth = requirePermission(req, res, db, helpers, 'backups.manage')
       if (!auth) return true
 
       const backupsDir = path.join(helpers.getDataDir(), 'backups')
@@ -1860,17 +3872,24 @@ export async function handleQuantZingAdmin(req, res, ctx) {
         createdAt: stat.mtime.toISOString(),
       }
 
-      recordAudit(db, auth, 'backup.create', filename, {
-        sizeBytes: stat.size,
-      })
+      recordAudit(
+        db,
+        auth,
+        'backup.create',
+        filename,
+        {
+          sizeBytes: stat.size,
+        },
+        req,
+      )
       helpers.saveDb(db)
 
       helpers.sendJson(req, res, 200, {ok: true, backup})
       return true
     }
 
-    // Unknown /api/quantzing/admin/* route — enforce auth then 404
-    const auth = requireStaffAuth(req, res, db, helpers)
+    // Unknown /api/quantzing/admin/* route — enforce staff auth then 404
+    const auth = requirePermission(req, res, db, helpers, null)
     if (!auth) return true
     helpers.sendXrpcError(
       req,

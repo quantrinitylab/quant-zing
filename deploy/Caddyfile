@@ -56,6 +56,35 @@ quantzing.quantrinity.in, quantzing.com, quantzing.in {
 	import quantzing_proxy
 }
 
+# Isolated Employee Operations Portal
+# Single-level quantzing-ops.quantrinity.in is covered by Cloudflare Free Universal SSL + Zero Trust Access (50 seats).
+# Also serves ops.quantzing.quantrinity.in and ops.quantzing.com with zero public consumer bundle overlap.
+quantzing-ops.quantrinity.in, ops.quantzing.quantrinity.in, ops.quantzing.com {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		X-Robots-Tag "noindex, nofollow"
+		X-Powered-By "QuantZing / QuantOS"
+		-Server
+	}
+
+	reverse_proxy {$QUANTZING_UPSTREAM:127.0.0.1:3008} {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+
+		health_uri /health
+		health_interval 15s
+		health_timeout 5s
+	}
+}
+
 # Sovereign ATProto Handle Subdomains (*.quantzing.com)
 # Note: For automatic wildcard TLS certificates, configure a Caddy DNS plugin
 # (e.g. cloudflare) or on-demand TLS via /health check.

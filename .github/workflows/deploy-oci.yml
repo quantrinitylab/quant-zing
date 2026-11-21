@@ -36,6 +36,7 @@ jobs:
           node --check ./scripts/quantzing-pds.mjs
           node --check ./scripts/serve-quantzing.mjs
           node --check ./scripts/quantzing-admin.mjs
+          node --check ./ops-portal/app.js
           bash -n ./deploy/backup-quantzing.sh
           bash -n ./deploy/monitor-quantzing.sh
           bash -n ./deploy/setup-oci-hardening.sh
@@ -47,7 +48,7 @@ jobs:
         run: |
           pnpm exec expo export --platform web --max-workers 2
           node ./scripts/post-web-build.js
-          tar -czf /tmp/quantzing-release.tar.gz dist scripts/serve-quantzing.mjs scripts/quantzing-pds.mjs scripts/quantzing-admin.mjs deploy/quantzing-adapter.mjs deploy/backup-quantzing.sh deploy/monitor-quantzing.sh deploy/logrotate-quantzing deploy/setup-oci-hardening.sh deploy/systemd package.json
+          tar -czf /tmp/quantzing-release.tar.gz dist ops-portal scripts/serve-quantzing.mjs scripts/quantzing-pds.mjs scripts/quantzing-admin.mjs deploy/quantzing-adapter.mjs deploy/backup-quantzing.sh deploy/monitor-quantzing.sh deploy/logrotate-quantzing deploy/setup-oci-hardening.sh deploy/systemd package.json
 
       - name: Deploy to Oracle Cloud vm-quantzing
         if: ${{ secrets.QUANTZING_OCI_SSH_KEY != '' }}

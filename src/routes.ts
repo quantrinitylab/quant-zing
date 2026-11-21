@@ -101,7 +101,6 @@ export const router = new Router<AllNavigatableRoutes>({
   CreatorStudio: '/studio',
   ZingSpaces: '/spaces',
   QuantZingPro: ['/pro', '/premium'],
-  Admin: '/admin',
   // QuantZing legal & support
   Terms: '/terms',
   Privacy: '/privacy',

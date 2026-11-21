@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useState} from 'react'
+import {useCallback, useMemo, useState} from 'react'
 import {
   type GestureResponderEvent,
   ScrollView,
@@ -14,7 +14,6 @@ import {useNavigation, useNavigationState} from '@react-navigation/native'
 import {UNREAD_NOTIFICATION_CAP} from '#/lib/constants'
 import {useAccountSwitcher} from '#/lib/hooks/useAccountSwitcher'
 import {useOpenComposer} from '#/lib/hooks/useOpenComposer'
-import {fetchAdminMe} from '#/lib/quantos/adminClient'
 import {
   getCurrentRoute,
   getTabState,
@@ -97,10 +96,6 @@ import {
   SettingsGear2_Filled_Corner0_Rounded as SettingsFilledIcon,
   SettingsGear2_Stroke2_Corner0_Rounded as SettingsIcon,
 } from '#/components/icons/Settings'
-import {
-  Shield_Stroke2_Corner0_Rounded as ShieldIcon,
-  ShieldCheck_Stroke2_Corner0_Rounded as ShieldCheckIcon,
-} from '#/components/icons/Shield'
 import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
 import {StreamingLive_Stroke2_Corner0_Rounded as StreamingLiveIcon} from '#/components/icons/StreamingLive'
 import {
@@ -487,7 +482,7 @@ interface NavItemProps {
   }
   label: string
   minimal: boolean
-  navItem: Events['nav:click']['item'] | 'admin'
+  navItem: Events['nav:click']['item']
   onNavigateTab?: (tab: SidebarTab) => void
   testID?: string
 }
@@ -518,7 +513,7 @@ function NavItem({
   const [pathName] = useMemo(() => router.matchPath(href), [href])
   const navigationState = useNavigationState(state => state)
   const currentRouteInfo = getCurrentRoute(navigationState)
-  const tab = navItem !== 'admin' ? NAV_ITEM_TO_TAB[navItem] : undefined
+  const tab = NAV_ITEM_TO_TAB[navItem]
   const isCurrent =
     navItem === 'profile'
       ? isCurrentProfileRoute({
@@ -541,9 +536,7 @@ function NavItem({
   const navigation = useNavigation<NavigationProp>()
   const onPressWrapped = useCallback(
     (e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
-      if (navItem !== 'admin') {
-        ax.metric('nav:click', {item: navItem, surface: 'leftNav'})
-      }
+      ax.metric('nav:click', {item: navItem, surface: 'leftNav'})
       if (e.ctrlKey || e.metaKey || e.altKey) {
         return
       }
@@ -603,7 +596,7 @@ function NavItem({
           aria-hidden={true}
           width={NAV_ICON_WIDTH}
           style={
-            (navItem === 'quanty' || navItem === 'admin') && isSelected
+            navItem === 'quanty' && isSelected
               ? {color: '#1D9BF0'}
               : t.atoms.text
           }
@@ -788,28 +781,6 @@ function ComposeBtn({minimal}: {minimal: boolean}) {
   )
 }
 
-function useIsQuantZingStaff(did?: string, accessJwt?: string): boolean {
-  const [isStaff, setIsStaff] = useState(false)
-
-  useEffect(() => {
-    if (!did || !accessJwt) {
-      setIsStaff(false)
-      return
-    }
-    let active = true
-    void fetchAdminMe(accessJwt).then(res => {
-      if (active) {
-        setIsStaff(Boolean(res.isStaff))
-      }
-    })
-    return () => {
-      active = false
-    }
-  }, [did, accessJwt])
-
-  return isStaff
-}
-
 export function DesktopLeftNav({
   routeName,
   onNavigateTab,
@@ -819,10 +790,6 @@ export function DesktopLeftNav({
 }) {
   const t = useTheme()
   const {hasSession, currentAccount} = useSession()
-  const isStaff = useIsQuantZingStaff(
-    currentAccount?.did,
-    currentAccount?.accessJwt,
-  )
   const {i18n, t: l} = useLingui()
   const ax = useAnalytics()
   const {gtMobile} = useBreakpoints()
@@ -989,17 +956,6 @@ export function DesktopLeftNav({
             count={numUnreadModerationInbox}
             icons={{inactive: SettingsIcon, active: SettingsFilledIcon}}
           />
-          {isStaff && (
-            <NavItem
-              testID="leftNavAdminBtn"
-              label="Admin"
-              href="/admin"
-              navItem="admin"
-              onNavigateTab={onNavigateTab}
-              minimal={leftNavMinimal}
-              icons={{inactive: ShieldIcon, active: ShieldCheckIcon}}
-            />
-          )}
         </>
       )}
       <ComposeBtn minimal={leftNavMinimal} />

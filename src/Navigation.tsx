@@ -148,7 +148,6 @@ import {
 } from '#/screens/StarterPack/StarterPackScreen'
 import {Wizard} from '#/screens/StarterPack/Wizard'
 import TopicScreen from '#/screens/Topic'
-import {AdminConsoleScreen} from '#/screens/QuantZing/AdminConsoleScreen'
 import {ArticlesScreen} from '#/screens/QuantZing/ArticlesScreen'
 import {CreatorStudioScreen} from '#/screens/QuantZing/CreatorStudioScreen'
 import {HelpScreen} from '#/screens/QuantZing/HelpScreen'
@@ -673,11 +672,6 @@ function commonScreens(Stack: typeof Flat, unreadCountLabel?: string) {
         name="QuantZingPro"
         getComponent={() => QuantZingProScreen}
         options={{title: bskyTitle('QuantZing Pro', unreadCountLabel)}}
-      />
-      <Stack.Screen
-        name="Admin"
-        getComponent={() => AdminConsoleScreen}
-        options={{title: bskyTitle('Admin', unreadCountLabel)}}
       />
       <Stack.Screen
         name="Terms"
