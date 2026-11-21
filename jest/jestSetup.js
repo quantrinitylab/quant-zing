@@ -1,0 +1,180 @@
+/* global jest */
+import 'react-native-gesture-handler/jestSetup'
+
+import {configure} from '@testing-library/react-native'
+
+configure({asyncUtilTimeout: 20000})
+
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+)
+
+// The library's own mock keeps the real contexts (e.g. SafeAreaInsetsContext,
+// read by React Navigation) and supplies zero insets.
+jest.mock(
+  'react-native-safe-area-context',
+  () => require('react-native-safe-area-context/jest/mock').default,
+)
+
+jest.mock('expo-file-system', () => {
+  const join = parts =>
+    parts
+      .map(part => (typeof part === 'string' ? part : part.uri))
+      .join('/')
+      .replace(/([^:]\/)\/+/g, '$1')
+
+  class File {
+    static downloadFileAsync = jest.fn()
+
+    constructor(...parts) {
+      this.uri = join(parts)
+      this.exists = true
+      this.size = 100
+      this.type = 'image/jpeg'
+    }
+
+    copy = jest.fn()
+    delete = jest.fn()
+    move = jest.fn(async destination => {
+      this.uri = destination.uri
+    })
+    write = jest.fn()
+  }
+
+  class Directory {
+    static pickDirectoryAsync = jest.fn()
+
+    constructor(...parts) {
+      this.uri = join(parts)
+      this.exists = true
+    }
+
+    create = jest.fn()
+    createFile = jest.fn(name => new File(this, name))
+    delete = jest.fn()
+    list = jest.fn(() => [])
+  }
+
+  return {
+    Directory,
+    EncodingType: {Base64: 'base64'},
+    File,
+    Paths: {
+      availableDiskSpace: 100,
+      cache: new Directory('file://cache'),
+      document: new Directory('file://document'),
+      info: jest.fn(() => ({exists: true, isDirectory: false})),
+    },
+  }
+})
+
+jest.mock('expo-image-manipulator', () => {
+  const createContext = () => {
+    const image = {
+      height: 100,
+      release: jest.fn(),
+      saveAsync: jest.fn().mockResolvedValue({
+        height: 100,
+        uri: 'file://resized-image',
+        width: 100,
+      }),
+      width: 100,
+    }
+    return {
+      crop: jest.fn(),
+      release: jest.fn(),
+      renderAsync: jest.fn().mockResolvedValue(image),
+      resize: jest.fn(),
+    }
+  }
+
+  return {
+    ImageManipulator: {
+      manipulate: jest.fn(createContext),
+    },
+    SaveFormat: {
+      JPEG: 'jpeg',
+      WEBP: 'webp',
+    },
+  }
+})
+
+jest.mock('expo-camera', () => ({
+  Camera: {
+    useCameraPermissions: jest.fn(() => [true]),
+  },
+}))
+
+jest.mock('expo-media-library', () => ({
+  __esModule: true, // this property makes it work
+  Album: {
+    create: jest.fn(),
+    get: jest.fn(),
+  },
+  Asset: {
+    create: jest.fn(),
+  },
+  default: jest.fn(),
+  usePermissions: jest.fn(() => [true]),
+  requestPermissionsAsync: jest.fn().mockResolvedValue({granted: true}),
+}))
+
+jest.mock('@bsky.app/expo-guess-language', () => ({
+  guessLanguageSync: jest
+    .fn()
+    .mockReturnValue([{language: 'en', confidence: 1}]),
+  guessLanguageAsync: jest
+    .fn()
+    .mockResolvedValue([{language: 'en', confidence: 1}]),
+}))
+
+jest.mock('sentry-expo', () => ({
+  init: () => jest.fn(),
+  Native: {
+    ReactNativeTracing: jest.fn().mockImplementation(() => ({
+      start: jest.fn(),
+      stop: jest.fn(),
+    })),
+    ReactNavigationInstrumentation: jest.fn(),
+  },
+}))
+
+jest.mock('crypto', () => ({}))
+
+jest.mock('expo-application', () => ({
+  nativeApplicationVersion: '1.0.0',
+  nativeBuildVersion: '1',
+}))
+
+jest.mock('expo-modules-core', () => ({
+  requireOptionalNativeModule: jest.fn().mockReturnValue(null),
+  requireNativeModule: jest.fn().mockImplementation(
+    /** @param {string} moduleName */
+    moduleName => {
+      if (moduleName === 'ExpoPlatformInfo') {
+        return {
+          getIsReducedMotionEnabled: () => false,
+        }
+      }
+      if (moduleName === 'BottomSheet') {
+        return {
+          dismissAll: () => {},
+        }
+      }
+
+      const expoModules = /** @type {Record<string, unknown> | undefined} */ (
+        globalThis.expo?.modules
+      )
+      return expoModules?.[moduleName]
+    },
+  ),
+  requireNativeViewManager: jest.fn().mockImplementation(_ => {
+    return () => null
+  }),
+  createPermissionHook: () => () => [true],
+}))
+
+jest.mock('expo-localization', () => ({
+  getCalendars: jest.fn(() => [{uses24hourClock: null}]),
+  getLocales: () => [],
+}))

@@ -1,0 +1,123 @@
+import {atoms as a, themes} from '@bsky.app/alf/core.js'
+import escapeHTML from 'escape-html'
+import {type Request} from 'express'
+import {h} from 'hyposcript'
+
+import {css} from './styles.js'
+
+const t = themes.light
+const button = {
+  ...a.w_full,
+  ...a.py_sm,
+  ...a.px_2xl,
+  ...a.text_md,
+  ...a.font_semi_bold,
+  ...a.border_0,
+  ...a.rounded_full,
+  ...a.pointer,
+  transition: 'background-color 0.2s',
+}
+
+export function linkWarningContents(
+  req: Request,
+  opts: {
+    type: 'warn' | 'block'
+    link: string
+  },
+): string {
+  const link = escapeHTML(opts.link)
+
+  return [
+    h('div', {class: css({...a.pb_md, ...a.text_3xl})}, '⚠️'),
+    h(
+      'h1',
+      {
+        class: css({
+          ...a.pb_xs,
+          ...a.text_2xl,
+          ...a.font_bold,
+          ...t.atoms.text,
+        }),
+      },
+      opts.type === 'warn' ? req.__('Warning') : req.__('Blocked Link'),
+    ),
+    h(
+      'p',
+      {
+        class: css({
+          ...a.pb_lg,
+          ...a.text_md,
+          ...a.leading_snug,
+          ...t.atoms.text_contrast_medium,
+        }),
+      },
+      opts.type === 'warn'
+        ? req.__(
+            `This link may violate Bluesky's Community Guidelines. Proceed with caution.`,
+          )
+        : req.__(
+            `This link has been disabled because it violates Bluesky’s Community Guidelines.`,
+          ),
+    ),
+    h(
+      'div',
+      {
+        class: css({
+          ...a.mb_xl,
+          ...a.rounded_md,
+          ...t.atoms.bg_contrast_50,
+          padding: a.p_lg.padding,
+          wordBreak: 'break-all',
+        }),
+      },
+      h(
+        'p',
+        {
+          class: css({
+            ...a.text_sm,
+            ...a.text_center,
+            ...t.atoms.text_contrast_medium,
+            fontFamily: 'monospace',
+            wordBreak: 'break-all',
+          }),
+        },
+        link,
+      ),
+    ),
+    h(
+      'div',
+      {},
+      h(
+        'a',
+        {
+          role: 'button',
+          class: css({
+            ...button,
+            ...t.atoms.text_inverted,
+            backgroundColor: t.palette.primary_500,
+            '&:hover': {backgroundColor: t.palette.primary_600},
+            '&:active': {backgroundColor: t.palette.primary_700},
+          }),
+          href: 'https://bsky.app',
+        },
+        req.__('Return to Bluesky'),
+      ),
+      opts.type === 'warn' &&
+        h(
+          'a',
+          {
+            class: css({
+              ...button,
+              ...a.mt_sm,
+              ...t.atoms.bg,
+              color: t.palette.contrast_600,
+              '&:hover': {backgroundColor: t.palette.contrast_50},
+              '&:active': {backgroundColor: t.palette.contrast_50},
+            }),
+            href: link,
+          },
+          req.__('Continue Anyway'),
+        ),
+    ),
+  ].join('')
+}

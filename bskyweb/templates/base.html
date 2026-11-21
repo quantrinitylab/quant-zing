@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, viewport-fit=cover">
+  <meta name="referrer" content="origin-when-cross-origin">
+  <!--
+    Preconnect to essential domains
+  -->
+  <link rel="preconnect" href="https://bsky.social">
+  <link rel="preconnect" href="https://public.api.bsky.app">
+  <title>{%- block head_title -%}QuantZing{%- endblock -%}</title>
+  <meta name="description" content="QuantZing — Real-time conversation, news, and Quanty.">
+
+  <!-- Hello Humans! quantzing.com -->
+
+  {% include "fonts.html" %}
+
+  <style>
+    /**
+     * Minimum styles required to render splash.
+     *
+     * ALL OTHER STYLES BELONG IN `src/style.css`
+     *
+     * THIS NEEDS TO BE DUPLICATED IN `bskyweb/templates/base.html`
+     */
+    html,
+    body {
+      margin: 0px;
+      padding: 0px;
+      font-family: InterVariable, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Liberation Sans', Helvetica, Arial, sans-serif;
+      text-rendering: optimizeLegibility;
+      /* Platform-specific reset */
+      -webkit-overflow-scrolling: touch;
+      -webkit-text-size-adjust: 100%;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      -ms-overflow-style: scrollbar;
+      font-synthesis-weight: none;
+    }
+    :root {
+      color-scheme: dark;
+      --text: #E7E9EA;
+      --background: #000000;
+      --backgroundLight: #16181C;
+    }
+    html,
+    body,
+    #root {
+      display: flex;
+      flex: 1 0 auto;
+      min-height: 100%;
+      width: 100%;
+    }
+    html.theme--light,
+    html.theme--light body,
+    html.theme--light #root {
+      color-scheme: light;
+      background-color: #FFFFFF;
+      --text: #0F1419;
+      --background: #FFFFFF;
+      --backgroundLight: #F7F9F9;
+    }
+    html.theme--dark,
+    html.theme--dark body,
+    html.theme--dark #root {
+      color-scheme: dark;
+      background-color: #000000;
+      --text: #E7E9EA;
+      --background: #000000;
+      --backgroundLight: #16181C;
+    }
+    html.theme--dim,
+    html.theme--dim body,
+    html.theme--dim #root {
+      color-scheme: dark;
+      background-color: #15202B;
+      --text: #F7F9F9;
+      --background: #15202B;
+      --backgroundLight: #1E2732;
+    }
+    #splash {
+      display: flex;
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      align-items: center;
+      justify-content: center;
+      background-color: var(--background);
+    }
+    #splash svg {
+      position: relative;
+      top: -40px;
+      width: 88px;
+    }
+    /**
+     * We need these styles to prevent shifting due to scrollbar show/hide on
+     * OSs that have them enabled by default. This also handles cases where the
+     * screen wouldn't otherwise scroll, and therefore hide the scrollbar and
+     * shift the content, by forcing the page to show a scrollbar.
+     */
+    body {
+      width: 100%;
+      overflow-y: scroll;
+    }
+  </style>
+  <script>
+    const theme = localStorage.getItem('ALF_THEME') || 'dark'
+    document.documentElement.classList.add(`theme--${theme}`)
+  </script>
+
+  {% if featureGateBootstrap %}
+  <script id="bsky-app-config" type="application/json">{{ featureGateBootstrap|safe }}</script>
+  {% endif %}
+  {% include "scripts.html" %}
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ staticCDNHost }}/static/apple-touch-icon.png?v=qz1">
+  <link rel="icon" href="{{ staticCDNHost }}/static/favicon.ico?v=qz1" sizes="any">
+  <link rel="shortcut icon" href="{{ staticCDNHost }}/static/favicon.ico?v=qz1">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ staticCDNHost }}/static/favicon-32x32.png?v=qz1">
+  <link rel="icon" type="image/png" sizes="16x16" href="{{ staticCDNHost }}/static/favicon-16x16.png?v=qz1">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='2' y='2' width='60' height='60' rx='16' fill='%23000000' stroke='%232F3336' stroke-width='2'/%3E%3Cpath fill='%23FFFFFF' d='M15 15H49V21L27 42H49V49H15V43L37 22H15Z'/%3E%3Cpath fill='%231D9BF0' d='M23 29.5H46L41 34.5H18Z'/%3E%3C/svg%3E">
+  <meta name="theme-color" content="#000000">
+  <meta name="application-name" content="QuantZing">
+  <meta name="generator" content="quantzing">
+  {% if noindex %}<meta name="robots" content="noindex{% if nofollow %}, nofollow{% endif %}">{% endif %}
+  <meta property="og:site_name" content="QuantZing">
+  <meta property="og:logo" content="{{ favicon }}">
+  <meta name="twitter:site" content="@quantzing" />
+  <link type="application/activity+json" href="" />
+
+  {% block html_head_extra -%}{%- endblock %}
+</head>
+<body>
+{%- block body_all %}
+  <div id="splash">
+    <!-- QuantZing SVG -->
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+      <rect x="2" y="2" width="60" height="60" rx="16" fill="#000000" stroke="#2F3336" stroke-width="2"/>
+      <path fill="#FFFFFF" d="M15 15H49V21L27 42H49V49H15V43L37 22H15Z"/>
+      <path fill="#1D9BF0" d="M23 29.5H46L41 34.5H18Z"/>
+    </svg>
+  </div>
+  <div id="root">
+  </div>
+
+  <noscript>
+    {% block noscript_extra %}{% endblock %}
+    <div data-nosnippet>
+      <p lang="en">Enable JavaScript to use QuantZing.</p>
+      <p lang="en">QuantZing — Real-time conversation, news, and Quanty.</p>
+    </div>
+  </noscript>
+{% endblock -%}
+</body>
+</html>

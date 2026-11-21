@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "1.0.0",
+  "name": "quant-zing",
+  "wave": "W1",
+  "role": "Standalone Sovereign ATProto Microblogging & Real-Time Social Network (QuantZing)",
+  "domains": [
+    "quantzing.com",
+    "quantzing.in"
+  ],
+  "ports": {
+    "web": 3008
+  },
+  "databases": [
+    "quant_zing"
+  ],
+  "natsPrefix": "quant.zing",
+  "mcpEndpoint": "/mcp",
+  "upstreams": [
+    {
+      "repo": "bluesky-social/social-app",
+      "license": "MIT",
+      "pattern": "hard-ui-fork"
+    }
+  ]
+}

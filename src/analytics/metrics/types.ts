@@ -1,0 +1,2184 @@
+/*
+ * Do not import runtime code into this file
+ */
+
+import {type Platform} from 'react-native'
+
+import {type NotificationReason} from '#/lib/hooks/useNotificationHandler'
+import {type VideoCompressSkipReason} from '#/lib/media/video/types'
+import {type GroupedNotificationsFeed} from '#/state/queries/notifications/grouped/types'
+import {type NotificationType} from '#/state/queries/notifications/types'
+import {type FeedDescriptor} from '#/state/queries/post-feed'
+import {
+  type AtmosphereAppMetricContext,
+  type AtmosphereContentMetricContext,
+  type AtmosphereMetricContext,
+  type AtmosphereTab,
+} from '#/screens/Atmosphere/metrics/types'
+import {type SharePlatformId} from '#/components/ShareDialog/catalog'
+import {type ShareSubjectType} from '#/components/ShareDialog/types'
+import {type LiveEventFeedMetricContext} from '#/features/liveEvents/types'
+
+/** Where the system share sheet was opened from. */
+type NativeShareEntryPoint = 'ShareMenu' | 'LongPress' | 'PostMenu'
+
+/** Which control saved or removed a post. */
+export type BookmarkEntryPoint = 'BookmarkButton' | 'PostMenu' | 'ShareMenu'
+
+/**
+ * What the share sheet was sharing. Unset from the share menu before the
+ * redesign and from long-pressing a post's share button, which only share
+ * posts.
+ */
+type ShareSubjectField = {subjectType?: ShareSubjectType}
+
+export type Events = {
+  // App events
+  init: {
+    initMs: number
+  }
+  'experiment:viewed': {
+    experimentId: string
+    variationId: string
+  }
+  'feature:viewed': {
+    featureId: string
+    featureResultValue: unknown
+    /** Only available if feature has experiment rules applied */
+    experimentId?: string
+    /** Only available if feature has experiment rules applied */
+    variationId?: string
+  }
+
+  'account:loggedIn': {
+    logContext:
+      | 'LoginForm'
+      | 'SwitchAccount'
+      | 'ChooseAccountForm'
+      | 'Settings'
+      | 'Notification'
+    withPassword: boolean
+  }
+  'account:loggedOut': {
+    logContext:
+      | 'SwitchAccount'
+      | 'Settings'
+      | 'SignupQueued'
+      | 'Deactivated'
+      | 'Takendown'
+      | 'AgeAssuranceDataUnavailableScreen'
+      | 'AgeAssuranceNoAccessScreen'
+    scope: 'current' | 'every'
+  }
+  'notifications:openApp': {
+    reason: NotificationReason
+    causedBoot: boolean
+  }
+  'notifications:request': {
+    context: 'StartOnboarding' | 'AfterOnboarding' | 'Login' | 'Home'
+    status: 'granted' | 'denied' | 'undetermined'
+  }
+  'notifications:bundleExpand': {
+    notificationType: NotificationType
+    authorCount: number
+  }
+  /**
+   * A tab of the Notifications screen came into view: the tab it's on when
+   * the screen gains focus, which includes mounting, and each tab the user
+   * switches to. A switch is logged once, as the pager settles on the new
+   * tab.
+   */
+  'notifications:tabDisplayed': {
+    tab: GroupedNotificationsFeed
+    /** The tab's position in the tab pills, from 0. */
+    index: number
+    /**
+     * - `focus`: the screen gained focus, or mounted, on the tab. Web mounts
+     *   the screen on every visit.
+     * - `tap`: the user pressed the tab's pill.
+     * - `swipe`: the user swiped the pager to the tab, which only native
+     *   does.
+     */
+    reason: 'focus' | 'tap' | 'swipe'
+  }
+  /**
+   * A tab of the Notifications screen started loading its newest
+   * notifications, in place of what it shows. Not the tab's first load or a
+   * retry of it, nor a check that only asks whether there's anything new, as
+   * a quick return to the app or a switch between tabs does, or any return
+   * while the user is partway down the tab. Nor the refresh of "All" that
+   * refreshing any other tab sets off behind it.
+   */
+  'notifications:refresh': {
+    tab: GroupedNotificationsFeed
+    /**
+     * - `pullToRefresh`: the user pulled the tab down.
+     * - `softReset`: the user pressed Notifications in the app's navigation,
+     *   or the tab's own pill, while already on the tab.
+     * - `pill`: the user pressed the "Refresh" pill.
+     * - `focus`: the screen came back into view, e.g. from a post opened
+     *   from it, or mounted with the tab already loaded, as web's does on
+     *   every visit.
+     * - `significantReturn`: the user came back to the app after a while
+     *   away, with the screen in view.
+     * - `pushOpened`: the user opened a push notification with the screen in
+     *   view.
+     */
+    reason:
+      | 'pullToRefresh'
+      | 'softReset'
+      | 'pill'
+      | 'focus'
+      | 'significantReturn'
+      | 'pushOpened'
+  }
+  /**
+   * The "Refresh" pill came into view on a Notifications tab, offering what an
+   * unread check, or a peek at the tab, found that it hasn't loaded. Only
+   * while the tab is the one in view, on the focused screen, with the app in
+   * the foreground, and again each time it comes back into view still up. One
+   * hide follows each.
+   */
+  'notifications:refreshPill:impression': {
+    tab: GroupedNotificationsFeed
+  }
+  /**
+   * The user pressed the pill, which loads the tab's newest notifications.
+   */
+  'notifications:refreshPill:press': {
+    tab: GroupedNotificationsFeed
+    /** How long since it came into view. */
+    shownMs: number
+  }
+  /** The pill went, after it came into view. */
+  'notifications:refreshPill:hide': {
+    tab: GroupedNotificationsFeed
+    /**
+     * - `pressed`: the user pressed it.
+     * - `left`: the tab went out of view: the user switched tab, opened
+     *   another screen, or left the app, or the screen closed, as web's does
+     *   on every navigation away.
+     * - `refreshed`: the tab started loading its newest notifications some
+     *   other way, e.g. a pull-to-refresh.
+     * - `gone`: a later unread check found nothing new for the tab to load,
+     *   e.g. once the notifications were seen somewhere else.
+     */
+    reason: 'pressed' | 'left' | 'refreshed' | 'gone'
+    /** How long it was in view. */
+    shownMs: number
+  }
+  'state:background': {}
+  'state:foreground': {}
+  'router:navigate': {
+    from?: string
+  }
+  'web:list:size': {
+    itemCount: number
+    renderedRowCount: number
+    contentHeight: number
+    sessionAgeMs: number
+    milestone: 100 | 250 | 500 | 1000
+    heapUsedBytes?: number
+    heapLimitBytes?: number
+  }
+  'web:list:longTasks': {
+    itemCount: number
+    renderedRowCount: number
+    taskCount: number
+    totalDurationMs: number
+    maxDurationMs: number
+    intervalMs: number
+    sessionAgeMs: number
+    heapUsedBytes?: number
+    heapLimitBytes?: number
+  }
+  'nav:click': {
+    item:
+      | 'home'
+      | 'search'
+      | 'atmosphere'
+      | 'chat'
+      | 'notifications'
+      | 'profile'
+      | 'feeds'
+      | 'lists'
+      | 'saved'
+      | 'settings'
+      | 'menu'
+      | 'quanty'
+      | 'articles'
+      | 'studio'
+      | 'spaces'
+      | 'pro'
+    surface: 'bottomBar' | 'drawer' | 'drawerHeader' | 'topBar' | 'leftNav'
+  }
+  'deepLink:referrerReceived': {
+    to: string
+    referrer: string
+    hostname: string
+  }
+
+  // Screen events
+  'splash:signInPressed': {}
+  'splash:createAccountPressed': {}
+  'welcomeModal:signupClicked': {}
+  'welcomeModal:exploreClicked': {}
+  'welcomeModal:signinClicked': {}
+  'welcomeModal:dismissed': {}
+  'welcomeModal:presented': {}
+  'signup:nextPressed': {
+    activeStep: number
+    phoneVerificationRequired?: boolean
+  }
+  'signup:backPressed': {
+    activeStep: number
+  }
+  'signup:captchaSuccess': {}
+  'signup:captchaFailure': {
+    reason: 'state-mismatch' | 'webview-error' | 'http-error'
+    host?: string
+    statusCode?: number
+  }
+  'signup:captchaSlow': {}
+  'signup:captchaBlockedLoad': {
+    host: string
+    isTopFrame: boolean
+  }
+  'signup:captchaBackPress': {
+    phase?: 'attesting' | 'challenge'
+  }
+  'signup:attestTimeout': {}
+  'signup:createAccountFailure': {
+    reason: string
+  }
+  'signup:fieldError': {
+    field: string
+    errorCount: number
+    errorMessage: string
+    activeStep: number
+  }
+  'signup:backgrounded': {
+    activeStep: number
+    backgroundCount: number
+  }
+  'signup:handleTaken': {typeahead?: boolean}
+  'signup:handleAvailable': {typeahead?: boolean}
+  'signup:handleSuggestionSelected': {method: string}
+  'signin:hostingProviderPressed': {
+    hostingProviderDidChange: boolean
+  }
+  'signin:hostingProviderFailedResolution': {}
+  'signin:success': {
+    failedAttemptsCount: number
+    isUsingCustomProvider: boolean
+    timeTakenSeconds: number
+  }
+  'signin:backPressed': {
+    failedAttemptsCount: number
+  }
+  'signin:forgotPasswordPressed': {}
+  'signin:passwordReset': {}
+  'signin:passwordResetSuccess': {}
+  'signin:passwordResetFailure': {}
+  'onboarding:interests:nextPressed': {
+    selectedInterests: string[]
+    selectedInterestsLength: number
+  }
+  'onboarding:interests:disabledNextPressed': {}
+  'onboarding:suggestedAccounts:tabPressed': {
+    tab: string
+  }
+  'onboarding:suggestedAccounts:followAllPressed': {
+    tab: string
+    numAccounts: number
+  }
+  'onboarding:suggestedAccounts:nextPressed': {
+    selectedAccountsLength: number
+    skipped: boolean
+  }
+  'onboarding:followingFeed:nextPressed': {}
+  'onboarding:algoFeeds:nextPressed': {
+    selectedPrimaryFeeds: string[]
+    selectedPrimaryFeedsLength: number
+    selectedSecondaryFeeds: string[]
+    selectedSecondaryFeedsLength: number
+  }
+  'onboarding:topicalFeeds:nextPressed': {
+    selectedFeeds: string[]
+    selectedFeedsLength: number
+  }
+  'onboarding:moderation:nextPressed': {}
+  'onboarding:profile:nextPressed': {}
+  'onboarding:finished:nextPressed': {
+    usedStarterPack: boolean
+    starterPackName?: string
+    starterPackCreator?: string
+    starterPackUri?: string
+    profilesFollowed: number
+    feedsPinned: number
+  }
+  'onboarding:finished:avatarResult': {
+    avatarResult: 'default' | 'created' | 'uploaded'
+  }
+  'onboarding:valueProp:stepOne:nextPressed': {}
+  'onboarding:valueProp:stepTwo:nextPressed': {}
+  'onboarding:valueProp:skipPressed': {}
+  'home:feedDisplayed': {
+    feedUrl: string
+    feedType: string
+    index: number
+    reason?: string
+  }
+  'feed:endReached': {
+    feedUrl: string
+    feedType: string
+    itemCount: number
+  }
+  'feed:refresh': {
+    feedUrl: string
+    feedType: string
+    reason: 'pull-to-refresh' | 'soft-reset' | 'load-latest'
+  }
+  'feed:save': {feedUrl: string} & (
+    | {
+        logContext?: never
+        recId?: never
+        position?: never
+      }
+    | {
+        logContext: 'Explore'
+        recId: string
+        position: number
+      }
+  )
+  'feed:unsave': {feedUrl: string} & (
+    | {
+        logContext?: never
+        recId?: never
+        position?: never
+      }
+    | {
+        logContext: 'Explore'
+        recId: string
+        position: number
+      }
+  )
+  'feed:pin': {feedUrl: string} & (
+    | {
+        logContext?: never
+        recId?: never
+        position?: never
+      }
+    | {
+        logContext: 'Explore'
+        recId: string
+        position: number
+      }
+  )
+  'feed:unpin': {feedUrl: string} & (
+    | {
+        logContext?: never
+        recId?: never
+        position?: never
+      }
+    | {
+        logContext: 'Explore'
+        recId: string
+        position: number
+      }
+  )
+  'feed:like': {
+    feedUrl: string
+  }
+  'feed:unlike': {
+    feedUrl: string
+  }
+  'feed:share': {
+    feedUrl: string
+  }
+  'feed:suggestion:seen': {
+    feedUrl: string
+    logContext: 'Explore'
+    recId?: string
+    position: number
+  }
+  'feed:suggestion:press': {
+    feedUrl: string
+    logContext: 'Explore'
+    recId?: string
+    position: number
+  }
+  'post:showMore': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+    position?: number
+  }
+  'post:showLess': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+    position?: number
+  }
+  'feed:clickthrough': {
+    feed: string
+    count: number
+  }
+  'feed:engaged': {
+    feed: string
+    count: number
+  }
+  'feed:seen': {
+    feed: string
+    count: number
+  }
+
+  'feed:discover:emptyError': {
+    userDid: string
+  }
+
+  'composer:gif:open': {}
+  'composer:gif:select': {}
+  'composer:image:edit': {
+    platform: Platform['OS']
+  }
+  'composerPrompt:press': {}
+  'composerPrompt:camera:press': {}
+  'composerPrompt:gallery:press': {}
+
+  'composer:threadgate:open': {
+    nudged: boolean
+  }
+  'composer:threadgate:save': {
+    replyOptions: string
+    quotesEnabled: boolean
+    persist: boolean
+    hasChanged: boolean
+  }
+  'composer:open': {
+    logContext:
+      'Fab' | 'PostReply' | 'QuotePost' | 'ProfileFeed' | 'Deeplink' | 'Other'
+    isReply: boolean
+    hasQuote: boolean
+    hasDraft: boolean
+  }
+  'draft:save': {
+    isNewDraft: boolean
+    hasText: boolean
+    hasImages: boolean
+    hasVideo: boolean
+    hasGif: boolean
+    hasQuote: boolean
+    hasLink: boolean
+    postCount: number
+    textLength: number
+  }
+  'draft:load': {
+    draftAgeMs: number
+    hasText: boolean
+    hasImages: boolean
+    hasVideo: boolean
+    hasGif: boolean
+    postCount: number
+  }
+  'draft:delete': {
+    logContext: 'DraftsList'
+    draftAgeMs: number
+  }
+  'draft:listOpen': {
+    draftCount: number
+  }
+  'draft:post': {
+    draftAgeMs: number
+    wasEdited: boolean
+  }
+  'draft:discard': {
+    logContext: 'ComposerClose' | 'BeforeDraftsList'
+    hadContent: boolean
+    textLength: number
+  }
+
+  // Data events
+  'account:create:begin': {}
+  'account:create:success': {
+    signupDuration: number
+    fieldErrorsTotal: number
+    backgroundCount: number
+  }
+  'post:create': {
+    imageCount: number
+    isReply: boolean
+    isPartOfThread: boolean
+    hasLink: boolean
+    hasQuote: boolean
+    langs: string
+    logContext: 'Composer'
+  }
+  'thread:create': {
+    postCount: number
+    isReply: boolean
+  }
+  'post:like': {
+    uri: string
+    authorDid: string
+    doesLikerFollowPoster: boolean | undefined
+    doesPosterFollowLiker: boolean | undefined
+    likerClout: number | undefined
+    postClout: number | undefined
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+  }
+  'post:repost': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+  }
+  'post:unlike': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+  }
+  'post:unrepost': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+  }
+  'post:mute': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+    position?: number
+  }
+  'post:unmute': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+    position?: number
+  }
+  'post:pin': {}
+  'post:unpin': {}
+  'post:bookmark': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    /** Which control saved it. `logContext` is where the post was shown. */
+    entryPoint: BookmarkEntryPoint
+    feedDescriptor?: string
+    position?: number
+  }
+  'post:unbookmark': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    /** Which control removed it. `logContext` is where the post was shown. */
+    entryPoint: BookmarkEntryPoint
+    feedDescriptor?: string
+    position?: number
+  }
+  'post:clickReply': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+    position?: number
+  }
+  'post:clickQuotePost': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+    position?: number
+  }
+  'post:clickthroughAuthor': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+    position?: number
+  }
+  'post:clickthroughItem': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+    position?: number
+  }
+  'post:clickthroughEmbed': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+    position?: number
+  }
+  'post:quotes:view': {
+    uri: string
+    quoteSort: 'top' | 'latest'
+  }
+  'post:view': {
+    uri: string
+    authorDid: string
+    isReply: boolean
+    logContext:
+      | 'FeedItem'
+      | 'PostThreadItem'
+      | 'Post'
+      | 'ImmersiveVideo'
+      | 'SearchResults'
+      | 'Bookmarks'
+      | 'Notifications'
+      | 'Hashtag'
+      | 'Topic'
+      | 'PostQuotes'
+    quoteSort?: 'top' | 'latest'
+    feedDescriptor?: string
+    position?: number
+  }
+  'bookmarks:view': {}
+  'bookmarks:post-clicked': {}
+  'profile:follow': {
+    contextProfileDid?: string
+    didBecomeMutual: boolean | undefined
+    followeeClout: number | undefined
+    followeeDid: string
+    followerClout: number | undefined
+    position?: number
+    logContext:
+      | 'RecommendedFollowsItem'
+      | 'PostThreadItem'
+      | 'ProfileCard'
+      | 'ProfileHeader'
+      | 'ProfileHeaderSuggestedFollows'
+      | 'ProfileMenu'
+      | 'ProfileHoverCard'
+      | 'AvatarButton'
+      | 'StarterPackProfilesList'
+      | 'FeedInterstitial'
+      | 'PostOnboardingFindFollows'
+      | 'ImmersiveVideo'
+      | 'ExploreSuggestedAccounts'
+      | 'OnboardingSuggestedAccounts'
+      | 'FindContacts'
+      | 'GroupChat'
+      | 'NotificationExpandedProfileCard'
+      | 'NotificationFollowRow'
+      | 'NotificationFollowersTabRow'
+      | 'NotificationContactMatchRow'
+  }
+  'profile:followers:view': {
+    contextProfileDid: string
+    isOwnProfile: boolean
+    sort?: 'latest' | 'top'
+  }
+  'profile:followers:paginate': {
+    contextProfileDid: string
+    itemCount: number
+    page: number
+    sort?: 'latest' | 'top'
+  }
+  'profile:following:view': {
+    contextProfileDid: string
+    isOwnProfile: boolean
+    sort?: 'latest' | 'top'
+  }
+  'profile:following:paginate': {
+    contextProfileDid: string
+    itemCount: number
+    page: number
+    sort?: 'latest' | 'top'
+  }
+  'profileCard:seen': {
+    contextProfileDid?: string
+    profileDid: string
+    position?: number
+    sort?: 'latest' | 'top'
+  }
+  'profile:mute': {}
+  'profile:unmute': {}
+  'profile:muteReposts': {}
+  'profile:unmuteReposts': {}
+  'profile:block': {}
+  'profile:unblock': {}
+  'suggestedUser:follow': {
+    logContext:
+      | 'Explore'
+      | 'DiscoverInterstitial'
+      | 'ProfileInterstitial'
+      | 'ProfileHeader'
+      | 'Onboarding'
+      | 'SeeMoreSuggestedUsers'
+      | 'ProgressGuide'
+    location: 'Card' | 'Profile' | 'FollowAll'
+    recSource?: 'Search'
+    recId?: string
+    position: number
+    suggestedDid: string
+    category: string | null
+  }
+  'suggestedUser:press': {
+    logContext:
+      | 'Explore'
+      | 'DiscoverInterstitial'
+      | 'ProfileInterstitial'
+      | 'ProfileHeader'
+      | 'Onboarding'
+      | 'SeeMoreSuggestedUsers'
+    recId?: string
+    position: number
+    suggestedDid: string
+    category: string | null
+  }
+  'suggestedUser:seen': {
+    logContext:
+      | 'Explore'
+      | 'DiscoverInterstitial'
+      | 'ProfileInterstitial'
+      | 'ProfileHeader'
+      | 'Onboarding'
+      | 'SeeMoreSuggestedUsers'
+      | 'ProgressGuide'
+    recSource?: 'Search'
+    recId?: string
+    position: number
+    suggestedDid: string
+    category: string | null
+  }
+  'suggestedUser:seeMore': {
+    logContext:
+      | 'Explore'
+      | 'DiscoverInterstitial'
+      | 'ProfileInterstitial'
+      | 'ProfileHeader'
+      | 'Onboarding'
+    recId?: string
+  }
+  'suggestedUser:dismiss': {
+    logContext: 'DiscoverInterstitial' | 'ProfileInterstitial' | 'ProfileHeader'
+    recId?: string
+    position: number
+    suggestedDid: string
+  }
+  'profile:unfollow': {
+    logContext:
+      | 'RecommendedFollowsItem'
+      | 'PostThreadItem'
+      | 'ProfileCard'
+      | 'ProfileHeader'
+      | 'ProfileHeaderSuggestedFollows'
+      | 'ProfileMenu'
+      | 'ProfileHoverCard'
+      | 'Chat'
+      | 'AvatarButton'
+      | 'StarterPackProfilesList'
+      | 'FeedInterstitial'
+      | 'PostOnboardingFindFollows'
+      | 'ImmersiveVideo'
+      | 'ExploreSuggestedAccounts'
+      | 'OnboardingSuggestedAccounts'
+      | 'FindContacts'
+      | 'GroupChat'
+      | 'NotificationExpandedProfileCard'
+      | 'NotificationFollowRow'
+      | 'NotificationFollowersTabRow'
+      | 'NotificationContactMatchRow'
+  }
+  'chat:create': {
+    logContext:
+      'ProfileHeader' | 'NewChatDialog' | 'SendViaChatDialog' | 'ConvoSettings'
+  }
+  'chat:open': {
+    logContext:
+      | 'ProfileHeader'
+      | 'NewChatDialog'
+      | 'ChatsList'
+      | 'SendViaChatDialog'
+      | 'ConvoSettings'
+  }
+  // Message replies
+  'chat:message:reply:send': {
+    convoId: string
+    isGroup: boolean
+  }
+  'chat:message:reply:tap': {
+    convoId: string
+  }
+
+  // Group chat adoption
+  'groupchat:create': {
+    logContext: 'NewChatDialog' | 'SendViaChatDialog'
+  }
+  'groupchat:landingPage:view': {
+    hasSession: boolean
+  }
+  'groupchat:inviteLink:redeem': {}
+
+  // Group chat user interactions
+  'groupchat:message:send': {
+    convoId: string
+    isOwner: boolean
+  }
+  'groupchat:mute': {
+    convoId: string
+  }
+  'groupchat:unmute': {
+    convoId: string
+  }
+  'groupchat:leave': {
+    convoId: string
+    isOwner: boolean
+  }
+  'groupchat:settings:view': {
+    convoId: string
+    isOwner: boolean
+  }
+  'groupchat:inviteLink:shareButton:press': {
+    convoId: string
+    method: 'post' | 'copy' | 'native'
+  }
+  'groupchat:inviteLink:shared': {
+    convoId: string
+    method: 'post' | 'dm'
+  }
+
+  // Group chat owner actions
+  'groupchat:owner:editName': {
+    convoId: string
+  }
+  'groupchat:owner:lock': {
+    convoId: string
+  }
+  'groupchat:owner:unlock': {
+    convoId: string
+  }
+  'groupchat:owner:kickMember': {
+    convoId: string
+  }
+  'groupchat:owner:inviteMember': {
+    convoId: string
+  }
+  'groupchat:owner:joinRequest:accept': {
+    convoId: string
+  }
+  'groupchat:owner:joinRequest:reject': {
+    convoId: string
+  }
+  'groupchat:owner:inviteLink:create': {
+    convoId: string
+  }
+  'groupchat:owner:inviteLink:disable': {
+    convoId: string
+  }
+
+  // Group chat problems
+  'groupchat:join:memberLimitReached': {
+    convoId: string
+  }
+
+  'starterPack:addUser': {
+    starterPack?: string
+  }
+  'starterPack:removeUser': {
+    starterPack?: string
+    context?: 'opt-out'
+  }
+  'starterPack:share': {
+    starterPack: string
+    shareType: 'link' | 'qrcode'
+    qrShareType?: 'save' | 'copy' | 'share'
+  }
+  'starterPack:followAll': {
+    logContext: 'StarterPackProfilesList' | 'Onboarding'
+    starterPack: string
+    count: number
+    recId?: string
+    position?: number
+  }
+  'starterPack:suggestion:seen': {
+    logContext: 'Explore' | 'Onboarding'
+    starterPack: string
+    recId: string
+    position: number
+  }
+  'starterPack:suggestion:press': {
+    logContext: 'Explore'
+    starterPack: string
+    recId: string
+    position: number
+  }
+  'starterPack:delete': {}
+  'starterPack:optOut': {
+    starterPack: string
+    action: 'optOut' | 'undo'
+  }
+  'starterPack:create': {
+    setName: boolean
+    setDescription: boolean
+    profilesCount: number
+    feedsCount: number
+  }
+  'starterPack:convertToList': {
+    starterPack: string
+    memberCount: number
+  }
+  'starterPack:ctaPress': {
+    starterPack: string
+  }
+  'starterPack:opened': {
+    starterPack: string
+  }
+  'link:clicked': {
+    url: string
+    domain: string
+  }
+
+  'feed:interstitial:feedCard:press': {}
+  'desktopFeeds:feed:click': {
+    feedUri: string
+    feedDescriptor: string
+  }
+
+  'profile:header:suggestedFollowsCard:press': {}
+  'profile:addToStarterPack': {}
+
+  'test:all:always': {}
+  'test:all:sometimes': {}
+  'test:all:boosted_by_gate1': {reason: 'base' | 'gate1'}
+  'test:all:boosted_by_gate2': {reason: 'base' | 'gate2'}
+  'test:all:boosted_by_both': {reason: 'base' | 'gate1' | 'gate2'}
+  'test:gate1:always': {}
+  'test:gate1:sometimes': {}
+  'test:gate2:always': {}
+  'test:gate2:sometimes': {}
+
+  'tmd:share': {}
+  'tmd:download': {}
+  'tmd:post': {}
+
+  'trendingTopics:show': {
+    context: 'settings'
+  }
+  'trendingTopics:hide': {
+    context: 'settings' | 'sidebar' | 'interstitial' | 'explore:trending'
+  }
+  'trendingTopic:seen': {
+    context: 'sidebar' | 'interstitial' | 'explore'
+    feedUri?: string
+    recId?: string
+    rank: number
+    feedSliceIndex?: number
+  }
+  'trendingTopic:click': {
+    context: 'sidebar' | 'interstitial' | 'explore' | 'widget'
+    feedUri?: string
+    recId?: string
+    rank: number
+    feedSliceIndex?: number
+  }
+  /**
+   * The trending topics home screen widget was seen installed on this device,
+   * having not been installed the last time we checked.
+   */
+  'trendingWidget:installed': {}
+  /**
+   * The last trending topics home screen widget was removed from this device.
+   * Only checked when the app comes to the foreground, so it can lag the
+   * actual removal.
+   */
+  'trendingWidget:uninstalled': {}
+  /**
+   * The trending topics widget was tapped outside a topic, which opens
+   * Explore. On the small iOS widget that's every tap, because it can't have
+   * per-topic links. Topic taps log `trendingTopic:click` instead.
+   */
+  'trendingWidget:explore:click': {
+    /**
+     * The iOS widget family, e.g. `systemSmall`. Android doesn't report it.
+     */
+    size?: string
+  }
+  'trendingVideos:show': {
+    context: 'settings'
+  }
+  'trendingVideos:hide': {
+    context: 'settings' | 'interstitial:discover' | 'interstitial:explore'
+  }
+  'videoCard:click': {
+    context: 'interstitial:discover' | 'interstitial:explore' | 'feed'
+  }
+
+  'explore:module:seen': {
+    module:
+      | 'trendingTopics'
+      | 'trendingVideos'
+      | 'suggestedAccounts'
+      | 'suggestedFeeds'
+      | 'suggestedStarterPacks'
+      | `feed:${FeedDescriptor}`
+  }
+  'explore:module:searchButtonPress': {
+    module: 'suggestedAccounts' | 'suggestedFeeds'
+  }
+  'explore:suggestedAccounts:tabPressed': {
+    tab: string
+  }
+
+  'search:query': {
+    source: 'typed' | 'history' | 'autocomplete'
+    filterCount: number
+  }
+
+  'search:results:loaded': {
+    tab: 'top' | 'latest' | 'people' | 'feeds' | 'starterPacks'
+    initialCount: number
+  }
+
+  'search:result:press': {
+    tab?: 'top' | 'latest' | 'people' | 'feeds' | 'starterPacks'
+    resultType: 'post' | 'profile' | 'feed' | 'starterPack'
+    position: number
+    uri: string
+  }
+
+  'search:recent:press': {
+    profileDid: string
+    position: number
+  }
+
+  'search:recent:clearAll': {
+    termCount: number
+    profileCount: number
+  }
+
+  'search:autocomplete:press': {
+    profileDid: string
+    position: number
+  }
+
+  'search:advanced:press': {
+    filterCount: number
+  }
+
+  'search:shareLink:press': {
+    filterCount: number
+  }
+
+  'search:addFilter:press': {
+    filterCount: number
+  }
+
+  'progressGuide:hide': {}
+  'progressGuide:followDialog:open': {}
+
+  'moderation:subscribedToLabeler': {}
+  'moderation:unsubscribedFromLabeler': {}
+  'moderation:changeLabelPreference': {
+    preference: string
+  }
+
+  'moderation:subscribedToList': {
+    listType: 'mute' | 'block'
+  }
+  'moderation:unsubscribedFromList': {
+    listType: 'mute' | 'block'
+  }
+
+  'moderation:inbox:view': {
+    tab: 'reports' | 'account'
+  }
+  'moderation:inbox:filter': {
+    tab: 'reports' | 'account'
+    filter: 'all' | 'pending' | 'resolved' | 'unread'
+  }
+  'moderation:inbox:markAllAsRead': {
+    tab: 'reports' | 'account'
+  }
+  'moderation:inbox:viewAccountStatus': {
+    status: 'warning' | 'atRisk'
+  }
+  'moderation:inbox:viewReport': {}
+  'moderation:inbox:viewNotice': {}
+  'moderation:inbox:startAppeal': {
+    type?: string
+  }
+  'moderation:inbox:submitAppeal': {
+    type?: string
+  }
+
+  'reportDialog:open': {
+    subjectType: string
+  }
+  'reportDialog:close': {}
+  'reportDialog:success': {
+    subjectType: string
+    reason: string
+    labeler: string
+    details: boolean
+    videoTimestamp: boolean
+  }
+  'reportDialog:failure': {}
+
+  translate: {
+    os: Platform['OS']
+    /**
+     * The languages the content might be in, such as the user-supplied
+     * language codes on posts. Currently only available on posts.
+     */
+    possibleSourceLanguages: string[] | undefined
+    /**
+     * This is the user's configured primary language, which is always defined.
+     */
+    expectedTargetLanguage: string
+    /**
+     * The length of the text being translated. We assume shorter texts are
+     * more likely to have inaccurate translations.
+     */
+    textLength: number
+    googleTranslate: boolean
+  }
+  'translate:result': {
+    success: boolean
+    os: Platform['OS']
+    /**
+     * The languages the content might be in, such as the user-supplied
+     * language codes on posts. Currently only available on posts.
+     */
+    possibleSourceLanguages: string[] | undefined
+    /**
+     * The language we expected the content to be in. This could be based on
+     * user selection or on our confidence in the detected language. This is
+     * nullable because we may not always have an expected source language.
+     */
+    expectedSourceLanguage: string | null
+    /**
+     * This is the user's configured primary language, which is always defined.
+     */
+    expectedTargetLanguage: string
+    /**
+     * The language the translation result was actually in. This is nullable
+     * because the translation could have failed, in which case we won't have a
+     * result source language.
+     */
+    resultSourceLanguage: string | null
+    /**
+     * The language the translation result was translated into. This should be
+     * the same as `expectedTargetLanguage`, but we include it for completeness
+     * and in case there are any edge cases where they differ. This is nullable
+     * because if the translation failed, we won't have a result target
+     * language.
+     */
+    resultTargetLanguage: string | null
+    /**
+     * The length of the text being translated. We assume shorter texts are
+     * more likely to have inaccurate translations.
+     */
+    textLength: number
+  }
+  'translate:override': {
+    os: Platform['OS']
+    /**
+     * The languages the content might be in, such as the user-supplied
+     * language codes on posts. Currently only available on posts.
+     */
+    possibleSourceLanguages: string[] | undefined
+    /**
+     * The language the user has indicated the content is actually in, which
+     * may be different from the expected source language if the user is
+     * overriding the auto-detected language. This is the language the user
+     * wants to translate from after overriding.
+     */
+    expectedSourceLanguage: string
+    /**
+     * This is the user's configured primary language, which is always defined.
+     */
+    expectedTargetLanguage: string
+    /**
+     * The language the translation result was actually in, which the user now
+     * wishes to override.
+     */
+    resultSourceLanguage: string
+  }
+  'composer:language:suggestLanguage': {
+    os: Platform['OS']
+    /**
+     * The language we detected and suggested to the user as an override for the
+     * expected target language.
+     */
+    suggestedLanguage: string | undefined
+    /**
+     * This is the user's current composer languages, which are always defined.
+     */
+    currentTargetLanguages: string[]
+    /**
+     * The length of the text being translated. We assume shorter texts are
+     * more likely to have inaccurate translations.
+     */
+    textLength: number
+  }
+  'composer:language:acceptSuggestion': {
+    os: Platform['OS']
+    /**
+     * The language we detected and suggested to the user as an override for the
+     * expected target language.
+     */
+    suggestedLanguage: string | undefined
+    /**
+     * This is the user's current composer languages, which are always defined.
+     */
+    currentTargetLanguages: string[]
+    /**
+     * The length of the text being translated. We assume shorter texts are
+     * more likely to have inaccurate translations.
+     */
+    textLength: number
+  }
+  'composer:language:declineSuggestion': {
+    os: Platform['OS']
+    /**
+     * The language we detected and suggested to the user as an override for the
+     * expected target language.
+     */
+    suggestedLanguage: string | undefined
+    /**
+     * This is the user's current composer languages, which are always defined.
+     */
+    currentTargetLanguages: string[]
+    /**
+     * The length of the text being translated. We assume shorter texts are
+     * more likely to have inaccurate translations.
+     */
+    textLength: number
+  }
+  'composer:language:replyNudgeAccept': {
+    /**
+     * The language of the post the user is replying to.
+     */
+    replyToLanguage: string
+    /**
+     * This is the user's current composer languages, which are always defined.
+     */
+    currentTargetLanguages: string[]
+  }
+  'composer:language:replyNudgeDecline': {
+    /**
+     * The language of the post the user is replying to.
+     */
+    replyToLanguage: string
+    /**
+     * This is the user's current composer languages, which are always defined.
+     */
+    currentTargetLanguages: string[]
+  }
+  'composer:language:nudgeUser': {
+    os: Platform['OS']
+    /**
+     * The language we detected and suggested to the user as an override for the
+     * expected target language.
+     */
+    suggestedLanguage: string | undefined
+    /**
+     * This is the user's current composer languages, which are always defined.
+     */
+    currentTargetLanguages: string[]
+    /**
+     * The length of the text being translated. We assume shorter texts are
+     * more likely to have inaccurate translations.
+     */
+    textLength: number
+  }
+  'composer:language:langSelectorPressed': {
+    /**
+     * If the user was nudged by our language detection to update their language
+     */
+    wasNudged: boolean
+  }
+
+  'postMenu:openMuteWordsDialog': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+  }
+  'postMenu:muteAccount': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+  }
+  'postMenu:unmuteAccount': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+  }
+  'postMenu:blockAccount': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+  }
+  'postMenu:reportPost': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+  }
+
+  'verification:create': {}
+  'verification:revoke': {}
+  'verification:badge:click': {}
+  'verification:learn-more': {
+    location:
+      | 'initialAnnouncementeNux'
+      | 'verificationsDialog'
+      | 'verifierDialog'
+      | 'verificationSettings'
+  }
+  'verification:settings:hideBadges': {}
+  'verification:settings:unHideBadges': {}
+
+  'bot:label:toggle': {state: 'add' | 'remove'}
+  'bot:badge:click': {}
+
+  'contentVisibility:algorithmicRecommendations:change': {hide: boolean}
+
+  'live:create': {duration: number}
+  'live:edit': {}
+  'live:remove': {}
+  'live:card:open': {subject: string; from: 'post' | 'profile'}
+  'live:card:watch': {subject: string}
+  'live:card:openProfile': {subject: string}
+  'live:view:profile': {subject: string}
+  'live:view:post': {subject: string; feed?: string}
+
+  'post:share': {
+    uri: string
+    authorDid: string
+    logContext: 'FeedItem' | 'PostThreadItem' | 'Post' | 'ImmersiveVideo'
+    feedDescriptor?: string
+    postContext: 'feed' | 'thread'
+    position?: number
+  }
+  'share:press:copyLink': {uri: string} & ShareSubjectField
+  /**
+   * Fires when the user opens the system share sheet, or the browser's on
+   * desktop web ("Share via…").
+   */
+  'share:press:nativeShare': ShareSubjectField & {
+    uri: string
+    authorDid: string
+    entryPoint: NativeShareEntryPoint
+    os: Platform['OS']
+  }
+  /**
+   * Fires when the system share sheet closes after sharing. Not logged from
+   * the post menu, or on Android builds without the native share module.
+   */
+  'share:nativeShare:result': ShareSubjectField & {
+    uri: string
+    authorDid: string
+    entryPoint: NativeShareEntryPoint
+    /**
+     * `failed` is web only: the browser refused to open its share sheet, so
+     * the link was copied instead. That isn't counted as a share.
+     */
+    status: 'shared' | 'dismissed' | 'failed'
+    /**
+     * The app the user picked: the `activityType` on iOS, the package name on
+     * Android. Android reports the chooser's own actions (e.g. Copy) as
+     * `dismissed` with no target. Never set on web, since browsers don't say.
+     */
+    target?: string
+  }
+  'share:press:openDmSearch': ShareSubjectField & {
+    uri: string
+    authorDid: string
+  }
+  /**
+   * Fires when the user picks a chat from the "Send via chat" search.
+   */
+  'share:press:dmSelected': ShareSubjectField & {
+    uri: string
+    authorDid: string
+  }
+  'share:press:recentDm': ShareSubjectField & {
+    uri: string
+    authorDid: string
+    /**
+     * 0-based index among the recent chats. Later chats are only seen by
+     * people who scroll.
+     */
+    position: number
+  }
+  /**
+   * Fires when the user sends a message with a post attached from the share
+   * menu (a recent chat or "Send via chat"). The share-menu events above only
+   * mean a chat was opened; this one means the user sent the post. It fires
+   * once the message is queued, not when the server confirms it.
+   */
+  'share:dm:send': {
+    uri: string
+    authorDid: string
+    convoId: string
+    isGroup: boolean
+    /**
+     * How the chat was picked. Unset when the chat was opened with the post
+     * some other way, e.g. a link.
+     */
+    source?: 'recentChat' | 'chatSearch'
+  }
+  'share:press:embed': {uri: string}
+  /**
+   * Fires when the user picks an app from the share sheet's row of apps, e.g.
+   * `x` or `whatsapp`. Which apps were shown is never logged, since that
+   * reveals which apps are installed.
+   */
+  'share:press:platform': ShareSubjectField & {
+    uri: string
+    authorDid: string
+    platform: SharePlatformId
+    /**
+     * 0-based index in the apps row. The row scrolls, so later apps are only
+     * seen by people who swipe.
+     */
+    position: number
+  }
+  /**
+   * Fires when the app picked from the share sheet's row couldn't be opened,
+   * e.g. it was uninstalled after the row was shown.
+   */
+  'share:platform:openFailed': ShareSubjectField & {
+    uri: string
+    authorDid: string
+    platform: SharePlatformId
+  }
+
+  'embed:standardSite:view': {url: string}
+  'embed:standardSite:article:press': {url: string}
+  'embed:standardSite:article:longPress': {url: string}
+  'embed:standardSite:publication:press': {url: string}
+  'embed:standardSite:publication:longPress': {url: string}
+  'embed:standardSite:publicationCta:press': {url: string}
+  'embed:standardSite:publicationCta:longPress': {url: string}
+  'embed:standardSite:subscribe:press': {url: string}
+  'embed:standardSite:subscribe:longPress': {url: string}
+  'embed:standardSite:authorHandle:press': {handle: string}
+
+  'thread:click:showOtherReplies': {}
+  'thread:click:hideReplyForMe': {}
+  'thread:click:hideReplyForEveryone': {}
+  'thread:preferences:load': {
+    [key: string]: unknown
+  }
+  'thread:preferences:update': {
+    [key: string]: unknown
+  }
+  'thread:click:headerMenuOpen': {}
+  'thread:click:editOwnThreadgate': {}
+  'thread:click:viewSomeoneElsesThreadgate': {}
+  'activitySubscription:enable': {
+    setting: 'posts' | 'posts_and_replies'
+  }
+  'activitySubscription:disable': {}
+  'activityPreference:changeChannels': {
+    name: string
+    push: boolean
+    list?: boolean
+  }
+  'activityPreference:changeFilter': {
+    name: string
+    value: string
+  }
+
+  'ageAssurance:navigateToSettings': {}
+  'ageAssurance:dismissFeedBanner': {}
+  'ageAssurance:dismissSettingsNotice': {}
+  'ageAssurance:initDialogOpen': {
+    hasInitiatedPreviously: boolean
+  }
+  'ageAssurance:initDialogSubmit': {}
+  'ageAssurance:api:begin': {
+    platform: string
+    countryCode: string
+    regionCode?: string
+  }
+  'ageAssurance:initDialogError': {
+    code: string
+  }
+  'ageAssurance:redirectDialogOpen': {}
+  'ageAssurance:redirectDialogSuccess': {}
+  'ageAssurance:redirectDialogFail': {}
+  'ageAssurance:appealDialogOpen': {}
+  'ageAssurance:appealDialogSubmit': {}
+  'ageAssurance:noAccessScreen:shown': {
+    accountCreatedAt: string
+    isAARegion: boolean
+    hasDeclaredAge: boolean
+    canUpdateBirthday: boolean
+  }
+  'ageAssurance:noAccessScreen:openBirthdateDialog': {}
+  'ageAssurance:noAccessScreen:openDeleteAccountDialog': {}
+
+  /*
+   * Specifically for the `BlockedGeoOverlay`
+   */
+  'blockedGeoOverlay:shown': {}
+
+  /** The user dismissed the Atmosphere introduction banner. */
+  'atmosphere:nux:bannerDismissed': {}
+  /** The user opened the About Atmosphere dialog from the banner. */
+  'atmosphere:nux:learnMore': {}
+  /**
+   * The screen gained focus on this tab, or the pager reported a tab change.
+   * Returning from the background alone does not count.
+   */
+  'atmosphere:tab:displayed': {
+    tab: AtmosphereTab
+    /** The tab switched from. Unset for `focus`. */
+    previousTab?: AtmosphereTab
+    /**
+     * - `focus`: the screen gained focus, or mounted, on the tab.
+     * - `tap`: the user pressed the tab.
+     * - `swipe`: the user swiped the pager to the tab, which only native
+     *   does.
+     * - `seeMoreApps`: Explore's "See more" on featured apps opened Apps.
+     */
+    reason: 'focus' | 'tap' | 'swipe' | 'seeMoreApps'
+  }
+  /**
+   * Time with the tab selected, the screen focused, and the app in the
+   * foreground, logged when that period ends. This is not reading time:
+   * dialogs can cover the tab without stopping the timer. Whether the native
+   * in-app browser stops the timer has not been verified on-device.
+   */
+  'atmosphere:tab:duration': {
+    tab: AtmosphereTab
+    durationMs: number
+    /**
+     * - `switched`: the user switched to another tab.
+     * - `blurred`: the screen lost focus, e.g. another screen opened over
+     *   it, or it closed.
+     * - `backgrounded`: the app left the foreground.
+     */
+    endReason: 'switched' | 'blurred' | 'backgrounded'
+  }
+  /**
+   * Discover, Following and the activity list only. Each uri
+   * counts once until its list is unmounted, regardless of position or
+   * activity group. Switching tabs does not reset the count.
+   *
+   * List waits 500 ms. Native needs 40% of the row visible; web needs any part
+   * visible above the bottom 200px of the browser viewport. The platforms use
+   * different visibility rules. Blurred cards never count, even if revealed.
+   *
+   * Rows reported while the tab or screen is inactive wait until it is shown,
+   * then count if still in the data and allowed by moderation. They may no
+   * longer be visible, and the 500 ms may have elapsed while inactive.
+   */
+  'atmosphere:content:impression': AtmosphereContentMetricContext
+  /**
+   * The user pressed a content card. Repeated presses count again. `external`
+   * does not confirm that its site or app opened, or that the content was read.
+   *
+   * Presses can occur without an impression, including Explore and revealed
+   * blurred cards. Dividing presses by impressions does not give the share of
+   * shown cards that were pressed. Opening an article from an iOS link preview
+   * is not counted (bluesky-social/toolbox#95; not tested on-device).
+   */
+  'atmosphere:content:press': AtmosphereContentMetricContext & {
+    destination: 'external' | 'photoDialog'
+  }
+  /** The user pressed a link to someone's profile. */
+  'atmosphere:profile:press': AtmosphereMetricContext & {
+    profileDid: string
+    source: 'activityHeader' | 'cardMenu' | 'photoDialog'
+  }
+  /** The user pressed a section's "See more", which switches tabs. */
+  'atmosphere:section:seeMore': AtmosphereMetricContext & {
+    section: 'apps'
+    destinationTab: 'apps'
+  }
+  /** The user opened an Apps tab card's details dialog. */
+  'atmosphere:app:detailsOpened': AtmosphereAppMetricContext
+  /** The user pressed an app's website link. Does not confirm it opened. */
+  'atmosphere:app:websitePressed': AtmosphereAppMetricContext & {
+    source: 'featuredCard' | 'appDialog'
+  }
+  /** The user pressed an app's Bluesky profile link. */
+  'atmosphere:app:profilePressed': AtmosphereAppMetricContext & {
+    source: 'featuredCard' | 'appDialog'
+  }
+  /** The user picked another category in the Apps tab. */
+  'atmosphere:apps:categorySelected': AtmosphereMetricContext & {
+    /** Category key, e.g. `writing`, or `all`. */
+    category: string
+    previousCategory: string
+    /** Apps shown in the new category. */
+    resultCount: number
+  }
+  /**
+   * The photo dialog reported another image as the leading one. A long swipe
+   * can log several changes. Use as a sign of photo browsing, not an exact
+   * count of gestures or every image viewed.
+   */
+  'atmosphere:photo:imageChanged': AtmosphereContentMetricContext & {
+    fromIndex: number
+    toIndex: number
+    imageCount: number
+  }
+  /**
+   * The user pressed an image, or the dialog's call-to-action button (`cta`,
+   * e.g. "View on Grain"), to open the gallery in its photo app. imageIndex
+   * identifies the pressed image. Does not confirm the gallery opened.
+   */
+  'atmosphere:photo:externalPressed': AtmosphereContentMetricContext & {
+    source: 'image' | 'cta'
+    imageIndex?: number
+  }
+  /**
+   * How a tab's or activity list's first load went for the user, logged once
+   * per mount, when its outcome is in view. A load that settles while the
+   * user is away logs when they come back.
+   */
+  'atmosphere:content:loaded': AtmosphereMetricContext & {
+    state: 'populated' | 'empty' | 'error'
+    itemCount: number
+  }
+  /** The user pulled to refresh a tab or activity list. */
+  'atmosphere:content:refresh': AtmosphereMetricContext
+  /**
+   * Following or the activity list added a page after the initial load.
+   * Initial/cached pages and refetches with no added pages do not count.
+   * This does not mean the user saw the new items.
+   */
+  'atmosphere:list:pageLoaded': AtmosphereMetricContext & {
+    /** 0-based; page 0 is the initial load and does not emit this event. */
+    pageIndex: number
+    /** Rows in the new page, including blurred cards and warnings. */
+    itemCount: number
+    /** Rows through this page, not unique content or impressions. */
+    totalItemCount: number
+  }
+  /** The user opened a content card's options menu. */
+  'atmosphere:menu:opened': AtmosphereContentMetricContext
+  /**
+   * The user picked an action from a content card's options menu. This is
+   * intent, e.g. `createPost` opens the composer, but doesn't mean they
+   * posted, and `report` opens the report dialog.
+   */
+  'atmosphere:menu:action': AtmosphereContentMetricContext & {
+    action:
+      | 'share'
+      | 'copyLink'
+      | 'createPost'
+      | 'sendViaChat'
+      | 'viewExternal'
+      | 'viewProfile'
+      | 'report'
+    /** `report` only: the collection of the record being reported. */
+    reportCollection?: string
+  }
+  /** The user opened an activity group's "View all" list. */
+  'atmosphere:activity:viewAll': AtmosphereMetricContext & {
+    subjectCount: number
+    collection: string
+  }
+
+  'geo:debug': {}
+
+  /*
+   * Find Contacts stuff
+   */
+
+  // user presses the button on the new feature NUX
+  'contacts:nux:ctaPressed': {}
+  // user presses the banner NUX
+  'contacts:nux:bannerPressed': {}
+  // user dismisses the banner
+  'contacts:nux:bannerDismissed': {}
+
+  // user lands on the contacts step
+  'onboarding:contacts:presented': {}
+  // user pressed "Import Contacts" button to begin flow
+  'onboarding:contacts:begin': {}
+  // skips the step entirely
+  'onboarding:contacts:skipPressed': {}
+  // user shared their contacts
+  'onboarding:contacts:contactsShared': {}
+  // user leaves the matches page
+  'onboarding:contacts:nextPressed': {
+    matchCount: number
+    followCount: number
+    dismissedMatchCount: number
+  }
+
+  // user entered a number
+  'contacts:phone:phoneEntered': {
+    entryPoint: 'Onboarding' | 'Standalone'
+  }
+  // user entered the correct one-time-code
+  'contacts:phone:phoneVerified': {
+    entryPoint: 'Onboarding' | 'Standalone'
+  }
+  // user responded to the contacts permission prompt
+  'contacts:permission:request': {
+    status: 'granted' | 'denied'
+    accessLevelIOS?: 'all' | 'limited' | 'none'
+  }
+  // contacts were successfully imported and matched
+  'contacts:import:success': {
+    contactCount: number
+    matchCount: number
+    entryPoint: 'Onboarding' | 'Standalone'
+  }
+  // contacts import failed
+  'contacts:import:failure': {
+    reason: 'noValidNumbers' | 'networkError' | 'unknown'
+    entryPoint: 'Onboarding' | 'Standalone'
+  }
+  // user followed a single match
+  'contacts:matches:follow': {
+    entryPoint: 'Onboarding' | 'Standalone'
+  }
+  // user pressed "Follow All" on matches
+  'contacts:matches:followAll': {
+    followCount: number
+    entryPoint: 'Onboarding' | 'Standalone'
+  }
+  // user dismissed a match
+  'contacts:matches:dismiss': {
+    entryPoint: 'Onboarding' | 'Standalone'
+  }
+  // user pressed invite to send an SMS to a non-match
+  'contacts:matches:invite': {
+    entryPoint: 'Onboarding' | 'Standalone'
+  }
+  // user opened the Find Contacts settings screen
+  'contacts:settings:presented': {
+    hasPreviouslySynced: boolean
+    matchCount?: number
+  }
+  // user followed a single match from settings
+  'contacts:settings:follow': {}
+  // user pressed "Follow All" from settings
+  'contacts:settings:followAll': {
+    followCount: number
+  }
+  // user dismissed a match from settings
+  'contacts:settings:dismiss': {}
+  // user re-entered the flow via the resync button
+  'contacts:settings:resync': {
+    daysSinceLastSync: number
+  }
+  // user pressed the remove all data button
+  'contacts:settings:removeData': {}
+
+  'liveEvents:feedBanner:seen': {
+    feed: string
+    context: LiveEventFeedMetricContext
+  }
+  'liveEvents:feedBanner:click': {
+    feed: string
+    context: LiveEventFeedMetricContext
+  }
+  'liveEvents:feedBanner:hide': {
+    feed: string
+    context: LiveEventFeedMetricContext
+  }
+  'liveEvents:feedBanner:unhide': {
+    feed: string
+    context: LiveEventFeedMetricContext
+  }
+  'liveEvents:hideAllFeedBanners': {
+    context: LiveEventFeedMetricContext
+  }
+  'liveEvents:unhideAllFeedBanners': {
+    context: LiveEventFeedMetricContext
+  }
+
+  'profile:associated:germ:click-to-chat': {}
+  'profile:associated:germ:click-self-info': {}
+  'profile:associated:germ:self-disconnect': {}
+  'profile:associated:germ:self-reconnect': {}
+
+  'profile:links:click': {
+    /**
+     * The profile the link is on, not the viewer.
+     */
+    profileDid: string
+    /**
+     * The link's `app.bsky.actor.link` record, which tells apart two links to
+     * the same site. Editing a link keeps its record.
+     */
+    linkUri: string | undefined
+    domain: string
+    /**
+     * Name of the recognized support provider, if the link is a support link.
+     */
+    supportProvider: string | undefined
+    isOwnProfile: boolean
+  }
+  /**
+   * A profile showing links was viewed. The denominator for tap rate.
+   */
+  'profile:links:impression': {
+    profileDid: string
+    linkCount: number
+    supportLinkCount: number
+    /**
+     * The `app.bsky.actor.link` records of the links shown, in display order,
+     * including any folded behind "+N". The per-link denominator for tap rate.
+     */
+    linkUris: string[]
+    isOwnProfile: boolean
+  }
+  /**
+   * Edit Profile was opened, from any profile header.
+   */
+  'profile:edit:open': {}
+  /**
+   * Edit Profile saved a change to the profile's pronouns. Never includes the
+   * pronouns themselves.
+   */
+  'profile:pronouns:save':
+    | {action: 'remove'}
+    | {
+        action: 'add' | 'edit'
+        /**
+         * How the saved pronouns were entered: one suggestion, several
+         * suggestions combined, or custom text.
+         */
+        source: 'preset' | 'combined' | 'custom'
+      }
+  /**
+   * Edit Profile was opened with the Links section available.
+   */
+  'profile:links:editorOpen': {
+    linkCount: number
+  }
+  /**
+   * Logged on save, one event per link actually added or removed.
+   */
+  'profile:links:add': {
+    linkUri: string | undefined
+    domain: string
+    supportProvider: string | undefined
+  }
+  'profile:links:remove': {
+    linkUri: string | undefined
+    domain: string
+    supportProvider: string | undefined
+  }
+  /**
+   * A visitor opened a link's details, e.g. by long-pressing it.
+   */
+  'profile:links:preview': {
+    profileDid: string
+    linkUri: string | undefined
+    domain: string
+    supportProvider: string | undefined
+    isOwnProfile: boolean
+  }
+  /**
+   * A link couldn't be added, e.g. because its site is blocked.
+   */
+  'profile:links:rejected': {
+    reason: 'safelink' | 'shortener' | 'insecure'
+    /**
+     * Left out for Safelink blocks, which can be sensitive sites. The other
+     * reasons come from public lists in the app.
+     */
+    domain?: string
+  }
+
+  // Post photo embed events
+  'post:photoEmbed:impression': {
+    layout: 'single' | 'grid' | 'carousel'
+    totalImages: number
+    postUri: string
+    postAuthorDid: string
+    feedDescriptor?: string
+  }
+  'post:photoEmbed:open': {
+    layout: 'single' | 'grid' | 'carousel'
+    fromImage: number
+    totalImages: number
+    postUri: string
+    postAuthorDid: string
+    feedDescriptor?: string
+  }
+  'post:photoEmbed:carouselSwipe': {
+    fromImage: number
+    toImage: number
+    totalImages: number
+    postUri: string
+    postAuthorDid: string
+    feedDescriptor?: string
+  }
+  'post:photoEmbed:lightboxSwipe': {
+    layout: 'single' | 'grid' | 'carousel'
+    fromImage: number
+    toImage: number
+    totalImages: number
+    postUri: string
+    postAuthorDid: string
+    feedDescriptor?: string
+  }
+
+  /*
+   * Invite friends (profile QR share sheet)
+   */
+
+  // NUX announcement dialog was shown to the user
+  'invite:nux:presented': {}
+  // user pressed "Try it" on the NUX announcement
+  'invite:nux:tryItPressed': {}
+  // invite friends dialog opened, with the surface that triggered it
+  'invite:dialog:open': {
+    logContext:
+      'ProfileHeader' | 'Drawer' | 'FindContactsSettings' | 'NuxAnnouncement'
+  }
+  // user copied the invite link to clipboard
+  'invite:action:copy': {}
+  // user invoked the native share sheet with the invite link
+  'invite:action:share': {}
+  // user saved the QR code image to their camera roll (success only)
+  'invite:action:download': {}
+  // user pressed the scan button to open the QR scanner
+  'invite:action:scan': {}
+  // user changed the QR card color theme
+  'invite:theme:change': {
+    themeKey: 'dawn' | 'sunlight' | 'day' | 'dusk' | 'twilight' | 'night'
+  }
+  // QR scanner decoded a code; result indicates whether it resolved to a profile
+  'invite:scanner:scanned': {
+    result: 'profileFound' | 'invalidQr'
+  }
+  // empty-followers banner promoting invite/find friends was shown
+  'invite:followersPromo:seen': {}
+  // user pressed the empty-followers promo banner
+  'invite:followersPromo:press': {}
+  // user dismissed the empty-followers promo banner
+  'invite:followersPromo:dismiss': {}
+
+  /**
+   * Fired when a video fails terminally during playback: unreachable (404),
+   * undecodable, or the client lacks the required codecs. Complements the
+   * Sentry-only video.playback spans with a countable, unsampled event.
+   */
+  'video:playback:failed': {
+    surface: 'feed' | 'immersiveFeed'
+    presentation: 'video' | 'gif'
+    /**
+     * Coarse failure bucket: VideoNotFoundError, HLSUnsupportedError, an
+     * hls.js error details code (e.g. bufferAppendError), or PlayerError on
+     * native.
+     */
+    errorClass: string
+    /** Truncated to 256 chars */
+    errorMessage: string
+    /** HLS playlist URL, identifies the exact video for server-side lookup */
+    playlist: string
+  }
+
+  /**
+   * The playable video was meaningfully visible. This is an exposure event,
+   * not proof that playback started. Fires once per mounted video item.
+   */
+  'video:impression': {
+    postUri?: string
+    postAuthorDid?: string
+    context: 'embed' | 'immersiveFeed'
+    presentation: 'video' | 'gif'
+  }
+  /**
+   * Playback advanced far enough to render the first frame. Preloading and
+   * merely becoming active do not count. Fires once per mounted video item;
+   * automatic loops do not produce another event.
+   */
+  'video:playback:start': {
+    postUri?: string
+    postAuthorDid?: string
+    context: 'embed' | 'immersiveFeed'
+    presentation: 'video' | 'gif'
+    autoplay: boolean
+  }
+  /**
+   * Incremental, non-overlapping wall-clock watch time. Segments are uniquely
+   * identified by playbackSessionId + segmentIndex for downstream deduping.
+   */
+  'video:playback:duration': {
+    playbackSessionId: string
+    segmentIndex: number
+    durationMs: number
+    postUri?: string
+    postAuthorDid?: string
+    context: 'embed' | 'immersiveFeed'
+    presentation: 'video' | 'gif'
+    endReason:
+      | 'paused'
+      | 'deactivated'
+      | 'backgrounded'
+      | 'buffering'
+      | 'checkpoint'
+      | 'ended'
+      | 'error'
+      | 'unmounted'
+  }
+  /**
+   * The user activated a third-party media player. Cross-origin players do
+   * not expose confirmed playback consistently, so this must not be treated
+   * as equivalent to video:playback:start without an explicit methodology.
+   */
+  'externalEmbed:playerActivated': {
+    postUri?: string
+    postAuthorDid?: string
+    source: string
+    playerType: string
+    mediaType: 'video' | 'audio' | 'gif' | 'other'
+  }
+
+  // === Video upload funnel (Frontend Spec section D) ===
+  // Every event carries uploadId (client-generated UUID, ties one upload
+  // session end-to-end) + engine (compression engine id, e.g.
+  // native:@bsky.app/video-compressor@0.2.0). jobId is added once the server
+  // returns it. Sizes / codecs / dimensions / timings only - never content.
+  'video:upload:picked': {
+    uploadId: string
+    engine: string
+    sourceMimeType?: string
+    sourceBytes?: number
+    sourceDurationMs?: number
+    sourceWidth?: number
+    sourceHeight?: number
+  }
+  'video:upload:compressStarted': {
+    uploadId: string
+    engine: string
+    sourceBytes?: number
+  }
+  // Native-only. Raw container metadata returned by the new module's probe()
+  // (bitrate, codec, HDR, frame rate, rotation, etc.). Fires once per upload
+  // between compressStarted and the compressSkipped/compressCompleted decision.
+  // The web mediabunny engine also emits this from its own probe.
+  'video:upload:probed': {
+    uploadId: string
+    engine: string
+    mimeType: string
+    codec: string
+    width: number
+    height: number
+    duration: number
+    bitrate: number
+    fileSize: number
+    hasAudio: boolean
+    frameRate: number
+    rotation: number
+    isHDR: boolean
+  }
+  'video:upload:compressCompleted': {
+    uploadId: string
+    engine: string
+    bytesIn?: number
+    bytesOut: number
+    outputMimeType: string
+    elapsedMs: number
+  }
+  'video:upload:compressSkipped': {
+    uploadId: string
+    engine: string
+    skipReason: VideoCompressSkipReason
+    bytes: number
+    mimeType: string
+    elapsedMs: number
+  }
+  'video:upload:compressFailed': {
+    uploadId: string
+    engine: string
+    errorClass: string
+    /** Truncated to 256 chars */
+    errorMessage: string
+    elapsedMs: number
+  }
+  'video:upload:uploadStarted': {
+    uploadId: string
+    engine: string
+    bytes: number
+  }
+  'video:upload:uploadCompleted': {
+    uploadId: string
+    engine: string
+    jobId: string
+    bytes: number
+    elapsedMs: number
+    throughputBytesPerSec: number
+  }
+  'video:upload:uploadFailed': {
+    uploadId: string
+    engine: string
+    bytes: number
+    errorClass: string
+    elapsedMs: number
+  }
+  'video:upload:processingStarted': {
+    uploadId: string
+    engine: string
+    jobId: string
+  }
+  'video:upload:processingCompleted': {
+    uploadId: string
+    engine: string
+    jobId: string
+    elapsedMs: number
+  }
+  'video:upload:processingFailed': {
+    uploadId: string
+    engine: string
+    jobId: string
+    errorClass: string
+    elapsedMs: number
+  }
+  'video:upload:published': {
+    uploadId: string
+    engine: string
+    jobId: string
+    // wall-clock from picked to published
+    totalElapsedMs: number
+  }
+  // The event that measures the actual problem: users giving up mid-wait.
+  'video:upload:abandoned': {
+    uploadId: string
+    engine: string
+    phase: 'compress' | 'upload' | 'processing'
+    jobId?: string
+    elapsedInPhaseMs: number
+  }
+
+  'post:likedBy:click': {}
+
+  /*
+   * Beta features settings screen
+   */
+
+  // user toggled "Enable beta features"; fired only after the preference
+  // write succeeds
+  'betaFeatures:toggle': {
+    enabled: boolean
+    /** Gate keys of beta features active for this user at toggle time */
+    betaFeatureKeys: string[]
+  }
+  // user pressed the "Share feedback" button, opening the dialog
+  'betaFeatures:feedback:open': {
+    betaFeatureKeys: string[]
+  }
+  // user submitted feedback and it was sent successfully
+  'betaFeatures:feedback:submit': {
+    betaFeatureKeys: string[]
+    feedbackLength: number
+  }
+}

@@ -1,0 +1,26 @@
+import {useCallback} from 'react'
+import {StatusBar} from 'react-native'
+
+import {IS_IOS, IS_LIQUID_GLASS} from '#/env'
+
+/**
+ * If we're calling a system API like the image picker that opens a sheet
+ * wrap it in this function to make sure the status bar is the correct color.
+ */
+export function useSheetWrapper() {
+  return useCallback(async <T>(promise: Promise<T>): Promise<T> => {
+    if (IS_IOS && !IS_LIQUID_GLASS) {
+      const entry = StatusBar.pushStackEntry({
+        barStyle: 'light-content',
+        animated: true,
+      })
+      try {
+        return await promise
+      } finally {
+        StatusBar.popStackEntry(entry)
+      }
+    } else {
+      return await promise
+    }
+  }, [])
+}

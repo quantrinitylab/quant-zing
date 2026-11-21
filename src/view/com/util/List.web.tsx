@@ -1,0 +1,969 @@
+import {
+  forwardRef,
+  isValidElement,
+  memo,
+  startTransition,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react'
+import {
+  type FlatListProps,
+  type ListRenderItemInfo,
+  StyleSheet,
+  View,
+  type ViewProps,
+} from 'react-native'
+import {type ReanimatedScrollEvent} from 'react-native-reanimated/lib/typescript/hook/commonTypes'
+
+import {batchedUpdates} from '#/lib/batchedUpdates'
+import {useNonReactiveCallback} from '#/lib/hooks/useNonReactiveCallback'
+import {useScrollHandlers} from '#/lib/ScrollContext'
+import {addStyle} from '#/lib/styles'
+import {useIsWithinSplitView} from '#/screens/Messages/components/splitView/context'
+import {useTheme, web} from '#/alf'
+import * as Layout from '#/components/Layout'
+import {useAnalytics} from '#/analytics'
+import {useListVirtualizer} from './useListVirtualizer.web'
+
+export type ListMethods = {
+  scrollToTop: () => void
+  // Signature kept compatible with FlatList's scrollToOffset (the native
+  // ListMethods type) so callers stay platform-agnostic.
+  scrollToOffset: (options: {animated?: boolean | null; offset: number}) => void
+  scrollToEnd: (options?: {animated?: boolean | null}) => void
+  // Signature kept compatible with FlatList's scrollToIndex (the native
+  // ListMethods type) so callers stay platform-agnostic. viewOffset is
+  // accepted for parity but not currently used by the web implementation.
+  scrollToIndex: (params: {
+    animated?: boolean | null
+    index: number
+    viewOffset?: number
+    viewPosition?: number
+  }) => void
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type ListProps<ItemT = any> = Omit<
+  FlatListProps<ItemT>,
+  | 'onScroll' // Use ScrollContext instead.
+  | 'refreshControl' // Pass refreshing and/or onRefresh instead.
+  | 'contentOffset' // Pass headerOffset instead.
+> & {
+  onScrolledDownChange?: (isScrolledDown: boolean) => void
+  headerOffset?: number
+  refreshing?: boolean
+  onRefresh?: () => void
+  /** The index may be unavailable for native viewability tokens. */
+  onItemSeen?: (item: ItemT, index: number | undefined) => void
+  desktopFixedHeight?: number | boolean
+  // Web only prop to contain the scroll to the container rather than the window
+  disableFullWindowScroll?: boolean
+  /**
+   * @deprecated Should be using Layout components
+   */
+  sideBorders?: boolean
+}
+export type ListRef = React.RefObject<ListMethods | null>
+
+const ON_ITEM_SEEN_WAIT_DURATION = 0.5e3 // when we consider post to be "seen"
+const ON_ITEM_SEEN_INTERSECTION_OPTS = {
+  rootMargin: '0px 0px -200px 0px',
+}
+
+const PAGE_STARTED_AT = Date.now()
+const LARGE_LIST_MILESTONES = [100, 250, 500, 1000] as const
+const LONG_TASK_REPORT_INTERVAL = 60e3
+// This is diagnostic telemetry, so a session-level sample is sufficient and
+// prevents popular feed surfaces from producing an event for every user.
+const ENABLE_WEB_LIST_TELEMETRY = Math.random() < 0.1
+
+function ListImpl<ItemT>(
+  {
+    ListHeaderComponent,
+    ListFooterComponent,
+    ListEmptyComponent,
+    disableFullWindowScroll: disableFullWindowScrollProp,
+    contentContainerStyle,
+    data,
+    desktopFixedHeight,
+    headerOffset,
+    keyExtractor,
+    refreshing: _unsupportedRefreshing,
+    onStartReached,
+    onStartReachedThreshold = 2,
+    onEndReached,
+    onEndReachedThreshold = 2,
+    onRefresh: _unsupportedOnRefresh,
+    onScrolledDownChange,
+    onContentSizeChange,
+    onItemSeen,
+    renderItem,
+    extraData,
+    style,
+    disableVirtualization,
+    initialNumToRender,
+    ...props
+  }: ListProps<ItemT>,
+  ref: React.Ref<ListMethods>,
+) {
+  const contextScrollHandlers = useScrollHandlers()
+  const {isWithinSplitView} = useIsWithinSplitView()
+  const t = useTheme()
+  const ax = useAnalytics()
+
+  // automatically disable full window scroll when within split view
+  const disableFullWindowScroll =
+    disableFullWindowScrollProp ?? isWithinSplitView
+
+  const isEmpty = !data || data.length === 0
+
+  let headerComponent: React.JSX.Element | null = null
+  if (ListHeaderComponent != null) {
+    if (isValidElement(ListHeaderComponent)) {
+      headerComponent = ListHeaderComponent
+    } else {
+      // @ts-expect-error Nah it's fine.
+      headerComponent = <ListHeaderComponent />
+    }
+  }
+
+  let footerComponent: React.JSX.Element | null = null
+  if (ListFooterComponent != null) {
+    if (isValidElement(ListFooterComponent)) {
+      footerComponent = ListFooterComponent
+    } else {
+      // @ts-expect-error Nah it's fine.
+      footerComponent = <ListFooterComponent />
+    }
+  }
+
+  let emptyComponent: React.JSX.Element | null = null
+  if (ListEmptyComponent != null) {
+    if (isValidElement(ListEmptyComponent)) {
+      emptyComponent = ListEmptyComponent
+    } else {
+      // @ts-expect-error Nah it's fine.
+      emptyComponent = <ListEmptyComponent />
+    }
+  }
+
+  if (headerOffset != null) {
+    style = addStyle(style, {
+      paddingTop: headerOffset,
+    })
+  }
+
+  const getScrollableNode = useCallback(() => {
+    if (disableFullWindowScroll) {
+      const element = nativeRef.current
+      if (!element) return
+      return createElementScrollable(element)
+    }
+    return windowScrollable
+  }, [disableFullWindowScroll])
+
+  const nativeRef = useRef<HTMLDivElement>(null)
+
+  // Registry of item index -> row DOM node. The list renders header/footer and
+  // visibility-detector siblings too, so we can't index into the container's
+  // children directly; each Row registers its own node here keyed by index.
+  const rowNodesRef = useRef<Map<number, HTMLElement>>(new Map())
+  const registerRowNode = useCallback(
+    (index: number, node: HTMLElement | null) => {
+      if (node) {
+        rowNodesRef.current.set(index, node)
+      } else {
+        rowNodesRef.current.delete(index)
+      }
+    },
+    [],
+  )
+
+  // --- virtualization ---
+  const [isInsideVisibleTree, setIsInsideVisibleTree] = useState(false)
+  const keys = isEmpty
+    ? []
+    : (data as Array<ItemT>).map((item, index) => keyExtractor!(item, index))
+  const {
+    start: windowStart,
+    end: windowEnd,
+    topSpacerHeight,
+    bottomSpacerHeight,
+    placeholders,
+    markerRef,
+    observeRow,
+    getScrollOffsetForIndex,
+  } = useListVirtualizer({
+    enabled:
+      !disableVirtualization &&
+      ax.features.enabled(ax.features.WebListVirtualizationEnable),
+    keys,
+    initialNumToRender,
+    scrollRootRef: disableFullWindowScroll ? nativeRef : null,
+    isActive: isInsideVisibleTree,
+  })
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      scrollToTop() {
+        getScrollableNode()?.scrollTo({top: 0})
+      },
+
+      scrollToOffset({
+        animated,
+        offset,
+      }: {
+        animated?: boolean | null
+        offset: number
+      }) {
+        getScrollableNode()?.scrollTo({
+          left: 0,
+          top: offset,
+          behavior: animated ? 'smooth' : 'instant',
+        })
+      },
+
+      scrollToEnd({animated = true} = {}) {
+        const element = getScrollableNode()
+        element?.scrollTo({
+          left: 0,
+          top: element.scrollHeight,
+          behavior: animated ? 'smooth' : 'instant',
+        })
+      },
+
+      scrollToIndex({animated = true, index}) {
+        // scrollIntoView with block: 'center' roughly matches the caller's
+        // viewPosition of 0.3 - not exact, but close enough and it respects
+        // whichever element is the scroll container (window or nativeRef).
+        const scrollIntoView = (node: HTMLElement) =>
+          node.scrollIntoView({
+            block: 'center',
+            behavior: animated ? 'smooth' : 'instant',
+          })
+        const node = rowNodesRef.current.get(index)
+        if (node) {
+          scrollIntoView(node)
+          return
+        }
+
+        /*
+         * The row isn't mounted, so jump to where we estimate it is. Once the
+         * virtualizer has rendered it there, settle on its real position.
+         */
+        const offset = getScrollOffsetForIndex(index)
+        if (offset == null) return
+        getScrollableNode()?.scrollTo({top: offset, behavior: 'instant'})
+        whenRowMounts(() => rowNodesRef.current.get(index), scrollIntoView)
+      },
+    }),
+    [getScrollableNode, getScrollOffsetForIndex],
+  )
+
+  // --- onContentSizeChange, maintainVisibleContentPosition ---
+  const containerRef = useRef(null)
+  useResizeObserver(containerRef, onContentSizeChange)
+
+  // --- onScroll ---
+  useWebListTelemetry({
+    containerRef: nativeRef,
+    enabled: isInsideVisibleTree,
+    itemCount: data?.length ?? 0,
+    rowNodesRef,
+  })
+  const handleScroll = useNonReactiveCallback(() => {
+    if (!isInsideVisibleTree) return
+
+    const element = getScrollableNode()
+    contextScrollHandlers.onScroll?.(
+      {
+        contentOffset: {
+          x: Math.max(0, element?.scrollX ?? 0),
+          y: Math.max(0, element?.scrollY ?? 0),
+        },
+        layoutMeasurement: {
+          width: element?.clientWidth,
+          height: element?.clientHeight,
+        },
+        contentSize: {
+          width: element?.scrollWidth,
+          height: element?.scrollHeight,
+        },
+      } as Exclude<
+        ReanimatedScrollEvent,
+        | 'velocity'
+        | 'eventName'
+        | 'zoomScale'
+        | 'targetContentOffset'
+        | 'contentInset'
+      >,
+      {},
+    )
+  })
+
+  useEffect(() => {
+    if (!isInsideVisibleTree) {
+      // Prevents hidden tabs from firing scroll events.
+      // Only one list is expected to be firing these at a time.
+      return
+    }
+
+    const element = getScrollableNode()
+
+    element?.addEventListener('scroll', handleScroll)
+    return () => {
+      element?.removeEventListener('scroll', handleScroll)
+    }
+  }, [
+    isInsideVisibleTree,
+    handleScroll,
+    disableFullWindowScroll,
+    getScrollableNode,
+  ])
+
+  // --- onScrolledDownChange ---
+  const isScrolledDown = useRef(false)
+  function handleAboveTheFoldVisibleChange(isAboveTheFold: boolean) {
+    const didScrollDown = !isAboveTheFold
+    if (isScrolledDown.current !== didScrollDown) {
+      isScrolledDown.current = didScrollDown
+      startTransition(() => {
+        onScrolledDownChange?.(didScrollDown)
+      })
+    }
+  }
+
+  // --- onStartReached ---
+  const onHeadVisibilityChange = useNonReactiveCallback(
+    (isHeadVisible: boolean) => {
+      if (isHeadVisible) {
+        onStartReached?.({
+          distanceFromStart: onStartReachedThreshold || 0,
+        })
+      }
+    },
+  )
+
+  // --- onEndReached ---
+  const onTailVisibilityChange = useNonReactiveCallback(
+    (isTailVisible: boolean) => {
+      if (isTailVisible) {
+        onEndReached?.({
+          distanceFromEnd: onEndReachedThreshold || 0,
+        })
+      }
+    },
+  )
+
+  return (
+    <View
+      {...props}
+      style={[
+        isWithinSplitView &&
+          web({
+            scrollbarWidth: 'thin',
+            scrollbarColor: `${t.palette.contrast_100} transparent`,
+          }),
+        style,
+        disableFullWindowScroll && {
+          flex: 1,
+          overflowY: isWithinSplitView ? 'auto' : 'scroll',
+        },
+      ]}
+      ref={nativeRef as unknown as React.Ref<React.ComponentRef<typeof View>>}>
+      <Visibility
+        onVisibleChange={setIsInsideVisibleTree}
+        style={
+          // This has position: fixed, so it should always report as visible
+          // unless we're within a display: none tree (like a hidden tab).
+          styles.parentTreeVisibilityDetector
+        }
+      />
+      <Layout.Center>
+        <View
+          ref={containerRef}
+          style={[
+            contentContainerStyle,
+            desktopFixedHeight && !disableFullWindowScroll
+              ? styles.minHeightViewport
+              : null,
+          ]}>
+          <Visibility
+            root={disableFullWindowScroll ? nativeRef : null}
+            onVisibleChange={handleAboveTheFoldVisibleChange}
+            style={[styles.aboveTheFoldDetector, {height: headerOffset}]}
+          />
+          {onStartReached && !isEmpty && (
+            <EdgeVisibility
+              root={disableFullWindowScroll ? nativeRef : null}
+              onVisibleChange={onHeadVisibilityChange}
+              topMargin={(onStartReachedThreshold ?? 0) * 100 + '%'}
+              containerRef={containerRef}
+            />
+          )}
+          {headerComponent}
+          {isEmpty ? (
+            emptyComponent
+          ) : (
+            <>
+              {observeRow && (
+                <View
+                  ref={
+                    markerRef as unknown as React.Ref<
+                      React.ComponentRef<typeof View>
+                    >
+                  }
+                />
+              )}
+              {placeholders
+                ? placeholders.before.map(placeholder => (
+                    <FindablePlaceholder
+                      key={placeholder.key}
+                      height={placeholder.height}
+                      text={placeholder.text}
+                    />
+                  ))
+                : observeRow && <View style={{height: topSpacerHeight}} />}
+              {(data as Array<ItemT>)
+                .slice(windowStart, windowEnd)
+                .map((item, i) => {
+                  const index = windowStart + i
+                  const key = keys[index]
+                  return (
+                    <Row<ItemT>
+                      key={key}
+                      rowKey={key}
+                      item={item}
+                      index={index}
+                      renderItem={renderItem}
+                      extraData={extraData}
+                      onItemSeen={onItemSeen}
+                      registerRowNode={registerRowNode}
+                      observeRow={observeRow}
+                    />
+                  )
+                })}
+              {placeholders
+                ? placeholders.after.map(placeholder => (
+                    <FindablePlaceholder
+                      key={placeholder.key}
+                      height={placeholder.height}
+                      text={placeholder.text}
+                    />
+                  ))
+                : observeRow && <View style={{height: bottomSpacerHeight}} />}
+            </>
+          )}
+          {onEndReached && !isEmpty && (
+            <EdgeVisibility
+              root={disableFullWindowScroll ? nativeRef : null}
+              onVisibleChange={onTailVisibilityChange}
+              bottomMargin={(onEndReachedThreshold ?? 0) * 100 + '%'}
+              containerRef={containerRef}
+            />
+          )}
+          {footerComponent}
+        </View>
+      </Layout.Center>
+    </View>
+  )
+}
+
+/*
+ * Scroll metrics and methods for the element that scrolls the list. Kept out
+ * of the component because React Compiler can't compile getters.
+ */
+function createElementScrollable(element: HTMLElement) {
+  return {
+    get scrollWidth() {
+      return element.scrollWidth
+    },
+    get scrollHeight() {
+      return element.scrollHeight
+    },
+    get clientWidth() {
+      return element.clientWidth
+    },
+    get clientHeight() {
+      return element.clientHeight
+    },
+    get scrollY() {
+      return element.scrollTop
+    },
+    get scrollX() {
+      return element.scrollLeft
+    },
+    scrollTo(options?: ScrollToOptions) {
+      element.scrollTo(options)
+    },
+    scrollBy(options: ScrollToOptions) {
+      element.scrollBy(options)
+    },
+    addEventListener(
+      event: string,
+      handler: EventListenerOrEventListenerObject,
+    ) {
+      element.addEventListener(event, handler)
+    },
+    removeEventListener(
+      event: string,
+      handler: EventListenerOrEventListenerObject,
+    ) {
+      element.removeEventListener(event, handler)
+    },
+  }
+}
+
+const windowScrollable = {
+  get scrollWidth() {
+    return document.documentElement.scrollWidth
+  },
+  get scrollHeight() {
+    return document.documentElement.scrollHeight
+  },
+  get clientWidth() {
+    return window.innerWidth
+  },
+  get clientHeight() {
+    return window.innerHeight
+  },
+  get scrollY() {
+    return window.scrollY
+  },
+  get scrollX() {
+    return window.scrollX
+  },
+  scrollTo(options: ScrollToOptions) {
+    window.scrollTo(options)
+  },
+  scrollBy(options: ScrollToOptions) {
+    window.scrollBy(options)
+  },
+  addEventListener(event: string, handler: EventListenerOrEventListenerObject) {
+    window.addEventListener(event, handler)
+  },
+  removeEventListener(
+    event: string,
+    handler: EventListenerOrEventListenerObject,
+  ) {
+    window.removeEventListener(event, handler)
+  },
+}
+
+/** Calls onMounted with the row once it's in the DOM, checking once a frame. */
+function whenRowMounts(
+  getNode: () => HTMLElement | undefined,
+  onMounted: (node: HTMLElement) => void,
+  attempts = 10,
+) {
+  requestAnimationFrame(() => {
+    const node = getNode()
+    if (node) {
+      onMounted(node)
+    } else if (attempts > 1) {
+      whenRowMounts(getNode, onMounted, attempts - 1)
+    }
+  })
+}
+
+type ChromiumPerformance = Performance & {
+  memory?: {
+    usedJSHeapSize: number
+    jsHeapSizeLimit: number
+  }
+}
+
+function getWebListDiagnostics(
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  rowNodesRef: React.RefObject<Map<number, HTMLElement>>,
+) {
+  const memory = (performance as ChromiumPerformance).memory
+  return {
+    renderedRowCount: rowNodesRef.current.size,
+    contentHeight: containerRef.current?.scrollHeight ?? 0,
+    sessionAgeMs: Date.now() - PAGE_STARTED_AT,
+    ...(memory && {
+      heapUsedBytes: memory.usedJSHeapSize,
+      heapLimitBytes: memory.jsHeapSizeLimit,
+    }),
+  }
+}
+
+/**
+ * APP-2859 diagnostic telemetry. Web List currently mounts every loaded row;
+ * these events let us correlate list growth and browser main-thread stalls by
+ * route without including any row content. Remove after the investigation.
+ */
+function useWebListTelemetry({
+  containerRef,
+  enabled,
+  itemCount,
+  rowNodesRef,
+}: {
+  containerRef: React.RefObject<HTMLDivElement | null>
+  enabled: boolean
+  itemCount: number
+  rowNodesRef: React.RefObject<Map<number, HTMLElement>>
+}) {
+  const ax = useAnalytics()
+  const reportedMilestones = useRef(new Set<number>())
+  const itemCountRef = useRef(itemCount)
+  useEffect(() => {
+    itemCountRef.current = itemCount
+  })
+  const isLargeList = itemCount >= LARGE_LIST_MILESTONES[0]
+
+  useEffect(() => {
+    if (!ENABLE_WEB_LIST_TELEMETRY || !enabled) return
+
+    for (const milestone of LARGE_LIST_MILESTONES) {
+      if (itemCount < milestone || reportedMilestones.current.has(milestone)) {
+        continue
+      }
+      reportedMilestones.current.add(milestone)
+      ax.metric('web:list:size', {
+        itemCount,
+        milestone,
+        ...getWebListDiagnostics(containerRef, rowNodesRef),
+      })
+    }
+  }, [ax, containerRef, enabled, itemCount, rowNodesRef])
+
+  useEffect(() => {
+    if (
+      !ENABLE_WEB_LIST_TELEMETRY ||
+      !enabled ||
+      !isLargeList ||
+      !('PerformanceObserver' in globalThis)
+    ) {
+      return
+    }
+
+    const stats = {taskCount: 0, totalDurationMs: 0, maxDurationMs: 0}
+    const observer = new PerformanceObserver(list => {
+      for (const entry of list.getEntries()) {
+        stats.taskCount++
+        stats.totalDurationMs += entry.duration
+        stats.maxDurationMs = Math.max(stats.maxDurationMs, entry.duration)
+      }
+    })
+
+    try {
+      observer.observe({type: 'longtask'})
+    } catch {
+      // Long Tasks API is not available in all browsers.
+      return
+    }
+
+    const report = () => {
+      if (stats.taskCount === 0) return
+      ax.metric('web:list:longTasks', {
+        itemCount: itemCountRef.current,
+        taskCount: stats.taskCount,
+        totalDurationMs: Math.round(stats.totalDurationMs),
+        maxDurationMs: Math.round(stats.maxDurationMs),
+        intervalMs: LONG_TASK_REPORT_INTERVAL,
+        ...getWebListDiagnostics(containerRef, rowNodesRef),
+      })
+      stats.taskCount = 0
+      stats.totalDurationMs = 0
+      stats.maxDurationMs = 0
+    }
+    const interval = setInterval(report, LONG_TASK_REPORT_INTERVAL)
+    return () => {
+      clearInterval(interval)
+      observer.disconnect()
+      report()
+    }
+  }, [ax, containerRef, enabled, isLargeList, rowNodesRef])
+}
+
+function EdgeVisibility({
+  root,
+  topMargin,
+  bottomMargin,
+  containerRef,
+  onVisibleChange,
+}: {
+  root?: React.RefObject<HTMLDivElement | null> | null
+  topMargin?: string
+  bottomMargin?: string
+  containerRef: React.RefObject<Element | null>
+  onVisibleChange: (isVisible: boolean) => void
+}) {
+  const [containerHeight, setContainerHeight] = useState(0)
+  useResizeObserver(containerRef, (w, h) => {
+    setContainerHeight(h)
+  })
+  return (
+    <Visibility
+      key={containerHeight}
+      root={root}
+      topMargin={topMargin}
+      bottomMargin={bottomMargin}
+      onVisibleChange={onVisibleChange}
+    />
+  )
+}
+
+function useResizeObserver(
+  ref: React.RefObject<Element | null>,
+  onResize: undefined | ((w: number, h: number) => void),
+) {
+  const handleResize = useNonReactiveCallback(onResize ?? (() => {}))
+  const isActive = !!onResize
+  useEffect(() => {
+    if (!isActive) {
+      return
+    }
+    const resizeObserver = new ResizeObserver(entries => {
+      batchedUpdates(() => {
+        for (let entry of entries) {
+          const rect = entry.contentRect
+          handleResize(rect.width, rect.height)
+        }
+      })
+    })
+    const node = ref.current!
+    resizeObserver.observe(node)
+    return () => {
+      resizeObserver.unobserve(node)
+    }
+  }, [handleResize, isActive, ref])
+}
+
+let Row = function RowImpl<ItemT>({
+  rowKey,
+  item,
+  index,
+  renderItem,
+  extraData: _unused,
+  onItemSeen,
+  registerRowNode,
+  observeRow,
+}: {
+  rowKey: string
+  item: ItemT
+  index: number
+  renderItem:
+    null | undefined | ((info: ListRenderItemInfo<ItemT>) => React.ReactNode)
+  extraData: unknown
+  onItemSeen: ListProps<ItemT>['onItemSeen']
+  registerRowNode: (index: number, node: HTMLElement | null) => void
+  observeRow: ((key: string, node: HTMLElement | null) => void) | undefined
+}): React.ReactNode {
+  const rowRef = useRef(null)
+  const intersectionTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  )
+
+  const handleIntersection = useNonReactiveCallback(
+    (entries: IntersectionObserverEntry[]) => {
+      batchedUpdates(() => {
+        if (!onItemSeen) {
+          return
+        }
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            if (!intersectionTimeout.current) {
+              intersectionTimeout.current = setTimeout(() => {
+                intersectionTimeout.current = undefined
+                onItemSeen(item, index)
+              }, ON_ITEM_SEEN_WAIT_DURATION)
+            }
+          } else {
+            if (intersectionTimeout.current) {
+              clearTimeout(intersectionTimeout.current)
+              intersectionTimeout.current = undefined
+            }
+          }
+        })
+      })
+    },
+  )
+
+  useEffect(() => {
+    if (!onItemSeen) {
+      return
+    }
+    const observer = new IntersectionObserver(
+      handleIntersection,
+      ON_ITEM_SEEN_INTERSECTION_OPTS,
+    )
+    const row: Element | null = rowRef.current
+    if (row) {
+      observer.observe(row)
+    }
+    return () => {
+      // Rows can unmount while the seen timer is pending, e.g. when virtualized.
+      if (intersectionTimeout.current) {
+        clearTimeout(intersectionTimeout.current)
+        intersectionTimeout.current = undefined
+      }
+      if (row) {
+        observer.unobserve(row)
+      }
+    }
+  }, [handleIntersection, onItemSeen])
+
+  // Register this row's DOM node so the list can scroll to it by index.
+  useEffect(() => {
+    const node: HTMLElement | null = rowRef.current
+    registerRowNode(index, node)
+    return () => {
+      registerRowNode(index, null)
+    }
+  }, [index, registerRowNode])
+
+  // Let the virtualizer track this row's height.
+  useEffect(() => {
+    if (!observeRow) return
+    const node: HTMLElement | null = rowRef.current
+    observeRow(rowKey, node)
+    return () => {
+      observeRow(rowKey, null)
+    }
+  }, [rowKey, observeRow])
+
+  if (!renderItem) {
+    return null
+  }
+
+  return (
+    <View
+      ref={rowRef}
+      // @ts-expect-error web only, for the tooltip rule in style.css
+      dataSet={{listRow: ''}}>
+      {renderItem({
+        item,
+        index,
+        separators: null as unknown as ListRenderItemInfo<ItemT>['separators'],
+      })}
+    </View>
+  )
+}
+Row = memo(Row) as <ItemT>(props: {
+  rowKey: string
+  item: ItemT
+  index: number
+  renderItem:
+    null | undefined | ((info: ListRenderItemInfo<ItemT>) => React.ReactNode)
+  extraData: unknown
+  onItemSeen: ListProps<ItemT>['onItemSeen']
+  registerRowNode: (index: number, node: HTMLElement | null) => void
+  observeRow: ((key: string, node: HTMLElement | null) => void) | undefined
+}) => React.ReactNode
+
+/**
+ * Stands in for a row outside the virtualized window. `hidden="until-found"`
+ * keeps it at the row's height without rendering its text, while still letting
+ * find-in-page match it. On a match the browser reveals it and scrolls to it,
+ * and the window then mounts the real row in its place, so the text stays
+ * transparent in the meantime.
+ */
+let FindablePlaceholder = function FindablePlaceholderImpl({
+  height,
+  text,
+}: {
+  height: number
+  text: string
+}): React.ReactNode {
+  return (
+    <div
+      ref={setHiddenUntilFound}
+      style={{height, overflow: 'hidden', color: 'transparent'}}>
+      {text}
+    </div>
+  )
+}
+FindablePlaceholder = memo(FindablePlaceholder)
+
+// React's types only allow a boolean `hidden`.
+function setHiddenUntilFound(node: HTMLDivElement | null) {
+  node?.setAttribute('hidden', 'until-found')
+}
+
+let Visibility = function VisibilityImpl({
+  root,
+  topMargin = '0px',
+  bottomMargin = '0px',
+  onVisibleChange,
+  style,
+}: {
+  root?: React.RefObject<HTMLDivElement | null> | null
+  topMargin?: string
+  bottomMargin?: string
+  onVisibleChange: (isVisible: boolean) => void
+  style?: ViewProps['style']
+}): React.ReactNode {
+  const tailRef = useRef(null)
+  const isIntersecting = useRef(false)
+
+  const handleIntersection = useNonReactiveCallback(
+    (entries: IntersectionObserverEntry[]) => {
+      batchedUpdates(() => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting !== isIntersecting.current) {
+            isIntersecting.current = entry.isIntersecting
+            onVisibleChange(entry.isIntersecting)
+          }
+        })
+      })
+    },
+  )
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(handleIntersection, {
+      root: root?.current ?? null,
+      rootMargin: `${topMargin} 0px ${bottomMargin} 0px`,
+    })
+    const tail: Element | null = tailRef.current
+    if (tail) {
+      observer.observe(tail)
+    }
+    return () => {
+      if (tail) {
+        observer.unobserve(tail)
+      }
+    }
+  }, [bottomMargin, handleIntersection, topMargin, root])
+
+  return (
+    <View ref={tailRef} style={addStyle(styles.visibilityDetector, style)} />
+  )
+}
+Visibility = memo(Visibility)
+
+export const List = memo(forwardRef(ListImpl)) as <ItemT>(
+  props: ListProps<ItemT> & {ref?: React.Ref<ListMethods>},
+) => React.ReactElement
+
+// https://stackoverflow.com/questions/7944460/detect-safari-browser
+
+const styles = StyleSheet.create({
+  minHeightViewport: {
+    minHeight: '100vh',
+  },
+  parentTreeVisibilityDetector: {
+    // @ts-expect-error web only
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  aboveTheFoldDetector: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    // Bottom is dynamic.
+  },
+  visibilityDetector: {
+    pointerEvents: 'none',
+    zIndex: -1,
+  },
+})

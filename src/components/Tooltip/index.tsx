@@ -1,0 +1,573 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
+import {View} from 'react-native'
+import Animated, {
+  cancelAnimation,
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  ZoomIn,
+} from 'react-native-reanimated'
+import {
+  useSafeAreaFrame,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context'
+import {scheduleOnRN} from 'react-native-worklets'
+
+import {useIsKeyboardVisible} from '#/lib/hooks/useIsKeyboardVisible'
+import {GlobalGestureEventsProvider} from '#/state/global-gesture-events'
+import {atoms as a, useTheme} from '#/alf'
+import {useOnGesture} from '#/components/hooks/useOnGesture'
+import {createPortalGroup, Portal as RootPortal} from '#/components/Portal'
+import {
+  ARROW_HALF_SIZE,
+  ARROW_SIZE,
+  BUBBLE_MAX_WIDTH,
+  getTooltipStyle,
+  MIN_EDGE_SPACE,
+  type TooltipColor,
+} from '#/components/Tooltip/const'
+import {Text} from '#/components/Typography'
+
+const TooltipPortal = createPortalGroup()
+const TooltipProviderContext = createContext<React.RefObject<React.ComponentRef<
+  typeof View
+> | null> | null>(null)
+
+/**
+ * Provider for Tooltip component. Only needed when you need to position the tooltip relative to a container,
+ * such as in the composer sheet.
+ *
+ * Only really necessary on iOS but can work on Android.
+ */
+export function SheetCompatProvider({children}: {children: React.ReactNode}) {
+  const ref = useRef<React.ComponentRef<typeof View> | null>(null)
+  return (
+    <GlobalGestureEventsProvider style={[a.flex_1]}>
+      <TooltipPortal.Provider>
+        <View ref={ref} collapsable={false} style={[a.flex_1]}>
+          <TooltipProviderContext value={ref}>
+            {children}
+          </TooltipProviderContext>
+        </View>
+        <TooltipPortal.Outlet />
+      </TooltipPortal.Provider>
+    </GlobalGestureEventsProvider>
+  )
+}
+SheetCompatProvider.displayName = 'TooltipSheetCompatProvider'
+
+/**
+ * These are native specific values, not shared with web
+ */
+const ARROW_VISUAL_OFFSET = ARROW_SIZE / 1.25 // vibes-based, slightly off the target
+
+type TooltipContextType = {
+  position: 'top' | 'bottom'
+  color: TooltipColor
+  maxWidth: number
+  visible: boolean
+  /** Whether the bubble is playing its exit animation before being removed. */
+  closing: boolean
+  onClosed: () => void
+  onVisibleChange: (visible: boolean) => void
+}
+
+type TargetMeasurements = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+type TargetContextType = {
+  targetMeasurements: TargetMeasurements | undefined
+  setTargetMeasurements: (measurements: TargetMeasurements) => void
+  shouldMeasure: boolean
+}
+
+const TooltipContext = createContext<TooltipContextType>({
+  position: 'bottom',
+  color: 'default',
+  maxWidth: BUBBLE_MAX_WIDTH,
+  visible: false,
+  closing: false,
+  onClosed: () => {},
+  onVisibleChange: () => {},
+})
+TooltipContext.displayName = 'TooltipContext'
+
+const TargetContext = createContext<TargetContextType>({
+  targetMeasurements: undefined,
+  setTargetMeasurements: () => {},
+  shouldMeasure: false,
+})
+TargetContext.displayName = 'TargetContext'
+
+export function Outer({
+  children,
+  position = 'bottom',
+  color = 'default',
+  maxWidth = BUBBLE_MAX_WIDTH,
+  visible: requestVisible,
+  onVisibleChange,
+}: {
+  children: React.ReactNode
+  position?: 'top' | 'bottom'
+  color?: TooltipColor
+  /** Widest the bubble can grow before its text wraps. */
+  maxWidth?: number
+  visible: boolean
+  onVisibleChange: (visible: boolean) => void
+}) {
+  /**
+   * Lagging state to track the externally-controlled visibility of the
+   * tooltip, which needs to wait for the target to be measured before
+   * actually being shown.
+   */
+  const [visible, setVisible] = useState<boolean>(false)
+  const [closing, setClosing] = useState(false)
+  const requestedVisibleRef = useRef(requestVisible)
+  useLayoutEffect(() => {
+    requestedVisibleRef.current = requestVisible
+  }, [requestVisible])
+  const [targetMeasurements, setTargetMeasurements] = useState<
+    | {
+        x: number
+        y: number
+        width: number
+        height: number
+      }
+    | undefined
+  >(undefined)
+
+  if (requestVisible && !visible && targetMeasurements) {
+    setVisible(true)
+  } else if (requestVisible && closing) {
+    setClosing(false)
+  } else if (!requestVisible && visible && !closing) {
+    setClosing(true)
+  }
+
+  const onClosed = useCallback(() => {
+    // An animation completion may already be queued when the tooltip reopens.
+    if (requestedVisibleRef.current) return
+    setVisible(false)
+    setClosing(false)
+    setTargetMeasurements(undefined)
+  }, [])
+
+  const ctx = useMemo(
+    () => ({
+      position,
+      color,
+      maxWidth,
+      visible,
+      closing,
+      onClosed,
+      onVisibleChange,
+    }),
+    [position, color, maxWidth, visible, closing, onClosed, onVisibleChange],
+  )
+  const targetCtx = useMemo(
+    () => ({
+      targetMeasurements,
+      setTargetMeasurements,
+      shouldMeasure: requestVisible,
+    }),
+    [requestVisible, targetMeasurements, setTargetMeasurements],
+  )
+
+  return (
+    <TooltipContext.Provider value={ctx}>
+      <TargetContext.Provider value={targetCtx}>
+        {children}
+      </TargetContext.Provider>
+    </TooltipContext.Provider>
+  )
+}
+
+export function Target({children}: {children: React.ReactNode}) {
+  const {shouldMeasure, setTargetMeasurements} = useContext(TargetContext)
+  const [hasLaidOut, setHasLaidOut] = useState(false)
+  const targetRef = useRef<React.ComponentRef<typeof View>>(null)
+  const containerRef = useContext(TooltipProviderContext)
+  const keyboardIsOpen = useIsKeyboardVisible()
+  const {width, height} = useSafeAreaFrame()
+
+  useEffect(() => {
+    if (!shouldMeasure || !hasLaidOut) return
+    /*
+     * Once opened, measure the dimensions and position of the target
+     */
+
+    if (containerRef?.current) {
+      targetRef.current?.measureLayout(
+        containerRef.current,
+        (x, y, width, height) => {
+          if (x !== undefined && y !== undefined && width && height) {
+            setTargetMeasurements({x, y, width, height})
+          }
+        },
+      )
+    } else {
+      targetRef.current?.measure((_x, _y, width, height, x, y) => {
+        if (x !== undefined && y !== undefined && width && height) {
+          setTargetMeasurements({x, y, width, height})
+        }
+      })
+    }
+  }, [
+    shouldMeasure,
+    setTargetMeasurements,
+    hasLaidOut,
+    containerRef,
+    keyboardIsOpen,
+    width,
+    height,
+  ])
+
+  return (
+    <View
+      collapsable={false}
+      ref={targetRef}
+      onLayout={() => setHasLaidOut(true)}>
+      {children}
+    </View>
+  )
+}
+
+export function Content({
+  children,
+  label,
+}: {
+  children: React.ReactNode
+  label: string
+}) {
+  const {
+    position,
+    color,
+    maxWidth,
+    visible,
+    closing,
+    onClosed,
+    onVisibleChange,
+  } = useContext(TooltipContext)
+  const {targetMeasurements} = useContext(TargetContext)
+  const isWithinProvider = !!useContext(TooltipProviderContext)
+  const requestClose = useCallback(() => {
+    onVisibleChange(false)
+  }, [onVisibleChange])
+
+  if (!visible || !targetMeasurements) return null
+
+  const Portal = isWithinProvider ? TooltipPortal.Portal : RootPortal
+
+  return (
+    <Portal>
+      <Bubble
+        label={label}
+        position={position}
+        color={color}
+        maxWidth={maxWidth}
+        closing={closing}
+        onClosed={onClosed}
+        /*
+         * Gotta pass these in here. Inside the Bubble, we're Portal-ed outside
+         * the context providers.
+         */
+        targetMeasurements={targetMeasurements}
+        requestClose={requestClose}>
+        {children}
+      </Bubble>
+    </Portal>
+  )
+}
+
+function Bubble({
+  children,
+  label,
+  position,
+  color,
+  maxWidth,
+  closing,
+  onClosed,
+  requestClose,
+  targetMeasurements,
+}: {
+  children: React.ReactNode
+  label: string
+  position: TooltipContextType['position']
+  color: TooltipColor
+  maxWidth: number
+  closing: boolean
+  onClosed: () => void
+  requestClose: () => void
+  targetMeasurements: Exclude<
+    TargetContextType['targetMeasurements'],
+    undefined
+  >
+}) {
+  const t = useTheme()
+  const style = getTooltipStyle(t, color)
+  const insets = useSafeAreaInsets()
+  const exitScale = useSharedValue(1)
+  const exitStyle = useAnimatedStyle(() => ({
+    transform: [{scale: exitScale.get()}],
+  }))
+
+  useEffect(() => {
+    let cancelled = false
+    const finishClosing = () => {
+      if (!cancelled) onClosed()
+    }
+    if (closing) {
+      // Reverse the entry zoom before removing the portal content.
+      exitScale.set(
+        withTiming(0, {duration: 300, easing: Easing.in(Easing.exp)}, done => {
+          if (done) scheduleOnRN(finishClosing)
+        }),
+      )
+    } else {
+      exitScale.set(1)
+    }
+    return () => {
+      cancelled = true
+      cancelAnimation(exitScale)
+    }
+  }, [closing, exitScale, onClosed])
+  const dimensions = useSafeAreaFrame()
+  const [bubbleMeasurements, setBubbleMeasurements] = useState<
+    | {
+        width: number
+        height: number
+      }
+    | undefined
+  >(undefined)
+  const coords = useMemo(() => {
+    if (!bubbleMeasurements)
+      return {
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0,
+        tipTop: 0,
+        tipLeft: 0,
+      }
+
+    const {width: ww, height: wh} = dimensions
+    const maxTop = insets.top
+    const maxBottom = wh - insets.bottom
+    const {width: cw, height: ch} = bubbleMeasurements
+    const minLeft = MIN_EDGE_SPACE
+    const maxLeft = ww - minLeft
+
+    let computedPosition: 'top' | 'bottom' = position
+    let top = targetMeasurements.y + targetMeasurements.height
+    let left = Math.max(
+      minLeft,
+      targetMeasurements.x + targetMeasurements.width / 2 - cw / 2,
+    )
+    const tipTranslate = ARROW_HALF_SIZE * -1
+    let tipTop = tipTranslate
+
+    if (left + cw > maxLeft) {
+      left -= left + cw - maxLeft
+    }
+
+    let tipLeft =
+      targetMeasurements.x -
+      left +
+      targetMeasurements.width / 2 -
+      ARROW_HALF_SIZE
+
+    let bottom = top + ch
+
+    function positionTop() {
+      top = top - ch - targetMeasurements.height
+      bottom = top + ch
+      tipTop = tipTop + ch
+      computedPosition = 'top'
+    }
+
+    function positionBottom() {
+      top = targetMeasurements.y + targetMeasurements.height
+      bottom = top + ch
+      tipTop = tipTranslate
+      computedPosition = 'bottom'
+    }
+
+    if (position === 'top') {
+      positionTop()
+      if (top < maxTop) {
+        positionBottom()
+      }
+    } else {
+      if (bottom > maxBottom) {
+        positionTop()
+      }
+    }
+
+    if (computedPosition === 'bottom') {
+      top += ARROW_VISUAL_OFFSET
+      bottom += ARROW_VISUAL_OFFSET
+    } else {
+      top -= ARROW_VISUAL_OFFSET
+      bottom -= ARROW_VISUAL_OFFSET
+    }
+
+    return {
+      computedPosition,
+      top,
+      bottom,
+      left,
+      right: left + cw,
+      tipTop,
+      tipLeft,
+    }
+  }, [position, targetMeasurements, bubbleMeasurements, insets, dimensions])
+
+  const requestCloseWrapped = useCallback(() => {
+    // Keep measurements until the exit finishes so the bubble stays visible.
+    if (closing) return
+    requestClose()
+  }, [closing, requestClose])
+
+  useOnGesture(
+    useCallback(
+      e => {
+        const {x, y} = e
+        const isInside =
+          x > coords.left &&
+          x < coords.right &&
+          y > coords.top &&
+          y < coords.bottom
+
+        if (!isInside) {
+          requestCloseWrapped()
+        }
+      },
+      [coords, requestCloseWrapped],
+    ),
+  )
+
+  return (
+    <Animated.View
+      accessible
+      role="alert"
+      accessibilityHint=""
+      accessibilityLabel={label}
+      // android
+      importantForAccessibility={closing ? 'no-hide-descendants' : 'yes'}
+      // ios
+      accessibilityViewIsModal={!closing}
+      accessibilityElementsHidden={closing}
+      style={[
+        a.absolute,
+        a.align_start,
+        {
+          width: Math.min(maxWidth, dimensions.width - MIN_EDGE_SPACE * 2),
+          opacity: bubbleMeasurements ? 1 : 0,
+          top: coords.top,
+          left: coords.left,
+          transformOrigin: `${coords.tipLeft + ARROW_HALF_SIZE}px ${
+            coords.computedPosition === 'top' ? 'bottom' : 'top'
+          }`,
+        },
+        exitStyle,
+      ]}>
+      <Animated.View
+        entering={ZoomIn.easing(Easing.out(Easing.exp))}
+        style={{transformOrigin: opposite(position)}}>
+        <View
+          style={[
+            a.absolute,
+            a.top_0,
+            a.z_10,
+            {
+              backgroundColor: style.surface,
+              borderTopLeftRadius: a.rounded_2xs.borderRadius,
+              borderBottomRightRadius: a.rounded_2xs.borderRadius,
+              borderColor: style.border.color,
+              borderTopWidth: style.border.width,
+              borderLeftWidth: style.border.width,
+              width: ARROW_SIZE,
+              height: ARROW_SIZE,
+              transform: [
+                {
+                  rotate:
+                    coords.computedPosition === 'top' ? '225deg' : '45deg',
+                },
+              ],
+              top: coords.tipTop,
+              left: coords.tipLeft,
+            },
+          ]}
+        />
+        <View
+          style={[
+            color === 'outlined' ? a.px_sm : a.px_md,
+            a.py_sm,
+            a.rounded_md,
+            color === 'outlined' ? t.atoms.shadow_md : t.atoms.shadow_xs,
+            {
+              backgroundColor: style.surface,
+              borderColor: style.border.color,
+              borderWidth: style.border.width,
+            },
+          ]}
+          onLayout={e => {
+            const {width, height} = e.nativeEvent.layout
+            setBubbleMeasurements(prev => {
+              if (prev?.width === width && prev.height === height) return prev
+              return {width, height}
+            })
+          }}>
+          {children}
+        </View>
+      </Animated.View>
+    </Animated.View>
+  )
+}
+
+function opposite(position: 'top' | 'bottom') {
+  switch (position) {
+    case 'top':
+      return 'center bottom'
+    case 'bottom':
+      return 'center top'
+    default:
+      return 'center'
+  }
+}
+
+export function BubbleText({
+  children,
+  label,
+}: {
+  children: React.ReactNode
+  label: string
+}) {
+  const t = useTheme()
+  const {color} = useContext(TooltipContext)
+  const style = getTooltipStyle(t, color)
+  // eslint-disable-next-line bsky-internal/avoid-unwrapped-text
+  return (
+    <Content label={label}>
+      <View style={[a.gap_xs]}>
+        <Text style={[a.text_sm, a.leading_snug, {color: style.text}]}>
+          {children}
+        </Text>
+      </View>
+    </Content>
+  )
+}
