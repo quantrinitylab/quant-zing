@@ -1345,12 +1345,89 @@ function findLocalPostByUri(db, uri) {
   )
 }
 
+function canonicalizeUri(db, uri) {
+  if (!uri || typeof uri !== 'string') return ''
+  return resolveAtUri(db, uri)?.canonicalUri || uri
+}
+
+function getPostViewCount(db, postUri) {
+  const canonical = canonicalizeUri(db, postUri)
+  if (!canonical) return 0
+  const entry = db.postViews?.[canonical]
+  return entry && Number.isFinite(entry.count) ? entry.count : 0
+}
+
+function getViewerImpressionKey(req, viewerDid) {
+  if (viewerDid) return `did:${viewerDid}`
+  const ip =
+    String(req?.headers?.['cf-connecting-ip'] || '') ||
+    String(req?.headers?.['x-forwarded-for'] || '').split(',')[0].trim() ||
+    String(req?.socket?.remoteAddress || 'local')
+  const ua = String(req?.headers?.['user-agent'] || '').slice(0, 120)
+  return `anon:${crypto
+    .createHash('sha256')
+    .update(`${ip}|${ua}`)
+    .digest('hex')
+    .slice(0, 16)}`
+}
+
+function recordPostViews(db, postUris, viewerKey) {
+  if (!viewerKey || !Array.isArray(postUris) || postUris.length === 0) {
+    return false
+  }
+  db.postViews =
+    db.postViews && typeof db.postViews === 'object' ? db.postViews : {}
+  let changed = false
+  for (const rawUri of postUris) {
+    const canonical = canonicalizeUri(db, rawUri)
+    if (!canonical || !canonical.includes('/app.bsky.feed.post/')) continue
+    let entry = db.postViews[canonical]
+    if (!entry || typeof entry !== 'object') {
+      entry = {count: 0, viewers: []}
+      db.postViews[canonical] = entry
+    }
+    if (!Array.isArray(entry.viewers)) entry.viewers = []
+    if (!entry.viewers.includes(viewerKey)) {
+      entry.viewers.push(viewerKey)
+      if (entry.viewers.length > 5000) {
+        entry.viewers = entry.viewers.slice(-5000)
+      }
+      entry.count = Math.max(Number(entry.count) || 0, entry.viewers.length - 1) + 1
+      changed = true
+    }
+  }
+  return changed
+}
+
 function putLocalRecord(db, did, collection, rkey, recordValue) {
-  const key = rkey || generateTid()
   const value = {
     $type: collection,
     ...recordValue,
   }
+  // Normalize subject URI to canonical DID AT-URI & enforce idempotent single reaction/follow per user
+  if (
+    (collection === 'app.bsky.feed.like' ||
+      collection === 'app.bsky.feed.repost') &&
+    value.subject?.uri
+  ) {
+    const canonicalSubjectUri = canonicalizeUri(db, value.subject.uri)
+    value.subject = {...value.subject, uri: canonicalSubjectUri}
+    const existingCol = getCollectionMap(db, did, collection, false)
+    for (const existing of Object.values(existingCol)) {
+      if (canonicalizeUri(db, existing?.value?.subject?.uri) === canonicalSubjectUri) {
+        return existing
+      }
+    }
+  }
+  if (collection === 'app.bsky.graph.follow' && typeof value.subject === 'string') {
+    const existingCol = getCollectionMap(db, did, collection, false)
+    for (const existing of Object.values(existingCol)) {
+      if (existing?.value?.subject === value.subject) {
+        return existing
+      }
+    }
+  }
+  const key = rkey || generateTid()
   if (
     collection === 'app.bsky.feed.post' &&
     typeof value.text === 'string' &&
@@ -1439,11 +1516,33 @@ function putLocalRecord(db, did, collection, rkey, recordValue) {
 
 function deleteLocalRecord(db, did, collection, rkey) {
   const col = db.records?.[did]?.[collection]
-  if (col && col[rkey]) {
-    delete col[rkey]
-    return true
+  if (!col || !col[rkey]) return false
+  const target = col[rkey]
+  delete col[rkey]
+  // Clean any legacy duplicate likes/reposts/follows for the same subject from this user
+  if (
+    (collection === 'app.bsky.feed.like' ||
+      collection === 'app.bsky.feed.repost') &&
+    target?.value?.subject?.uri
+  ) {
+    const targetCanon = canonicalizeUri(db, target.value.subject.uri)
+    for (const [k, rec] of Object.entries(col)) {
+      if (canonicalizeUri(db, rec?.value?.subject?.uri) === targetCanon) {
+        delete col[k]
+      }
+    }
+  } else if (
+    collection === 'app.bsky.graph.follow' &&
+    typeof target?.value?.subject === 'string'
+  ) {
+    const targetSubj = target.value.subject
+    for (const [k, rec] of Object.entries(col)) {
+      if (rec?.value?.subject === targetSubj) {
+        delete col[k]
+      }
+    }
   }
-  return false
+  return true
 }
 
 function extractBlobCid(blobRef) {
@@ -1476,9 +1575,10 @@ function findViewerFollowUri(db, viewerDid, subjectDid) {
 
 function findViewerReactionUri(db, viewerDid, collection, subjectUri) {
   if (!viewerDid || !subjectUri) return undefined
+  const canonical = canonicalizeUri(db, subjectUri)
   const map = getCollectionMap(db, viewerDid, collection)
   for (const rec of Object.values(map)) {
-    if (rec?.value?.subject?.uri === subjectUri) {
+    if (canonicalizeUri(db, rec?.value?.subject?.uri) === canonical) {
       return rec.uri
     }
   }
@@ -1487,38 +1587,50 @@ function findViewerReactionUri(db, viewerDid, collection, subjectUri) {
 
 function isBookmarkedByViewer(db, viewerDid, postUri) {
   if (!viewerDid || !postUri) return false
+  const canonical = canonicalizeUri(db, postUri)
   const list = db.bookmarks?.[viewerDid] || []
-  return list.some(b => b.uri === postUri)
+  return list.some(b => canonicalizeUri(db, b.uri) === canonical)
 }
 
 function countLocalInteractions(db, postUri) {
-  let likeCount = 0
-  let repostCount = 0
+  const canonical = canonicalizeUri(db, postUri)
+  const likerDids = new Set()
+  const reposterDids = new Set()
   let replyCount = 0
   let quoteCount = 0
   let bookmarkCount = 0
 
-  for (const collections of Object.values(db.records)) {
+  for (const [actorDid, collections] of Object.entries(db.records || {})) {
+    const actorAcc = db.accounts?.[actorDid]
+    if (!actorAcc || isAccountSuspendedOrBanned(actorAcc)) continue
     const likes = collections?.['app.bsky.feed.like']
     if (likes) {
       for (const rec of Object.values(likes)) {
-        if (rec?.value?.subject?.uri === postUri) likeCount++
+        if (canonicalizeUri(db, rec?.value?.subject?.uri) === canonical) {
+          likerDids.add(actorDid)
+          break
+        }
       }
     }
     const reposts = collections?.['app.bsky.feed.repost']
     if (reposts) {
       for (const rec of Object.values(reposts)) {
-        if (rec?.value?.subject?.uri === postUri) repostCount++
+        if (canonicalizeUri(db, rec?.value?.subject?.uri) === canonical) {
+          reposterDids.add(actorDid)
+          break
+        }
       }
     }
     const posts = collections?.['app.bsky.feed.post']
     if (posts) {
       for (const rec of Object.values(posts)) {
-        if (rec?.value?.reply?.parent?.uri === postUri) replyCount++
+        if (canonicalizeUri(db, rec?.value?.reply?.parent?.uri) === canonical) {
+          replyCount++
+        }
         const emb = rec?.value?.embed
         if (
-          emb?.record?.uri === postUri ||
-          emb?.record?.record?.uri === postUri
+          canonicalizeUri(db, emb?.record?.uri) === canonical ||
+          canonicalizeUri(db, emb?.record?.record?.uri) === canonical
         ) {
           quoteCount++
         }
@@ -1526,13 +1638,24 @@ function countLocalInteractions(db, postUri) {
     }
   }
 
-  for (const list of Object.values(db.bookmarks || {})) {
-    if (Array.isArray(list) && list.some(b => b.uri === postUri)) {
+  for (const [bmDid, list] of Object.entries(db.bookmarks || {})) {
+    const bmAcc = db.accounts?.[bmDid]
+    if (!bmAcc || isAccountSuspendedOrBanned(bmAcc)) continue
+    if (
+      Array.isArray(list) &&
+      list.some(b => canonicalizeUri(db, b.uri) === canonical)
+    ) {
       bookmarkCount++
     }
   }
 
-  return {likeCount, repostCount, replyCount, quoteCount, bookmarkCount}
+  return {
+    likeCount: likerDids.size,
+    repostCount: reposterDids.size,
+    replyCount,
+    quoteCount,
+    bookmarkCount,
+  }
 }
 
 function buildLocalProfileView(
@@ -1796,6 +1919,7 @@ function buildLocalPostView(db, postRec, viewerDid, origin) {
     repostCount: counts.repostCount,
     likeCount: counts.likeCount,
     quoteCount: counts.quoteCount,
+    viewCount: getPostViewCount(db, postRec.uri),
     indexedAt:
       postRec.indexedAt || postRec.value?.createdAt || new Date().toISOString(),
     viewer: {
@@ -1830,7 +1954,13 @@ function getLocalFeedItems(
   db,
   viewerDid,
   origin,
-  {authorDid = null, includeReplies = false, filterTags = null, onlyVideo = false} = {},
+  {
+    authorDid = null,
+    includeReplies = false,
+    includeReposts = false,
+    filterTags = null,
+    onlyVideo = false,
+  } = {},
 ) {
   const posts = authorDid
     ? Object.values(getCollectionMap(db, authorDid, 'app.bsky.feed.post'))
@@ -1857,6 +1987,40 @@ function getLocalFeedItems(
       _sortTime:
         Date.parse(postRec.value?.createdAt || postRec.indexedAt || 0) || 0,
     })
+  }
+
+  if (includeReposts && !onlyVideo && !filterTags) {
+    const seenRepostKey = new Set()
+    const reposts = authorDid
+      ? Object.values(getCollectionMap(db, authorDid, 'app.bsky.feed.repost'))
+      : getAllLocalRecords(db, 'app.bsky.feed.repost')
+    for (const rep of reposts) {
+      const reposterAcc = db.accounts?.[rep.repo]
+      if (!reposterAcc || isAccountSuspendedOrBanned(reposterAcc)) continue
+      const targetUri = canonicalizeUri(db, rep?.value?.subject?.uri)
+      if (!targetUri) continue
+      const dedupeKey = `${rep.repo}|${targetUri}`
+      if (seenRepostKey.has(dedupeKey)) continue
+      seenRepostKey.add(dedupeKey)
+      const targetRec = findLocalPostByUri(db, targetUri)
+      if (!targetRec) continue
+      if (isPostHiddenForViewer(db, targetRec, viewerDid, getCollectionMap)) {
+        continue
+      }
+      const targetView = buildLocalPostView(db, targetRec, viewerDid, origin)
+      if (!targetView) continue
+      items.push({
+        post: targetView,
+        reason: {
+          $type: 'app.bsky.feed.defs#reasonRepost',
+          by: buildLocalProfileView(db, reposterAcc, viewerDid, origin, false),
+          uri: rep.uri,
+          cid: rep.cid,
+          indexedAt: rep.indexedAt,
+        },
+        _sortTime: Date.parse(rep.value?.createdAt || rep.indexedAt || 0) || 0,
+      })
+    }
   }
 
   items.sort((a, b) => b._sortTime - a._sortTime)
@@ -2814,6 +2978,31 @@ export async function handleQuantZingPds(req, res) {
       }),
     )
     fs.createReadStream(blobFile).pipe(res)
+    return true
+  }
+
+  // -------------------------------------------------------------------------
+  // Sovereign Real Post Views / Impressions: POST /api/quantzing/views/record
+  // -------------------------------------------------------------------------
+
+  if (pathname === '/api/quantzing/views/record' && method === 'POST') {
+    const viewerDid = getOptionalViewerDid(req, db)
+    const viewerKey = getViewerImpressionKey(req, viewerDid)
+    const body = await readJsonBody(req)
+    const uris = Array.isArray(body?.uris)
+      ? body.uris.slice(0, 50).map(u => String(u || ''))
+      : body?.uri
+        ? [String(body.uri)]
+        : []
+    if (recordPostViews(db, uris, viewerKey)) {
+      saveDb(db)
+    }
+    const counts = {}
+    for (const u of uris) {
+      const c = canonicalizeUri(db, u)
+      if (c) counts[c] = getPostViewCount(db, c)
+    }
+    sendJson(req, res, 200, {ok: true, counts})
     return true
   }
 
@@ -3962,9 +4151,10 @@ export async function handleQuantZingPds(req, res) {
 
       const allItems = getLocalFeedItems(db, viewerDid, origin, {
         includeReplies: false,
+        includeReposts: true,
       })
 
-      // If viewer follows specific accounts, surface followed accounts + own posts first,
+      // If viewer follows specific accounts, surface followed accounts + own posts & rezings first,
       // falling back to full QuantZing network feed if timeline would otherwise be empty.
       let items = allItems
       if (viewerDid) {
@@ -3978,7 +4168,7 @@ export async function handleQuantZingPds(req, res) {
         followedDids.add(viewerDid)
         if (followedDids.size > 1) {
           const followingOnly = allItems.filter(it =>
-            followedDids.has(it.post?.author?.did),
+            followedDids.has(it.reason?.by?.did || it.post?.author?.did),
           )
           if (followingOnly.length > 0) {
             items = followingOnly
@@ -3987,6 +4177,19 @@ export async function handleQuantZingPds(req, res) {
       }
 
       const page = paginateItems(items, cursor, limit)
+      const impressionKey = getViewerImpressionKey(req, viewerDid)
+      if (
+        recordPostViews(
+          db,
+          page.items.map(it => it.post?.uri).filter(Boolean),
+          impressionKey,
+        )
+      ) {
+        saveDb(db)
+      }
+      for (const it of page.items) {
+        if (it.post?.uri) it.post.viewCount = getPostViewCount(db, it.post.uri)
+      }
       sendJson(req, res, 200, {
         ...(page.cursor ? {cursor: page.cursor} : {}),
         feed: page.items,
@@ -4013,6 +4216,19 @@ export async function handleQuantZingPds(req, res) {
       }
 
       const page = paginateItems(items, cursor, limit)
+      const impressionKey = getViewerImpressionKey(req, viewerDid)
+      if (
+        recordPostViews(
+          db,
+          page.items.map(it => it.post?.uri).filter(Boolean),
+          impressionKey,
+        )
+      ) {
+        saveDb(db)
+      }
+      for (const it of page.items) {
+        if (it.post?.uri) it.post.viewCount = getPostViewCount(db, it.post.uri)
+      }
       sendJson(req, res, 200, {
         ...(page.cursor ? {cursor: page.cursor} : {}),
         feed: page.items,
@@ -4130,6 +4346,19 @@ export async function handleQuantZingPds(req, res) {
       }
 
       const page = paginateItems(finalEntries, cursor, limit)
+      const impressionKey = getViewerImpressionKey(req, viewerDid)
+      if (
+        recordPostViews(
+          db,
+          page.items.map(it => it.post?.uri).filter(Boolean),
+          impressionKey,
+        )
+      ) {
+        saveDb(db)
+      }
+      for (const it of page.items) {
+        if (it.post?.uri) it.post.viewCount = getPostViewCount(db, it.post.uri)
+      }
       sendJson(req, res, 200, {
         ...(page.cursor ? {cursor: page.cursor} : {}),
         feed: page.items,
@@ -4214,6 +4443,15 @@ export async function handleQuantZingPds(req, res) {
         })
         return true
       }
+      if (
+        recordPostViews(
+          db,
+          [postRec.uri, ...localReplies.map(r => r.post?.uri).filter(Boolean)],
+          getViewerImpressionKey(req, viewerDid),
+        )
+      ) {
+        saveDb(db)
+      }
       const postView = buildLocalPostView(db, postRec, viewerDid, origin)
       let parentNode
       const parentUri = postRec.value?.reply?.parent?.uri
@@ -4277,6 +4515,15 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
 
+      if (
+        recordPostViews(
+          db,
+          [postRec.uri, ...localReplies.map(r => r?.uri).filter(Boolean)],
+          getViewerImpressionKey(req, viewerDid),
+        )
+      ) {
+        saveDb(db)
+      }
       const postView = buildLocalPostView(db, postRec, viewerDid, origin)
       const items = []
       const parentUri = postRec.value?.reply?.parent?.uri
@@ -4340,17 +4587,20 @@ export async function handleQuantZingPds(req, res) {
 
     if (nsid === 'app.bsky.feed.getLikes' && method === 'GET') {
       const rawUri = searchParams.get('uri') || ''
-      const uri = resolveAtUri(db, rawUri)?.canonicalUri || rawUri
+      const uri = canonicalizeUri(db, rawUri)
       const viewerDid = getOptionalViewerDid(req, db)
+      const seenDids = new Set()
       const likes = getAllLocalRecords(db, 'app.bsky.feed.like')
-        .filter(
-          r =>
-            r?.value?.subject?.uri === uri ||
-            r?.value?.subject?.uri === rawUri,
+        .filter(r => canonicalizeUri(db, r?.value?.subject?.uri) === uri)
+        .sort((a, b) =>
+          String(b.indexedAt || '').localeCompare(String(a.indexedAt || '')),
         )
         .map(r => {
           const acc = db.accounts[r.repo]
-          if (!acc) return null
+          if (!acc || isAccountSuspendedOrBanned(acc) || seenDids.has(acc.did)) {
+            return null
+          }
+          seenDids.add(acc.did)
           return {
             actor: buildLocalProfileView(db, acc, viewerDid, origin, false),
             createdAt: r.value?.createdAt || r.indexedAt,
@@ -4364,19 +4614,21 @@ export async function handleQuantZingPds(req, res) {
 
     if (nsid === 'app.bsky.feed.getRepostedBy' && method === 'GET') {
       const rawUri = searchParams.get('uri') || ''
-      const uri = resolveAtUri(db, rawUri)?.canonicalUri || rawUri
+      const uri = canonicalizeUri(db, rawUri)
       const viewerDid = getOptionalViewerDid(req, db)
+      const seenDids = new Set()
       const repostedBy = getAllLocalRecords(db, 'app.bsky.feed.repost')
-        .filter(
-          r =>
-            r?.value?.subject?.uri === uri ||
-            r?.value?.subject?.uri === rawUri,
+        .filter(r => canonicalizeUri(db, r?.value?.subject?.uri) === uri)
+        .sort((a, b) =>
+          String(b.indexedAt || '').localeCompare(String(a.indexedAt || '')),
         )
         .map(r => {
           const acc = db.accounts[r.repo]
-          return acc
-            ? buildLocalProfileView(db, acc, viewerDid, origin, false)
-            : null
+          if (!acc || isAccountSuspendedOrBanned(acc) || seenDids.has(acc.did)) {
+            return null
+          }
+          seenDids.add(acc.did)
+          return buildLocalProfileView(db, acc, viewerDid, origin, false)
         })
         .filter(Boolean)
       sendJson(req, res, 200, {uri, repostedBy})

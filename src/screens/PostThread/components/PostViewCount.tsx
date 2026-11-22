@@ -19,7 +19,7 @@ export function PostViewCount({post}: {post: app.bsky.feed.defs.PostView}) {
   const [tooltipVisible, setTooltipVisible] = useState(false)
   const formatCount = useFormatPostStatCount()
   const count = post.viewCount
-  const explanation = l`This view count estimates how often your post was seen in Bluesky’s apps. Only you can see this number.`
+  const explanation = l`This view count shows how many unique times your Zing was viewed on QuantZing.`
 
   if (
     currentAccount?.did !== post.author.did ||

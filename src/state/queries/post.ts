@@ -156,6 +156,14 @@ export function usePostLikeMutationQueue(
       updatePostShadow(queryClient, postUri, {
         likeUri: finalLikeUri,
       })
+      void queryClient.invalidateQueries({queryKey: ['liked-by', postUri]})
+      void queryClient.invalidateQueries({
+        predicate: q =>
+          Array.isArray(q.queryKey) &&
+          q.queryKey[0] === 'post-feed' &&
+          typeof q.queryKey[1] === 'string' &&
+          q.queryKey[1].startsWith('likes|'),
+      })
     },
   })
 
@@ -287,6 +295,16 @@ export function usePostRepostMutationQueue(
       // finalize
       updatePostShadow(queryClient, postUri, {
         repostUri: finalRepostUri,
+      })
+      void queryClient.invalidateQueries({queryKey: ['post-reposted-by', postUri]})
+      void queryClient.invalidateQueries({
+        predicate: q =>
+          Array.isArray(q.queryKey) &&
+          q.queryKey[0] === 'post-feed' &&
+          typeof q.queryKey[1] === 'string' &&
+          (q.queryKey[1].startsWith('author|') ||
+            q.queryKey[1] === 'following' ||
+            q.queryKey[1].startsWith('home')),
       })
     },
   })

@@ -15,7 +15,11 @@ import {useHomeBadge} from '#/state/home-badge'
 import {useUnreadMessageCount} from '#/state/queries/messages/list-conversations'
 import {useUnreadNotifications} from '#/state/queries/notifications/unread'
 import {useProfileQuery} from '#/state/queries/profile'
+import {useHasOpenDialog} from '#/state/dialogs'
 import {useSession} from '#/state/session'
+import {useIsDrawerOpen} from '#/state/shell'
+import {useComposerState} from '#/state/shell/composer'
+import {useLightbox} from '#/components/Lightbox/state'
 import {useLoggedOutViewControls} from '#/state/shell/logged-out'
 import {useShellLayout} from '#/state/shell/shell-layout'
 import {useCloseAllActiveElements} from '#/state/util'
@@ -61,6 +65,12 @@ type NavItemValue =
 export function BottomBarWeb() {
   const {_} = useLingui()
   const {hasSession, currentAccount} = useSession()
+  const hasOpenDialog = useHasOpenDialog()
+  const composerOpen = Boolean(useComposerState())
+  const lightboxOpen = Boolean(useLightbox().activeLightbox)
+  const drawerOpen = useIsDrawerOpen()
+  const hideBarForOverlay =
+    hasOpenDialog || composerOpen || lightboxOpen || drawerOpen
   const t = useTheme()
   const footerMinimalShellTransform = useMinimalShellFooterTransform()
   const {requestSwitchToAccount} = useLoggedOutViewControls()
@@ -96,6 +106,7 @@ export function BottomBarWeb() {
     <>
       <SwitchAccountDialog control={accountSwitchControl} />
 
+      {!hideBarForOverlay && (
       <Animated.View
         role="navigation"
         style={[
@@ -328,6 +339,7 @@ export function BottomBarWeb() {
           </View>
         )}
       </Animated.View>
+      )}
     </>
   )
 }

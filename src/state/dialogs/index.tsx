@@ -48,6 +48,9 @@ DialogControlContext.displayName = 'DialogControlContext'
 const DialogFullyExpandedCountContext = createContext<number>(0)
 DialogFullyExpandedCountContext.displayName = 'DialogFullyExpandedCountContext'
 
+const HasOpenDialogContext = createContext<boolean>(false)
+HasOpenDialogContext.displayName = 'HasOpenDialogContext'
+
 export function useDialogStateContext() {
   return useContext(DialogContext)
 }
@@ -61,8 +64,13 @@ export function useDialogFullyExpandedCountContext() {
   return useContext(DialogFullyExpandedCountContext)
 }
 
+export function useHasOpenDialog() {
+  return useContext(HasOpenDialogContext)
+}
+
 export function Provider({children}: React.PropsWithChildren<{}>) {
   const [fullyExpandedCount, setFullyExpandedCount] = useState(0)
+  const [hasOpenDialog, setHasOpenDialog] = useState(false)
   const {disableScope, enableScope} = useHotkeysContext()
 
   const activeDialogs = useRef<
@@ -91,7 +99,9 @@ export function Provider({children}: React.PropsWithChildren<{}>) {
       } else {
         openDialogs.current.delete(id)
       }
-      if (openDialogs.current.size > 0) {
+      const anyOpen = openDialogs.current.size > 0
+      setHasOpenDialog(anyOpen)
+      if (anyOpen) {
         disableScope('global')
       } else {
         enableScope('global')
@@ -120,7 +130,9 @@ export function Provider({children}: React.PropsWithChildren<{}>) {
     <DialogContext.Provider value={context}>
       <DialogControlContext.Provider value={controls}>
         <DialogFullyExpandedCountContext.Provider value={fullyExpandedCount}>
-          <GlobalDialogsProvider>{children}</GlobalDialogsProvider>
+          <HasOpenDialogContext.Provider value={hasOpenDialog}>
+            <GlobalDialogsProvider>{children}</GlobalDialogsProvider>
+          </HasOpenDialogContext.Provider>
         </DialogFullyExpandedCountContext.Provider>
       </DialogControlContext.Provider>
     </DialogContext.Provider>

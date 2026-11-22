@@ -433,8 +433,8 @@ const ThreadItemAnchorInner = memo(function ThreadItemAnchorInner({
                         </Text>{' '}
                         <Plural
                           value={post.repostCount}
-                          one="repost"
-                          other="reposts"
+                          one="rezing"
+                          other="rezings"
                         />
                       </Trans>
                     </Text>

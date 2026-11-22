@@ -7,10 +7,12 @@ import {
   type DidString,
 } from '@atproto/syntax'
 import {useNavigation, useRoute} from '@react-navigation/native'
+import {useQueryClient} from '@tanstack/react-query'
 
 import {VIDEO_FEED_URI} from '#/lib/constants'
 import {useOpenComposer} from '#/lib/hooks/useOpenComposer'
 import {type CommonNavigatorParams, type NavigationProp} from '#/lib/routes/types'
+import {updatePostShadow} from '#/state/cache/post-shadow'
 import {useAppviewClient, useRequireAuth, useSession} from '#/state/session'
 import {UserAvatar} from '#/view/com/util/UserAvatar'
 import {atoms as a, useBreakpoints, web} from '#/alf'
@@ -560,6 +562,7 @@ function ReelSlide({
   gtMobile: boolean
 }) {
   const {post} = item
+  const queryClient = useQueryClient()
   const client = useAppviewClient()
   const requireAuth = useRequireAuth()
   const {openComposer} = useOpenComposer()
@@ -597,6 +600,15 @@ function ReelSlide({
     if (!v) return
     v.muted = muted
   }, [muted])
+
+  useEffect(() => {
+    if (!isActive || typeof window === 'undefined') return
+    void fetch('/api/quantzing/views/record', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({uris: [post.uri]}),
+    }).catch(() => {})
+  }, [isActive, post.uri])
 
   useEffect(() => {
     const v = videoRef.current
@@ -645,6 +657,8 @@ function ReelSlide({
             collection: 'app.bsky.feed.like',
             rkey: parsed.rkey,
           })
+          updatePostShadow(queryClient, post.uri, {likeUri: undefined})
+          void queryClient.invalidateQueries({queryKey: ['liked-by', post.uri]})
         } else {
           setLikeCount(c => c + 1)
           const res = await client.call(com.atproto.repo.createRecord, {
@@ -657,6 +671,8 @@ function ReelSlide({
             },
           })
           setLikeUri(res.uri)
+          updatePostShadow(queryClient, post.uri, {likeUri: res.uri})
+          void queryClient.invalidateQueries({queryKey: ['liked-by', post.uri]})
         }
       } catch {
         Toast.show('Could not update like', {type: 'error'})
@@ -678,6 +694,8 @@ function ReelSlide({
             collection: 'app.bsky.feed.repost',
             rkey: parsed.rkey,
           })
+          updatePostShadow(queryClient, post.uri, {repostUri: undefined})
+          void queryClient.invalidateQueries({queryKey: ['post-reposted-by', post.uri]})
         } else {
           setRepostCount(c => c + 1)
           const res = await client.call(com.atproto.repo.createRecord, {
@@ -690,6 +708,8 @@ function ReelSlide({
             },
           })
           setRepostUri(res.uri)
+          updatePostShadow(queryClient, post.uri, {repostUri: res.uri})
+          void queryClient.invalidateQueries({queryKey: ['post-reposted-by', post.uri]})
         }
       } catch {
         Toast.show('Could not update Rezing', {type: 'error'})
@@ -703,12 +723,14 @@ function ReelSlide({
         if (bookmarked) {
           setBookmarked(false)
           await client.call(app.bsky.bookmark.deleteBookmark, {uri: post.uri})
+          updatePostShadow(queryClient, post.uri, {bookmarked: false})
         } else {
           setBookmarked(true)
           await client.call(app.bsky.bookmark.createBookmark, {
             uri: post.uri,
             cid: post.cid,
           })
+          updatePostShadow(queryClient, post.uri, {bookmarked: true})
           Toast.show('Saved to Bookmarks', {type: 'success'})
         }
       } catch {

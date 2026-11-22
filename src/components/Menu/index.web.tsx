@@ -184,7 +184,7 @@ export function Outer({children, style, onCloseAutoFocus}: OuterProps) {
     <DropdownMenu.Portal>
       <DropdownMenu.Content
         sideOffset={5}
-        collisionPadding={{left: 5, right: 5, bottom: 5}}
+        collisionPadding={{left: 8, right: 8, top: 12, bottom: 76}}
         loop
         aria-label="Test"
         onCloseAutoFocus={onCloseAutoFocus}
@@ -199,6 +199,10 @@ export function Outer({children, style, onCloseAutoFocus}: OuterProps) {
             t.atoms.shadow_md,
             t.atoms.border_contrast_low,
             a.overflow_auto,
+            web({
+              maxHeight: 'calc(100dvh - 104px)',
+              WebkitOverflowScrolling: 'touch',
+            }),
             !reduceMotionEnabled && a.zoom_fade_in,
             style,
           ]}>

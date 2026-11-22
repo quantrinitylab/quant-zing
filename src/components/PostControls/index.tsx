@@ -99,11 +99,7 @@ let PostControls = ({
 
   const [hasLikeIconBeenToggled, setHasLikeIconBeenToggled] = useState(false)
 
-  const estimatedViews =
-    (post.likeCount ?? 0) * 18 +
-    (post.repostCount ?? 0) * 42 +
-    (post.replyCount ?? 0) * 28 +
-    (post.quoteCount ?? 0) * 35
+  const viewCount = post.viewCount ?? 0
 
   const onPressToggleLike = async () => {
     if (isBlocked) {
@@ -187,7 +183,7 @@ let PostControls = ({
       postUri: post.uri,
       postText: richContext,
       authorHandle: post.author.handle,
-      prompt: `Explain, fact-check, and summarize the context behind @${post.author.handle}'s Wave`,
+      prompt: `Explain, fact-check, and summarize the context behind @${post.author.handle}'s Zing`,
     })
   }
 
@@ -203,11 +199,12 @@ let PostControls = ({
         a.flex_row,
         a.justify_between,
         a.align_center,
+        {minWidth: 0},
         !big && a.pt_2xs,
-        gtPhone ? a.gap_md : a.gap_2xs,
+        gtPhone ? a.gap_md : {gap: 0},
         style,
       ]}>
-      <View style={[a.flex_row, a.flex_1, {maxWidth: 420}]}>
+      <View style={[a.flex_row, a.flex_1, {maxWidth: 420, minWidth: 0}]}>
         <View
           style={[
             a.flex_1,
@@ -305,18 +302,24 @@ let PostControls = ({
           <View
             accessible
             accessibilityLabel={
-              estimatedViews > 0
-                ? `${formatPostStatCount(estimatedViews)} views`
+              viewCount > 0
+                ? `${formatPostStatCount(viewCount)} ${viewCount === 1 ? 'view' : 'views'}`
                 : 'Views'
             }
-            style={[a.flex_row, a.align_center, a.gap_xs, {padding: 5}]}>
+            style={[
+              a.flex_row,
+              a.align_center,
+              gtPhone ? a.gap_xs : {gap: 2},
+              {paddingVertical: 5, paddingHorizontal: gtPhone ? 5 : 2},
+            ]}>
             <EyeIcon
               aria-hidden={true}
               width={big ? 20 : 17}
               style={{color: '#71767B'}}
             />
-            {estimatedViews > 0 && (
+            {viewCount > 0 && (
               <Text
+                testID="viewCount"
                 style={[
                   a.user_select_none,
                   big ? a.text_md : a.text_sm,
@@ -326,7 +329,7 @@ let PostControls = ({
                     textAlignVertical: 'center',
                   },
                 ]}>
-                {formatPostStatCount(estimatedViews)}
+                {formatPostStatCount(viewCount)}
               </Text>
             )}
           </View>
@@ -337,7 +340,7 @@ let PostControls = ({
           testID="askQuantyBtn"
           big={big}
           onPress={onAskQuanty}
-          label="Ask Quanty about this Wave"
+          label="Ask Quanty about this Zing"
           hitSlop={{
             right: secondaryControlSpacingStyles.gap / 2,
           }}>
@@ -467,7 +470,7 @@ function useSecondaryControlSpacingStyles({
 }) {
   return useMemo(() => {
     let gap = 0 // default, we want `gap` to be defined on the resulting object
-    if (variant !== 'compact') gap = a.gap_xs.gap
+    if (variant !== 'compact' && gtPhone) gap = a.gap_xs.gap
     if (big || gtPhone) gap = a.gap_sm.gap
     return {gap}
   }, [variant, big, gtPhone])
@@ -494,7 +497,7 @@ function collectParsedEmbedLines(
     if (quotedText) {
       lines.push(`Quoted @${quotedAuthor}: "${quotedText.slice(0, 420)}"`)
     } else {
-      lines.push(`Quoted Wave by @${quotedAuthor}`)
+      lines.push(`Quoted Zing by @${quotedAuthor}`)
     }
     if (depth < 1 && parsed.view.embeds && parsed.view.embeds.length > 0) {
       for (const nested of parsed.view.embeds.slice(0, 2)) {

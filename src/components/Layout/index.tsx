@@ -160,6 +160,7 @@ export const Content = memo(function Content({
         },
         /* UIKit centering would also add horizontal insets to the column. */
         centerOnTablet && centerContent && [a.flex_grow, a.justify_center],
+        IS_WEB && !gtMobile && !isWithinDialog && {paddingBottom: 92},
         contentContainerStyle,
       ]}
       {...props}>

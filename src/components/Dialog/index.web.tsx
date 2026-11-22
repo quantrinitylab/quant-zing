@@ -113,6 +113,8 @@ export function Outer({
     async (e: GestureResponderEvent) => {
       const startTarget = pressStartTarget.current
       pressStartTarget.current = null
+      const targetEl = e.target as unknown as HTMLElement | null
+      if (targetEl?.closest?.('[role="dialog"]')) return
       if (startTarget && startTarget !== e.target) return
       if (preventDismiss) return
       webOptions?.onBackgroundPress ? webOptions.onBackgroundPress(e) : close()
@@ -160,17 +162,28 @@ export function Outer({
                 pressStartTarget.current = e.target
               }}
               onPress={handleBackgroundPress}
-              style={[web(a.fixed), a.inset_0, {zIndex: 150}]}>
+              style={[
+                web(a.fixed),
+                a.inset_0,
+                {zIndex: 150},
+                web({height: '100dvh', maxHeight: '100dvh'}),
+              ]}>
               <View
                 style={[
                   a.w_full,
                   a.h_full,
-                  a.px_xl,
+                  gtMobile ? a.px_xl : a.px_md,
                   webOptions?.alignCenter ? a.justify_center : undefined,
                   a.align_center,
                   web({
                     overflowY: 'auto',
-                    paddingVertical: gtMobile ? '10vh' : a.pt_xl.paddingTop,
+                    WebkitOverflowScrolling: 'touch',
+                    overscrollBehavior: 'contain',
+                    touchAction: 'pan-y',
+                    paddingTop: gtMobile ? '8vh' : 16,
+                    paddingBottom: gtMobile
+                      ? '10vh'
+                      : 'max(120px, calc(env(safe-area-inset-bottom) + 96px))',
                   }),
                 ]}>
                 <Backdrop />
@@ -184,7 +197,11 @@ export function Outer({
                     a.w_full,
                     a.z_20,
                     a.align_center,
-                    web({minHeight: '60vh', position: 'static'}),
+                    web({
+                      minHeight: gtMobile ? '60vh' : 0,
+                      position: 'static',
+                      flexShrink: 0,
+                    }),
                   ]}>
                   {children}
                 </View>
@@ -224,8 +241,6 @@ export function Inner({
         aria-labelledby={accessibilityLabelledBy}
         aria-describedby={accessibilityDescribedBy}
         onClick={stopPropagation}
-        onStartShouldSetResponder={_ => true}
-        onTouchEnd={stopPropagation}
         // note: flatten is required for some reason -sfn
         style={flatten([
           a.relative,
@@ -250,7 +265,7 @@ export function Inner({
           onDismiss={() => {
             if (!preventDismiss) close()
           }}
-          style={{height: '100%', display: 'flex', flexDirection: 'column'}}>
+          style={{width: '100%', display: 'flex', flexDirection: 'column'}}>
           {header}
           <View style={[gtMobile ? a.p_2xl : a.p_xl, contentContainerStyle]}>
             {children}
