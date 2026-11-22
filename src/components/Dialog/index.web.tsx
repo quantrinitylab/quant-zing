@@ -159,19 +159,19 @@ export function Outer({
               onPointerDown={e => {
                 pressStartTarget.current = e.target
               }}
-              onPress={handleBackgroundPress}>
+              onPress={handleBackgroundPress}
+              style={[web(a.fixed), a.inset_0, {zIndex: 150}]}>
               <View
                 style={[
-                  web(a.fixed),
-                  a.inset_0,
-                  a.z_10,
+                  a.w_full,
+                  a.h_full,
                   a.px_xl,
                   webOptions?.alignCenter ? a.justify_center : undefined,
                   a.align_center,
-                  {
+                  web({
                     overflowY: 'auto',
                     paddingVertical: gtMobile ? '10vh' : a.pt_xl.paddingTop,
-                  },
+                  }),
                 ]}>
                 <Backdrop />
                 {/**

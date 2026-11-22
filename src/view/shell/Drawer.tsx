@@ -50,6 +50,8 @@ import {
   Bookmark_Stroke2_Corner0_Rounded as BookmarkIcon,
 } from '#/components/icons/Bookmark'
 import {BulletList_Stroke2_Corner0_Rounded as ListIcon} from '#/components/icons/BulletList'
+import {Download_Stroke2_Corner0_Rounded as DownloadIcon} from '#/components/icons/Download'
+import {VideoClip_Stroke2_Corner0_Rounded as VideoClipIcon} from '#/components/icons/VideoClip'
 import {Earth_Stroke2_Corner0_Rounded as EarthIcon} from '#/components/icons/Earth'
 import {
   Hashtag_Filled_Corner0_Rounded as HashtagFilledIcon,
@@ -349,6 +351,26 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
     if (IS_WEB) setDrawerOpen(false)
   }, [navigation, navigateToSecondaryTab, setDrawerOpen, ax])
 
+  const onPressReels = useCallback(() => {
+    setDrawerOpen(false)
+    navigation.dispatch(
+      getCommonNavigationAction(
+        {name: 'VideoFeed', params: {} as any},
+        navigation.getState(),
+      ),
+    )
+  }, [navigation, setDrawerOpen])
+
+  const onPressDownload = useCallback(() => {
+    setDrawerOpen(false)
+    navigation.dispatch(
+      getCommonNavigationAction(
+        {name: 'Download', params: undefined},
+        navigation.getState(),
+      ),
+    )
+  }, [navigation, setDrawerOpen])
+
   const onPressFeedback = useCallback(() => {
     setDrawerOpen(false)
     navigation.dispatch(
@@ -414,8 +436,13 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
 
         {hasSession ? (
           <>
-            <SearchMenuItem isActive={isAtSearch} onPress={onPressSearch} />
             <HomeMenuItem isActive={isAtHome} onPress={onPressHome} />
+            <MenuItem
+              icon={<VideoClipIcon style={[t.atoms.text]} width={iconWidth} />}
+              label="Reels"
+              onPress={onPressReels}
+            />
+            <SearchMenuItem isActive={isAtSearch} onPress={onPressSearch} />
             <ChatMenuItem isActive={isAtMessages} onPress={onPressMessages} />
             <NotificationsMenuItem
               isActive={isAtNotifications}
@@ -438,12 +465,27 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
               onPress={onPressProfile}
             />
             <SettingsMenuItem onPress={onPressSettings} />
+            <MenuItem
+              icon={<DownloadIcon style={[t.atoms.text]} width={iconWidth} />}
+              label="Download App"
+              onPress={onPressDownload}
+            />
           </>
         ) : (
           <>
             <HomeMenuItem isActive={isAtHome} onPress={onPressHome} />
+            <MenuItem
+              icon={<VideoClipIcon style={[t.atoms.text]} width={iconWidth} />}
+              label="Reels"
+              onPress={onPressReels}
+            />
             <FeedsMenuItem isActive={isAtFeeds} onPress={onPressMyFeeds} />
             <SearchMenuItem isActive={isAtSearch} onPress={onPressSearch} />
+            <MenuItem
+              icon={<DownloadIcon style={[t.atoms.text]} width={iconWidth} />}
+              label="Download App"
+              onPress={onPressDownload}
+            />
           </>
         )}
 
@@ -921,6 +963,20 @@ function ExtraLinks() {
 
   return (
     <View style={[a.flex_col, a.gap_md, a.flex_wrap]}>
+      <InlineLinkText
+        style={[a.text_md, a.font_bold]}
+        label="Open QuantZing Reels"
+        to="/video-feed"
+        onPress={() => setDrawerOpen(false)}>
+        Reels
+      </InlineLinkText>
+      <InlineLinkText
+        style={[a.text_md, a.font_bold]}
+        label="Download QuantZing App"
+        to="/download"
+        onPress={() => setDrawerOpen(false)}>
+        Download App
+      </InlineLinkText>
       <InlineLinkText
         style={[a.text_md]}
         label={l`Terms of Service`}

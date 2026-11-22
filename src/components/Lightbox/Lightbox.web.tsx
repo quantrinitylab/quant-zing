@@ -74,7 +74,7 @@ function LightboxContainer({
       accessibilityHint={undefined}
       accessibilityLabel={l`Close image viewer`}
       onPress={handleBackgroundPress}
-      style={[a.fixed, a.inset_0, a.z_10]}>
+      style={[a.fixed, a.inset_0, {zIndex: 160}]}>
       <Backdrop />
       <RemoveScrollBar />
       <FocusScope.FocusScope loop trapped asChild>

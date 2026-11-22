@@ -6,6 +6,7 @@ import {IS_WEB} from '#/env'
 
 type State = {
   showLoggedOut: boolean
+  guestBrowseAllowed: boolean
   /**
    * Account did used to populate the login form when the logged out view is
    * shown.
@@ -34,10 +35,12 @@ type Controls = {
    * show, no account is pre-populated.
    */
   clearRequestedAccount: () => void
+  setGuestBrowseAllowed: (allowed: boolean) => void
 }
 
 const StateContext = createContext<State>({
   showLoggedOut: false,
+  guestBrowseAllowed: false,
   requestedAccountSwitchTo: undefined,
 })
 StateContext.displayName = 'LoggedOutStateContext'
@@ -46,6 +49,7 @@ const ControlsContext = createContext<Controls>({
   setShowLoggedOut: () => {},
   requestSwitchToAccount: () => {},
   clearRequestedAccount: () => {},
+  setGuestBrowseAllowed: () => {},
 })
 ControlsContext.displayName = 'LoggedOutControlsContext'
 
@@ -74,9 +78,19 @@ export function Provider({children}: React.PropsWithChildren<{}>) {
     hasSession,
   )
 
-  const [state, setState] = useState<State>({
-    showLoggedOut: Boolean(requestedAccount),
-    requestedAccountSwitchTo: requestedAccount,
+  const [state, setState] = useState<State>(() => {
+    let guestBrowseAllowed = false
+    if (IS_WEB && typeof window !== 'undefined') {
+      try {
+        guestBrowseAllowed =
+          window.sessionStorage.getItem('qz_guest_browse') === '1'
+      } catch {}
+    }
+    return {
+      showLoggedOut: Boolean(requestedAccount),
+      guestBrowseAllowed,
+      requestedAccountSwitchTo: requestedAccount,
+    }
   })
 
   const controls = useMemo<Controls>(
@@ -98,6 +112,21 @@ export function Provider({children}: React.PropsWithChildren<{}>) {
         setState(s => ({
           ...s,
           requestedAccountSwitchTo: undefined,
+        }))
+      },
+      setGuestBrowseAllowed(allowed) {
+        if (IS_WEB && typeof window !== 'undefined') {
+          try {
+            if (allowed) {
+              window.sessionStorage.setItem('qz_guest_browse', '1')
+            } else {
+              window.sessionStorage.removeItem('qz_guest_browse')
+            }
+          } catch {}
+        }
+        setState(s => ({
+          ...s,
+          guestBrowseAllowed: allowed,
         }))
       },
     }),

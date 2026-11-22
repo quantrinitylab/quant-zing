@@ -190,6 +190,7 @@ export function Shell() {
 const styles = StyleSheet.create({
   drawerMask: {
     ...a.fixed,
+    zIndex: 80,
     width: '100%',
     height: '100%',
     top: 0,
@@ -198,6 +199,7 @@ const styles = StyleSheet.create({
   drawerContainer: {
     display: 'flex',
     ...a.fixed,
+    zIndex: 81,
     top: 0,
     left: 0,
     height: '100%',

@@ -82,7 +82,7 @@ export function Root({
       {context.control.isOpen && (
         <Portal>
           <Pressable
-            style={[a.fixed, a.inset_0, a.z_50]}
+            style={[a.fixed, a.inset_0, {zIndex: 180}]}
             onPress={() => context.control.close()}
             accessibilityHint=""
             accessibilityLabel={_(
@@ -188,6 +188,7 @@ export function Outer({children, style, onCloseAutoFocus}: OuterProps) {
         loop
         aria-label="Test"
         onCloseAutoFocus={onCloseAutoFocus}
+        style={{zIndex: 190}}
         className="dropdown-menu-transform-origin dropdown-menu-constrain-size">
         <View
           style={[

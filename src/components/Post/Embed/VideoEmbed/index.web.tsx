@@ -6,14 +6,19 @@ import {
   useRef,
   useState,
 } from 'react'
-import {View} from 'react-native'
+import {Pressable, View} from 'react-native'
+import {useNavigation} from '@react-navigation/native'
 import {msg} from '@lingui/core/macro'
 import {useLingui} from '@lingui/react'
 
 import {getCurrentState, useOnAppStateChange} from '#/lib/appState'
+import {VIDEO_FEED_URI} from '#/lib/constants'
+import {type NavigationProp} from '#/lib/routes/types'
 import {createPlaybackDurationTracker} from '#/lib/media/video/analytics'
 import {ErrorBoundary} from '#/view/com/util/ErrorBoundary'
-import {atoms as a, useTheme} from '#/alf'
+import {atoms as a, useTheme, web} from '#/alf'
+import {ArrowsDiagonalOut_Stroke2_Corner0_Rounded as ExpandReelsIcon} from '#/components/icons/ArrowsDiagonal'
+import {Text} from '#/components/Typography'
 import {useIsWithinMessage} from '#/components/dms/MessageContext'
 import {useFullscreen} from '#/components/hooks/useFullscreen'
 import {ConstrainedImage} from '#/components/images/AutoSizedImage'
@@ -46,6 +51,7 @@ export function VideoEmbed({
   post?: app.bsky.feed.defs.PostView
 }) {
   const t = useTheme()
+  const navigation = useNavigation<NavigationProp>()
   const ref = useRef<HTMLDivElement>(null)
   const {
     active: activeFromContext,
@@ -255,6 +261,45 @@ export function VideoEmbed({
           />
         </OnlyNearScreen>
       </ErrorBoundary>
+      {!isGif && post?.uri && (
+        <Pressable
+          testID="openVideoInReelsBtn"
+          onPress={evt => {
+            evt.stopPropagation()
+            navigation.navigate('VideoFeed', {
+              type: 'feedgen',
+              uri: VIDEO_FEED_URI,
+              sourceInterstitial: 'none',
+              initialPostUri: post.uri,
+            })
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Open in Reels"
+          style={({pressed}) => [
+            a.absolute,
+            a.flex_row,
+            a.align_center,
+            a.rounded_full,
+            {
+              top: 10,
+              left: 10,
+              zIndex: 15,
+              gap: 5,
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              backgroundColor: 'rgba(15, 20, 25, 0.72)',
+              borderWidth: 1,
+              borderColor: 'rgba(255, 255, 255, 0.22)',
+              opacity: pressed ? 0.75 : 1,
+            },
+            web({cursor: 'pointer', backdropFilter: 'blur(8px)'}),
+          ]}>
+          <ExpandReelsIcon width={12} fill="#FFFFFF" />
+          <Text style={[a.text_xs, a.font_bold, {color: '#FFFFFF', lineHeight: 14}]}>
+            Reels
+          </Text>
+        </Pressable>
+      )}
     </div>
   )
 

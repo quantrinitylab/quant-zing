@@ -291,7 +291,7 @@ export function ComposerPrompt() {
             type={profile?.associated?.labeler ? 'labeler' : 'user'}
           />
         </View>
-        <View style={[a.flex_1]}>
+        <View style={[a.flex_1, {minWidth: 0}]}>
           <TextInput
             value={draftText}
             onChangeText={setDraftText}
@@ -414,11 +414,14 @@ export function ComposerPrompt() {
               a.flex_row,
               a.align_center,
               a.justify_between,
+              a.flex_wrap,
               {
                 borderTopWidth: StyleSheet.hairlineWidth,
                 borderColor: t.atoms.border_contrast_low.borderColor,
                 marginTop: 10,
                 paddingTop: 10,
+                rowGap: 8,
+                columnGap: 6,
               },
             ]}>
             <View style={[a.flex_row, a.align_center, a.gap_xs]}>
@@ -427,7 +430,7 @@ export function ComposerPrompt() {
                 label="Add media"
                 variant="ghost"
                 shape="round"
-                style={{width: 34, height: 34, padding: 0}}>
+                style={{width: 30, height: 30, padding: 0}}>
                 <ImageIcon width={19} style={{color: '#1D9BF0'}} />
               </Button>
               {IS_NATIVE && (
@@ -436,7 +439,7 @@ export function ComposerPrompt() {
                   label="Open camera"
                   variant="ghost"
                   shape="round"
-                  style={{width: 34, height: 34, padding: 0}}>
+                  style={{width: 30, height: 30, padding: 0}}>
                   <CameraIcon width={19} style={{color: '#1D9BF0'}} />
                 </Button>
               )}
@@ -446,7 +449,7 @@ export function ComposerPrompt() {
                 variant="ghost"
                 shape="round"
                 style={[
-                  {width: 34, height: 34, padding: 0},
+                  {width: 30, height: 30, padding: 0},
                   pollOpen && {backgroundColor: 'rgba(29, 155, 240, 0.16)'},
                 ]}>
                 <PollIcon width={19} style={{color: '#1D9BF0'}} />
@@ -456,7 +459,7 @@ export function ComposerPrompt() {
                 label="Draft with Quanty"
                 variant="ghost"
                 shape="round"
-                style={{width: 34, height: 34, padding: 0}}>
+                style={{width: 30, height: 30, padding: 0}}>
                 <SparkleIcon width={19} style={{color: '#1D9BF0'}} />
               </Button>
               <Pressable
@@ -469,8 +472,8 @@ export function ComposerPrompt() {
                   a.justify_center,
                   a.rounded_full,
                   {
-                    paddingHorizontal: 10,
-                    height: 28,
+                    paddingHorizontal: 8,
+                    height: 26,
                     backgroundColor: 'rgba(29, 155, 240, 0.12)',
                     borderWidth: 1,
                     borderColor: 'rgba(29, 155, 240, 0.35)',
@@ -488,7 +491,7 @@ export function ComposerPrompt() {
               </Pressable>
             </View>
 
-            <View style={[a.flex_row, a.align_center, a.gap_md]}>
+            <View style={[a.flex_row, a.align_center, a.gap_sm]}>
               <Text
                 style={[
                   a.text_xs,
@@ -510,8 +513,8 @@ export function ComposerPrompt() {
                   a.rounded_full,
                   {
                     backgroundColor: pillBg,
-                    height: 36,
-                    paddingHorizontal: 18,
+                    height: 34,
+                    paddingHorizontal: 14,
                     opacity: isOverLimit
                       ? 0.4
                       : !hasContent && hasSession

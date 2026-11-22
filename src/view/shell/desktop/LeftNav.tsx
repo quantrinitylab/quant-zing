@@ -76,6 +76,7 @@ import {
 } from '#/components/icons/BulletList'
 import {type Props as SVGIconProps} from '#/components/icons/common'
 import {DotGrid3x1_Stroke2_Corner0_Rounded as EllipsisIcon} from '#/components/icons/DotGrid'
+import {Download_Stroke2_Corner0_Rounded as DownloadIcon} from '#/components/icons/Download'
 import {EditBig_Stroke2_Corner2_Rounded as EditBigIcon} from '#/components/icons/EditBig'
 import {Growth_Stroke2_Corner0_Rounded as GrowthIcon} from '#/components/icons/Growth'
 import {
@@ -103,6 +104,7 @@ import {
   UserCircle_Stroke2_Corner0_Rounded as UserCircleIcon,
 } from '#/components/icons/UserCircle'
 import {Verified_Stroke2_Corner2_Rounded as VerifiedIcon} from '#/components/icons/Verified'
+import {VideoClip_Stroke2_Corner0_Rounded as VideoClipIcon} from '#/components/icons/VideoClip'
 import {
   CENTER_COLUMN_OFFSET,
   CENTER_COLUMN_WIDTH,
@@ -862,6 +864,17 @@ export function DesktopLeftNav({
         }}
       />
       <NavItem
+        label="Reels"
+        href="/video-feed"
+        navItem="reels"
+        onNavigateTab={onNavigateTab}
+        minimal={leftNavMinimal}
+        icons={{
+          inactive: VideoClipIcon,
+          active: VideoClipIcon,
+        }}
+      />
+      <NavItem
         label="Quanty"
         href="/quanty"
         navItem="quanty"
@@ -944,6 +957,14 @@ export function DesktopLeftNav({
         onNavigateTab={onNavigateTab}
         minimal={leftNavMinimal}
         icons={{inactive: VerifiedIcon, active: VerifiedIcon}}
+      />
+      <NavItem
+        label="Get App"
+        href="/download"
+        navItem="download"
+        onNavigateTab={onNavigateTab}
+        minimal={leftNavMinimal}
+        icons={{inactive: DownloadIcon, active: DownloadIcon}}
       />
       {hasSession && (
         <>

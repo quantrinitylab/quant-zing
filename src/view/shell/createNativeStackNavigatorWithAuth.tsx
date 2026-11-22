@@ -118,11 +118,19 @@ function NativeStackNavigator({
   const activeDescriptor = descriptors[activeRoute.key]
   const activeRouteRequiresAuth = activeDescriptor.options.requireAuth ?? false
   const onboardingState = useOnboardingState()
-  const {showLoggedOut} = useLoggedOutView()
+  const {showLoggedOut, guestBrowseAllowed} = useLoggedOutView()
   const {setShowLoggedOut} = useLoggedOutViewControls()
   const {isMobile} = useWebMediaQueries()
   const {leftNavMinimal} = useLayoutBreakpoints()
-  if (!hasSession && (activeRouteRequiresAuth || IS_NATIVE)) {
+  const showWebLandingGate =
+    IS_WEB &&
+    !hasSession &&
+    !guestBrowseAllowed &&
+    activeRoute.name === 'Home'
+  if (
+    !hasSession &&
+    (activeRouteRequiresAuth || IS_NATIVE || showWebLandingGate)
+  ) {
     return <LoggedOut />
   }
   if (hasSession && currentAccount?.signupQueued) {
@@ -200,17 +208,21 @@ function NativeStackNavigator({
           describe={describe}
         />
       </View>
-      {IS_WEB && (
-        <>
-          {!isMobile && <DesktopRightNav routeName={activeRoute.name} />}
-          {showBottomBar ? (
-            <BottomBarWeb />
-          ) : (
-            <DesktopLeftNav routeName={activeRoute.name} />
-          )}
-          {!showBottomBar && <QuantyFloatingDock routeName={activeRoute.name} />}
-        </>
-      )}
+      {IS_WEB &&
+        activeRoute.name !== 'VideoFeed' &&
+        activeRoute.name !== 'Download' && (
+          <>
+            {!isMobile && <DesktopRightNav routeName={activeRoute.name} />}
+            {showBottomBar ? (
+              <BottomBarWeb />
+            ) : (
+              <DesktopLeftNav routeName={activeRoute.name} />
+            )}
+            {!showBottomBar && (
+              <QuantyFloatingDock routeName={activeRoute.name} />
+            )}
+          </>
+        )}
 
       {/* Only shown after logged in and onboaring etc are complete */}
       {hasSession && <PolicyUpdateOverlay />}

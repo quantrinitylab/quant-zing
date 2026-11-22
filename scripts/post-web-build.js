@@ -166,7 +166,14 @@ const interFontPath = '/assets/assets/fonts/inter/'
 const quantZingIconTags =
   `<link rel="icon" href="/static/favicon.ico?v=qz1" sizes="any"/>` +
   `<link rel="shortcut icon" href="/static/favicon.ico?v=qz1"/>` +
-  `<link rel="icon" type="image/svg+xml" href="${QUANTZING_FAVICON_SVG}"/>`
+  `<link rel="icon" type="image/svg+xml" href="${QUANTZING_FAVICON_SVG}"/>` +
+  `<link rel="manifest" href="/manifest.json"/>` +
+  `<link rel="apple-touch-icon" href="/app-icon-192.png"/>` +
+  `<meta name="theme-color" content="#000000"/>` +
+  `<meta name="apple-mobile-web-app-capable" content="yes"/>` +
+  `<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>` +
+  `<meta name="apple-mobile-web-app-title" content="QuantZing"/>` +
+  `<script>window.__qzDeferredInstall=null;window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();window.__qzDeferredInstall=e;window.dispatchEvent(new CustomEvent('qz-install-ready'));});if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>`
 
 const fixedIndexHtml = indexHtml
   .replaceAll(

@@ -7,8 +7,7 @@ import {type CompressedVideo} from '#/lib/media/video/types'
 import {logger} from '#/logger'
 import {useAutoplayDisabled} from '#/state/preferences'
 import {ExternalEmbedRemoveBtn} from '#/view/com/composer/ExternalEmbedRemoveBtn'
-import {atoms as a} from '#/alf'
-import {ConstrainedImage} from '#/components/images/AutoSizedImage'
+import {atoms as a, useBreakpoints} from '#/alf'
 import {Text} from '#/components/Typography'
 import {PlayButtonIcon} from '#/components/video/PlayButtonIcon'
 
@@ -25,28 +24,31 @@ export function VideoPreview({
   // TODO: figure out how to pause a GIF for reduced motion
   // it's not possible using an img tag -sfn
   const autoplayDisabled = useAutoplayDisabled()
+  const {gtMobile} = useBreakpoints()
   const [previewFailed, setPreviewFailed] = useState(false)
 
-  let aspectRatio: number | undefined
-  if (asset.width && asset.height) {
-    const raw = asset.width / asset.height
-    if (!Number.isNaN(raw)) {
-      aspectRatio = raw
+  const maxH = gtMobile ? 300 : 210
+  let previewHeight = maxH
+  if (asset.width && asset.height && asset.width > asset.height) {
+    const landscapeH = Math.round((asset.height / asset.width) * (gtMobile ? 480 : 320))
+    if (Number.isFinite(landscapeH) && landscapeH >= 150) {
+      previewHeight = Math.min(maxH, landscapeH)
     }
-  }
-
-  let constrained: number | undefined
-  if (aspectRatio !== undefined) {
-    const ratio = 1 / 2 // max of 1:2 ratio in feeds
-    constrained = Math.max(aspectRatio, ratio)
   }
 
   return (
     <View style={[a.pt_xs]}>
-      <ConstrainedImage
-        aspectRatio={constrained || 1}
-        minMobileAspectRatio={14 / 9}>
-        <View style={[a.flex_1, {backgroundColor: 'black'}]}>
+      <View
+        style={[
+          a.w_full,
+          a.rounded_md,
+          a.overflow_hidden,
+          a.relative,
+          {
+            backgroundColor: '#000000',
+            height: previewHeight,
+          },
+        ]}>
           {video.mimeType === 'image/gif' ? (
             <img
               src={video.uri}
@@ -106,8 +108,7 @@ export function VideoPreview({
             </>
           )}
           <ExternalEmbedRemoveBtn onRemove={clear} />
-        </View>
-      </ConstrainedImage>
+      </View>
     </View>
   )
 }

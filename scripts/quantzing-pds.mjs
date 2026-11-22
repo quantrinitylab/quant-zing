@@ -3510,6 +3510,44 @@ export async function handleQuantZingPds(req, res) {
           })
           return true
         }
+        if (
+          collection === 'app.bsky.notification.declaration' &&
+          rkey === 'self'
+        ) {
+          const decl = putLocalRecord(
+            db,
+            localAcc.did,
+            'app.bsky.notification.declaration',
+            'self',
+            {allowSubscriptions: 'followers'},
+          )
+          saveDb(db)
+          sendJson(req, res, 200, {
+            uri: decl.uri,
+            cid: decl.cid,
+            value: decl.value,
+          })
+          return true
+        }
+        if (
+          collection === 'app.bsky.actor.contentVisibilityDeclaration' &&
+          rkey === 'self'
+        ) {
+          const decl = putLocalRecord(
+            db,
+            localAcc.did,
+            'app.bsky.actor.contentVisibilityDeclaration',
+            'self',
+            {},
+          )
+          saveDb(db)
+          sendJson(req, res, 200, {
+            uri: decl.uri,
+            cid: decl.cid,
+            value: decl.value,
+          })
+          return true
+        }
         sendXrpcError(
           req,
           res,
@@ -4058,11 +4096,40 @@ export async function handleQuantZingPds(req, res) {
       }
 
       feedEntries.sort((a, b) => b._sortTime - a._sortTime)
-      const page = paginateItems(
-        feedEntries.map(({_sortTime, ...rest}) => rest),
-        cursor,
-        limit,
-      )
+
+      // Hoist pinned post to top when includePins=true
+      const includePins = searchParams.get('includePins') === 'true'
+      const pinnedUri = localAcc.profile?.pinnedPost?.uri
+      let finalEntries = feedEntries.map(({_sortTime, ...rest}) => rest)
+      if (
+        includePins &&
+        pinnedUri &&
+        !cursor &&
+        filter !== 'posts_with_media' &&
+        filter !== 'posts_with_video'
+      ) {
+        const pinnedRec = findLocalPostByUri(db, pinnedUri)
+        if (
+          pinnedRec &&
+          pinnedRec.repo === localAcc.did &&
+          !isPostHiddenForViewer(db, pinnedRec, viewerDid, getCollectionMap)
+        ) {
+          const pinnedView = buildLocalPostView(db, pinnedRec, viewerDid, origin)
+          if (pinnedView) {
+            finalEntries = [
+              {
+                post: pinnedView,
+                reason: {$type: 'app.bsky.feed.defs#reasonPin'},
+              },
+              ...finalEntries.filter(
+                e => !(e.post?.uri === pinnedView.uri && !e.reason),
+              ),
+            ]
+          }
+        }
+      }
+
+      const page = paginateItems(finalEntries, cursor, limit)
       sendJson(req, res, 200, {
         ...(page.cursor ? {cursor: page.cursor} : {}),
         feed: page.items,
@@ -4613,13 +4680,268 @@ export async function handleQuantZingPds(req, res) {
       return true
     }
 
+    const buildListView = (listRec, viewerDid) => {
+      if (!listRec) return null
+      const creatorAcc = db.accounts[listRec.repo]
+      if (!creatorAcc) return null
+      const itemsMap = getCollectionMap(
+        db,
+        listRec.repo,
+        'app.bsky.graph.listitem',
+      )
+      const listItemCount = Object.values(itemsMap).filter(
+        it => it?.value?.list === listRec.uri,
+      ).length
+      const avatar = blobUrl(origin, listRec.repo, listRec.value?.avatar)
+      return {
+        $type: 'app.bsky.graph.defs#listView',
+        uri: listRec.uri,
+        cid: listRec.cid,
+        creator: buildLocalProfileView(db, creatorAcc, viewerDid, origin, false),
+        name: String(listRec.value?.name || 'Untitled List'),
+        purpose:
+          listRec.value?.purpose || 'app.bsky.graph.defs#curatelist',
+        description: String(listRec.value?.description || ''),
+        ...(avatar ? {avatar} : {}),
+        listItemCount,
+        labels: [],
+        viewer: {muted: false},
+        indexedAt: listRec.indexedAt,
+      }
+    }
+
+    if (nsid === 'app.bsky.graph.getLists' && method === 'GET') {
+      const actor = searchParams.get('actor') || ''
+      const viewerDid = getOptionalViewerDid(req, db)
+      const localAcc = findLocalAccount(db, actor)
+      if (!localAcc) {
+        sendJson(req, res, 200, {lists: []})
+        return true
+      }
+      const listRecs = Object.values(
+        getCollectionMap(db, localAcc.did, 'app.bsky.graph.list'),
+      ).sort((a, b) =>
+        String(b.indexedAt || '').localeCompare(String(a.indexedAt || '')),
+      )
+      const lists = listRecs
+        .map(r => buildListView(r, viewerDid))
+        .filter(Boolean)
+      sendJson(req, res, 200, {lists})
+      return true
+    }
+
+    if (nsid === 'app.bsky.graph.getList' && method === 'GET') {
+      const listUri = searchParams.get('list') || ''
+      const viewerDid = getOptionalViewerDid(req, db)
+      const resolved = resolveAtUri(db, listUri)
+      const listRec = resolved
+        ? db.records?.[resolved.did]?.[resolved.collection]?.[resolved.rkey]
+        : null
+      if (!listRec) {
+        sendXrpcError(req, res, 404, 'NotFound', 'List not found')
+        return true
+      }
+      const listView = buildListView(listRec, viewerDid)
+      const itemRecs = Object.values(
+        getCollectionMap(db, listRec.repo, 'app.bsky.graph.listitem'),
+      ).filter(it => it?.value?.list === listRec.uri)
+      const items = itemRecs
+        .map(it => {
+          const subAcc = findLocalAccount(db, it?.value?.subject)
+          if (!subAcc) return null
+          return {
+            uri: it.uri,
+            subject: buildLocalProfileView(db, subAcc, viewerDid, origin, false),
+          }
+        })
+        .filter(Boolean)
+      sendJson(req, res, 200, {list: listView, items})
+      return true
+    }
+
+    if (nsid === 'app.bsky.graph.getListsWithMembership' && method === 'GET') {
+      const auth = getAuthedContext(req, db)
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        return true
+      }
+      const targetActor = searchParams.get('actor') || ''
+      const targetAcc = findLocalAccount(db, targetActor)
+      const listRecs = Object.values(
+        getCollectionMap(db, auth.did, 'app.bsky.graph.list'),
+      )
+      const itemRecs = Object.values(
+        getCollectionMap(db, auth.did, 'app.bsky.graph.listitem'),
+      )
+      const listsWithMembership = listRecs
+        .map(lr => {
+          const list = buildListView(lr, auth.did)
+          if (!list) return null
+          const matchItem = targetAcc
+            ? itemRecs.find(
+                it =>
+                  it?.value?.list === lr.uri &&
+                  it?.value?.subject === targetAcc.did,
+              )
+            : null
+          return {
+            list,
+            ...(matchItem
+              ? {
+                  listItem: {
+                    uri: matchItem.uri,
+                    subject: buildLocalProfileView(
+                      db,
+                      targetAcc,
+                      auth.did,
+                      origin,
+                      false,
+                    ),
+                  },
+                }
+              : {}),
+          }
+        })
+        .filter(Boolean)
+      sendJson(req, res, 200, {listsWithMembership})
+      return true
+    }
+
+    if (nsid === 'app.bsky.feed.getListFeed' && method === 'GET') {
+      const listUri = searchParams.get('list') || ''
+      const cursor = searchParams.get('cursor')
+      const limit = searchParams.get('limit') || '30'
+      const viewerDid = getOptionalViewerDid(req, db)
+      const resolved = resolveAtUri(db, listUri)
+      const listRec = resolved
+        ? db.records?.[resolved.did]?.[resolved.collection]?.[resolved.rkey]
+        : null
+      if (!listRec) {
+        sendJson(req, res, 200, {feed: []})
+        return true
+      }
+      const memberDids = new Set(
+        Object.values(
+          getCollectionMap(db, listRec.repo, 'app.bsky.graph.listitem'),
+        )
+          .filter(it => it?.value?.list === listRec.uri)
+          .map(it => it?.value?.subject)
+          .filter(Boolean),
+      )
+      const items = getLocalFeedItems(db, viewerDid, origin, {
+        includeReplies: false,
+      }).filter(it => memberDids.has(it.post?.author?.did))
+      const page = paginateItems(items, cursor, limit)
+      sendJson(req, res, 200, {
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        feed: page.items,
+      })
+      return true
+    }
+
     if (
-      (nsid === 'app.bsky.graph.getLists' ||
-        nsid === 'app.bsky.graph.getMutedLists' ||
+      (nsid === 'app.bsky.graph.getMutedLists' ||
         nsid === 'app.bsky.graph.getListBlocks') &&
       method === 'GET'
     ) {
       sendJson(req, res, 200, {lists: []})
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // 7B. Sovereign Server Drafts (app.bsky.draft.*)
+    // -----------------------------------------------------------------------
+
+    if (nsid === 'app.bsky.draft.getDrafts' && method === 'GET') {
+      const auth = getAuthedContext(req, db)
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        return true
+      }
+      const rawDrafts = Array.isArray(db.drafts?.[auth.did])
+        ? db.drafts[auth.did]
+        : []
+      const drafts = [...rawDrafts]
+        .sort((a, b) =>
+          String(b.updatedAt || b.createdAt || '').localeCompare(
+            String(a.updatedAt || a.createdAt || ''),
+          ),
+        )
+        .map(d => ({
+          $type: 'app.bsky.draft.defs#draftView',
+          id: d.id,
+          draft: d.draft,
+          createdAt: d.createdAt,
+          updatedAt: d.updatedAt,
+        }))
+      sendJson(req, res, 200, {drafts})
+      return true
+    }
+
+    if (nsid === 'app.bsky.draft.createDraft' && method === 'POST') {
+      const auth = getAuthedContext(req, db)
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        return true
+      }
+      const body = await readJsonBody(req)
+      db.drafts = db.drafts && typeof db.drafts === 'object' ? db.drafts : {}
+      db.drafts[auth.did] = Array.isArray(db.drafts[auth.did])
+        ? db.drafts[auth.did]
+        : []
+      if (db.drafts[auth.did].length >= 100) {
+        sendXrpcError(req, res, 400, 'DraftLimitReached', 'Maximum of 100 drafts reached')
+        return true
+      }
+      const id = generateTid()
+      const now = new Date().toISOString()
+      db.drafts[auth.did].unshift({
+        id,
+        draft: body.draft || {posts: []},
+        createdAt: now,
+        updatedAt: now,
+      })
+      saveDb(db)
+      sendJson(req, res, 200, {id})
+      return true
+    }
+
+    if (nsid === 'app.bsky.draft.updateDraft' && method === 'POST') {
+      const auth = getAuthedContext(req, db)
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        return true
+      }
+      const body = await readJsonBody(req)
+      const draftWithId = body.draft || {}
+      const id = String(draftWithId.id || '')
+      db.drafts = db.drafts && typeof db.drafts === 'object' ? db.drafts : {}
+      const list = Array.isArray(db.drafts[auth.did]) ? db.drafts[auth.did] : []
+      const existing = list.find(d => d.id === id)
+      if (!existing) {
+        sendXrpcError(req, res, 404, 'NotFound', 'Draft not found')
+        return true
+      }
+      existing.draft = draftWithId.draft || existing.draft
+      existing.updatedAt = new Date().toISOString()
+      saveDb(db)
+      sendEmpty(req, res, 200)
+      return true
+    }
+
+    if (nsid === 'app.bsky.draft.deleteDraft' && method === 'POST') {
+      const auth = getAuthedContext(req, db)
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        return true
+      }
+      const body = await readJsonBody(req)
+      const id = String(body.id || '')
+      if (Array.isArray(db.drafts?.[auth.did])) {
+        db.drafts[auth.did] = db.drafts[auth.did].filter(d => d.id !== id)
+        saveDb(db)
+      }
+      sendEmpty(req, res, 200)
       return true
     }
 

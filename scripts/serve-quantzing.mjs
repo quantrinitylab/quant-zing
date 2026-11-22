@@ -1,4 +1,5 @@
 import http from 'node:http'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
@@ -6,10 +7,83 @@ import {fileURLToPath} from 'node:url'
 import {handleQuantZingPds, isQuantZingPdsRoute} from './quantzing-pds.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const projectRoot = path.resolve(__dirname, '..')
 const distDir = path.resolve(__dirname, '..', 'dist')
 const opsPortalDir = path.resolve(__dirname, '..', 'ops-portal')
 const port = Number(process.env.PORT || 3008)
 const host = process.env.HOST || '127.0.0.1'
+
+function findAndroidApkPath() {
+  const candidates = [
+    process.env.QUANTZING_APK_PATH,
+    path.join(
+      process.env.QUANTZING_DATA_DIR || path.join(projectRoot, '.quantzing-data'),
+      'releases',
+      'quantzing-android.apk',
+    ),
+    path.join(projectRoot, 'releases', 'quantzing-android.apk'),
+    '/var/lib/quantzing/releases/quantzing-android.apk',
+    '/opt/quantzing/releases/quantzing-android.apk',
+  ].filter(Boolean)
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p) && fs.statSync(p).isFile() && fs.statSync(p).size > 20_000) {
+        return p
+      }
+    } catch {}
+  }
+  return null
+}
+
+let cachedApkMeta = null
+function getAndroidApkMeta() {
+  const apkPath = findAndroidApkPath()
+  if (!apkPath) {
+    return {
+      available: false,
+      version: '1.139.0',
+      downloadUrl: '/download/quantzing-android.apk',
+      sizeBytes: 0,
+      sha256: null,
+      updatedAt: null,
+    }
+  }
+  const stat = fs.statSync(apkPath)
+  if (
+    cachedApkMeta &&
+    cachedApkMeta.path === apkPath &&
+    cachedApkMeta.mtimeMs === stat.mtimeMs &&
+    cachedApkMeta.sizeBytes === stat.size
+  ) {
+    return cachedApkMeta.meta
+  }
+  const hash = crypto
+    .createHash('sha256')
+    .update(fs.readFileSync(apkPath))
+    .digest('hex')
+  const meta = {
+    available: true,
+    version: '1.139.0',
+    downloadUrl: '/download/quantzing-android.apk',
+    sizeBytes: stat.size,
+    sha256: hash,
+    updatedAt: stat.mtime.toISOString(),
+  }
+  cachedApkMeta = {path: apkPath, mtimeMs: stat.mtimeMs, sizeBytes: stat.size, meta}
+  return meta
+}
+
+function findQuantZingIconPng() {
+  const candidates = [
+    path.join(projectRoot, 'assets', 'app-icons', 'android_icon_default_next.png'),
+    path.join(projectRoot, 'assets', 'icon.png'),
+    path.join(projectRoot, 'assets', 'favicon.png'),
+  ]
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p
+  }
+  return null
+}
 
 const OPS_SECURITY_HEADERS = {
   'x-robots-tag': 'noindex, nofollow',
@@ -330,6 +404,129 @@ const server = http.createServer((req, res) => {
         })),
       }),
     )
+    return
+  }
+
+  if (pathname === '/manifest.json') {
+    const manifest = JSON.stringify(
+      {
+        name: 'QuantZing',
+        short_name: 'QuantZing',
+        description:
+          'Real-time sovereign conversations, vertical Reels, ZingSpaces, and built-in Quanty AI.',
+        start_url: '/',
+        scope: '/',
+        display: 'standalone',
+        orientation: 'portrait',
+        background_color: '#000000',
+        theme_color: '#000000',
+        categories: ['social', 'news', 'entertainment'],
+        icons: [
+          {
+            src: '/app-icon-192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any maskable',
+          },
+          {
+            src: '/app-icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any maskable',
+          },
+        ],
+      },
+      null,
+      2,
+    )
+    res.writeHead(200, {
+      'content-type': 'application/manifest+json; charset=utf-8',
+      'content-length': Buffer.byteLength(manifest),
+      'cache-control': 'public, max-age=3600',
+    })
+    res.end(manifest)
+    return
+  }
+
+  if (pathname === '/sw.js') {
+    const sw = [
+      "self.addEventListener('install', () => self.skipWaiting());",
+      "self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));",
+      "self.addEventListener('fetch', () => {});",
+    ].join('\n')
+    res.writeHead(200, {
+      'content-type': 'application/javascript; charset=utf-8',
+      'content-length': Buffer.byteLength(sw),
+      'cache-control': 'no-cache',
+      'service-worker-allowed': '/',
+    })
+    res.end(sw)
+    return
+  }
+
+  if (pathname === '/app-icon-192.png' || pathname === '/app-icon-512.png') {
+    const iconFile = findQuantZingIconPng()
+    if (iconFile) {
+      const stat = fs.statSync(iconFile)
+      res.writeHead(200, {
+        'content-type': 'image/png',
+        'content-length': stat.size,
+        'cache-control': 'public, max-age=86400',
+      })
+      fs.createReadStream(iconFile).pipe(res)
+      return
+    }
+  }
+
+  if (pathname === '/api/quantzing/app-release') {
+    const apk = getAndroidApkMeta()
+    const payload = JSON.stringify({
+      ok: true,
+      appName: 'QuantZing',
+      version: apk.version,
+      pwaReady: true,
+      androidApkAvailable: apk.available,
+      androidApkUrl: apk.downloadUrl,
+      androidApkSizeBytes: apk.sizeBytes,
+      androidApkSha256: apk.sha256,
+      androidApkUpdatedAt: apk.updatedAt,
+      iosInstallMode: 'pwa',
+      playStoreStatus: 'upcoming',
+      appStoreStatus: 'upcoming',
+    })
+    res.writeHead(200, {
+      'content-type': 'application/json; charset=utf-8',
+      'content-length': Buffer.byteLength(payload),
+      'cache-control': 'no-store',
+    })
+    res.end(payload)
+    return
+  }
+
+  if (pathname === '/download/quantzing-android.apk') {
+    const apkPath = findAndroidApkPath()
+    if (!apkPath) {
+      const payload = JSON.stringify({
+        error: 'ReleaseNotBuilt',
+        message:
+          'Direct Android APK build is being prepared. Install QuantZing instantly as a native-feel Web App from /download.',
+      })
+      res.writeHead(404, {
+        'content-type': 'application/json; charset=utf-8',
+        'content-length': Buffer.byteLength(payload),
+        'cache-control': 'no-store',
+      })
+      res.end(payload)
+      return
+    }
+    const stat = fs.statSync(apkPath)
+    res.writeHead(200, {
+      'content-type': 'application/vnd.android.package-archive',
+      'content-length': stat.size,
+      'content-disposition': 'attachment; filename="QuantZing-Android.apk"',
+      'cache-control': 'public, max-age=3600',
+    })
+    fs.createReadStream(apkPath).pipe(res)
     return
   }
 

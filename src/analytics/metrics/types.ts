@@ -210,6 +210,8 @@ export type Events = {
       | 'studio'
       | 'spaces'
       | 'pro'
+      | 'reels'
+      | 'download'
     surface: 'bottomBar' | 'drawer' | 'drawerHeader' | 'topBar' | 'leftNav'
   }
   'deepLink:referrerReceived': {

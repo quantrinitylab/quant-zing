@@ -41,7 +41,7 @@ function Inner({state}: {state: ComposerOpts}) {
         role="dialog"
         aria-modal
         style={flatten([
-          {position: 'fixed'},
+          {position: 'fixed', zIndex: 100},
           a.inset_0,
           {backgroundColor: '#000c'},
           a.flex,
@@ -83,19 +83,25 @@ function Inner({state}: {state: ComposerOpts}) {
 
 const styles = StyleSheet.create({
   container: {
-    marginTop: 50,
+    marginTop: 40,
     maxWidth: 600,
     width: '100%',
     paddingVertical: 0,
-    borderRadius: 8,
+    borderRadius: 16,
     marginBottom: 0,
     borderWidth: 1,
-    maxHeight: 'calc(100% - (40px * 2))',
+    maxHeight: 'calc(100dvh - 80px)' as any,
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: 0,
     overflow: 'hidden',
   },
   containerMobile: {
+    marginTop: 0,
+    marginBottom: 0,
     borderRadius: 0,
-    marginBottom: BOTTOM_BAR_HEIGHT,
-    maxHeight: `calc(100% - ${BOTTOM_BAR_HEIGHT}px)`,
+    borderWidth: 0,
+    height: '100dvh' as any,
+    maxHeight: '100dvh' as any,
   },
 })

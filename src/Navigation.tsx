@@ -150,6 +150,7 @@ import {Wizard} from '#/screens/StarterPack/Wizard'
 import TopicScreen from '#/screens/Topic'
 import {ArticlesScreen} from '#/screens/QuantZing/ArticlesScreen'
 import {CreatorStudioScreen} from '#/screens/QuantZing/CreatorStudioScreen'
+import {DownloadScreen} from '#/screens/QuantZing/DownloadScreen'
 import {HelpScreen} from '#/screens/QuantZing/HelpScreen'
 import {PrivacyScreen} from '#/screens/QuantZing/PrivacyScreen'
 import {QuantZingProScreen} from '#/screens/QuantZing/QuantZingProScreen'
@@ -627,8 +628,7 @@ function commonScreens(Stack: typeof Flat, unreadCountLabel?: string) {
         name="VideoFeed"
         getComponent={() => VideoFeed}
         options={{
-          title: title(msg`Video Feed`),
-          requireAuth: true,
+          title: title(msg`Reels`),
         }}
       />
       <Stack.Screen
@@ -672,6 +672,11 @@ function commonScreens(Stack: typeof Flat, unreadCountLabel?: string) {
         name="QuantZingPro"
         getComponent={() => QuantZingProScreen}
         options={{title: bskyTitle('QuantZing Pro', unreadCountLabel)}}
+      />
+      <Stack.Screen
+        name="Download"
+        getComponent={() => DownloadScreen}
+        options={{title: bskyTitle('Download QuantZing', unreadCountLabel)}}
       />
       <Stack.Screen
         name="Terms"

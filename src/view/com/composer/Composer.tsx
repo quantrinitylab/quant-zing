@@ -1427,9 +1427,9 @@ export const ComposePost = ({
         behavior={IS_IOS ? 'padding' : 'height'}
         keyboardVerticalOffset={keyboardVerticalOffset}
         automaticOffset={IS_IPAD}
-        style={a.flex_1}>
+        style={[a.flex_1, web({minHeight: 0})]}>
         <View
-          style={[a.flex_1, viewStyles]}
+          style={[a.flex_1, viewStyles, web({minHeight: 0})]}
           aria-modal
           accessibilityViewIsModal>
           <ComposerTopBar
@@ -1471,6 +1471,7 @@ export const ComposePost = ({
             style={[
               a.flex_1,
               web({
+                minHeight: 0,
                 scrollbarGutter: 'stable',
                 scrollbarColor: `${t.palette.contrast_200} transparent`,
                 // Prevent horizontal trackpad swipes from triggering the
