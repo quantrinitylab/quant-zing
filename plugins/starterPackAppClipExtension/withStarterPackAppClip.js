@@ -5,7 +5,8 @@ const {withClipInfoPlist} = require('./withClipInfoPlist')
 const {withFiles} = require('./withFiles')
 const {withXcodeTarget} = require('./withXcodeTarget')
 
-const APP_CLIP_TARGET_NAME = 'BlueskyClip'
+const APP_CLIP_SOURCE_DIR = 'BlueskyClip'
+const APP_CLIP_TARGET_NAME = 'QuantZingClip'
 
 const withStarterPackAppClip = config => {
   return withPlugins(config, [
@@ -26,6 +27,7 @@ const withStarterPackAppClip = config => {
       withFiles,
       {
         targetName: APP_CLIP_TARGET_NAME,
+        sourceDir: APP_CLIP_SOURCE_DIR,
       },
     ],
     [

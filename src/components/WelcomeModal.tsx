@@ -7,7 +7,7 @@ import * as FocusScope from '@radix-ui/react-focus-scope'
 import {useLoggedOutViewControls} from '#/state/shell/logged-out'
 import {Logo} from '#/view/icons/Logo'
 import {Logotype} from '#/view/icons/Logotype'
-import {atoms as a, flatten, useBreakpoints, web} from '#/alf'
+import {atoms as a, flatten, useBreakpoints, useTheme, web} from '#/alf'
 import {Button, ButtonText} from '#/components/Button'
 import {type WelcomeModalControl} from '#/components/hooks/useWelcomeModal.shared'
 import {TimesLarge_Stroke2_Corner0_Rounded as XIcon} from '#/components/icons/Times'
@@ -19,12 +19,18 @@ interface WelcomeModalProps {
 }
 
 export function WelcomeModal({control}: WelcomeModalProps) {
+  const t = useTheme()
+  const isLight = t.scheme === 'light'
   const {t: l} = useLingui()
   const ax = useAnalytics()
   const {requestSwitchToAccount} = useLoggedOutViewControls()
   const {gtMobile} = useBreakpoints()
   const [isExiting, setIsExiting] = useState(false)
   const [signInLinkHovered, setSignInLinkHovered] = useState(false)
+  const ctaBg = isLight ? '#0F1419' : '#EFF3F4'
+  const ctaHoverBg = isLight ? '#272C30' : '#D7DBDC'
+  const ctaText = isLight ? '#FFFFFF' : '#0F1419'
+  const linkColor = isLight ? t.palette.primary_700 : t.palette.primary_500
 
   const fadeOutAndClose = (callback?: () => void) => {
     setIsExiting(true)
@@ -72,7 +78,12 @@ export function WelcomeModal({control}: WelcomeModalProps) {
         a.inset_0,
         a.justify_center,
         a.align_center,
-        {zIndex: 9999, backgroundColor: 'rgba(0,0,0,0.65)'},
+        {
+          zIndex: 9999,
+          backgroundColor: isLight
+            ? 'rgba(15, 20, 25, 0.45)'
+            : 'rgba(0, 0, 0, 0.65)',
+        },
         web({backdropFilter: 'blur(14px)'}),
         isExiting ? a.fade_out : a.fade_in,
       ]}>
@@ -84,16 +95,22 @@ export function WelcomeModal({control}: WelcomeModalProps) {
               maxHeight: 560,
               width: '90%',
               height: '88%',
-              backgroundColor: '#000000',
               borderWidth: 1,
-              borderColor: '#2F3336',
             },
+            t.atoms.bg,
+            t.atoms.border_contrast_low,
+            isLight && t.atoms.shadow_lg,
             a.rounded_lg,
             a.overflow_hidden,
             a.zoom_in,
             a.justify_center,
           ])}>
-          <View style={[a.gap_2xl, a.align_center, a.p_4xl]}>
+          <View
+            style={[
+              gtMobile ? a.gap_2xl : a.gap_xl,
+              a.align_center,
+              gtMobile ? a.p_4xl : a.p_xl,
+            ]}>
             <View
               style={[
                 a.flex_row,
@@ -104,24 +121,24 @@ export function WelcomeModal({control}: WelcomeModalProps) {
               ]}>
               <View style={[a.flex_row, a.align_center, a.gap_sm]}>
                 <Logo allowVariants={false} width={32} />
-                <Logotype width={120} fill="#E7E9EA" />
+                <Logotype width={120} fill={t.atoms.text.color} />
               </View>
             </View>
             <View
               style={[
                 a.gap_sm,
                 a.align_center,
-                a.pt_4xl,
-                a.pb_2xl,
-                a.mt_xl,
+                gtMobile ? a.pt_4xl : a.pt_lg,
+                gtMobile ? a.pb_2xl : a.pb_md,
+                gtMobile ? a.mt_xl : a.mt_xs,
               ]}>
               <Text
                 style={[
                   gtMobile ? a.text_4xl : a.text_3xl,
                   a.font_bold,
                   a.text_center,
+                  t.atoms.text,
                   {
-                    color: '#E7E9EA',
                     lineHeight: 1.2,
                     letterSpacing: -0.6,
                   },
@@ -143,12 +160,12 @@ export function WelcomeModal({control}: WelcomeModalProps) {
                   color="primary"
                   style={{
                     width: 220,
-                    backgroundColor: '#EFF3F4',
+                    backgroundColor: ctaBg,
                   }}
                   hoverStyle={{
-                    backgroundColor: '#D7DBDC',
+                    backgroundColor: ctaHoverBg,
                   }}>
-                  <ButtonText style={{color: '#0F1419'}}>
+                  <ButtonText style={{color: ctaText}}>
                     <Trans>Create account</Trans>
                   </ButtonText>
                 </Button>
@@ -162,7 +179,7 @@ export function WelcomeModal({control}: WelcomeModalProps) {
                   hoverStyle={[a.bg_transparent]}>
                   {({hovered}) => (
                     <ButtonText
-                      style={[hovered && [a.underline], {color: '#1D9BF0'}]}>
+                      style={[hovered && [a.underline], {color: linkColor}]}>
                       <Trans>Explore the app</Trans>
                     </ButtonText>
                   )}
@@ -173,7 +190,8 @@ export function WelcomeModal({control}: WelcomeModalProps) {
                   style={[
                     a.text_md,
                     a.text_center,
-                    {color: '#71767B', lineHeight: 24},
+                    t.atoms.text_contrast_medium,
+                    {lineHeight: 24},
                   ]}>
                   <Trans>Already have an account?</Trans>{' '}
                   <Pressable
@@ -187,7 +205,7 @@ export function WelcomeModal({control}: WelcomeModalProps) {
                       style={[
                         a.font_medium,
                         {
-                          color: '#1D9BF0',
+                          color: linkColor,
                           fontSize: undefined,
                         },
                         signInLinkHovered && a.underline,
@@ -209,7 +227,7 @@ export function WelcomeModal({control}: WelcomeModalProps) {
               },
               a.bg_transparent,
             ]}
-            hoverStyle={[a.bg_transparent]}
+            hoverStyle={[t.atoms.bg_contrast_50]}
             onPress={() => {
               ax.metric('welcomeModal:dismissed', {})
               fadeOutAndClose()
@@ -222,8 +240,8 @@ export function WelcomeModal({control}: WelcomeModalProps) {
               <XIcon
                 size="md"
                 style={{
-                  color: '#71767B',
-                  opacity: hovered || pressed || focused ? 1 : 0.7,
+                  color: t.atoms.text_contrast_medium.color,
+                  opacity: hovered || pressed || focused ? 1 : 0.75,
                 }}
               />
             )}

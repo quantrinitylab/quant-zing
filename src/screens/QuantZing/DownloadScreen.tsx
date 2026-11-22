@@ -1,8 +1,20 @@
 import {useCallback, useEffect, useMemo, useState} from 'react'
-import {Platform, Pressable, ScrollView, View} from 'react-native'
+import {
+  ActivityIndicator,
+  Linking,
+  Platform,
+  Pressable,
+  ScrollView,
+  View,
+} from 'react-native'
 import {useNavigation} from '@react-navigation/native'
 
-import {getQuantZingColors} from '#/lib/quantos/client'
+import {
+  fetchQuantZingAppRelease,
+  getQuantZingApiOrigin,
+  getQuantZingColors,
+  type QuantZingAppRelease,
+} from '#/lib/quantos/client'
 import {type NavigationProp} from '#/lib/routes/types'
 import {Logo} from '#/view/icons/Logo'
 import {atoms as a, useBreakpoints, useTheme, web} from '#/alf'
@@ -11,106 +23,128 @@ import {Check_Stroke2_Corner0_Rounded as CheckIcon} from '#/components/icons/Che
 import {Download_Stroke2_Corner0_Rounded as DownloadIcon} from '#/components/icons/Download'
 import {Globe_Stroke2_Corner0_Rounded as GlobeIcon} from '#/components/icons/Globe'
 import {Phone_Stroke2_Corner0_Rounded as PhoneIcon} from '#/components/icons/Phone'
+import {ShieldCheck_Stroke2_Corner0_Rounded as ShieldIcon} from '#/components/icons/Shield'
 import * as Layout from '#/components/Layout'
 import {Text} from '#/components/Typography'
-
-type ReleaseMeta = {
-  version: string
-  pwaReady: boolean
-  androidApkAvailable: boolean
-  androidApkUrl: string
-  androidApkSizeBytes: number
-  androidApkSha256: string | null
-  androidApkUpdatedAt: string | null
-}
-
-function formatBytes(bytes: number) {
-  if (!bytes || bytes <= 0) return ''
-  const mb = bytes / (1024 * 1024)
-  return `${mb.toFixed(1)} MB`
-}
 
 export function DownloadScreen() {
   const t = useTheme()
   const {gtMobile} = useBreakpoints()
   const navigation = useNavigation<NavigationProp>()
-  const colors = useMemo(
-    () => getQuantZingColors(t.scheme === 'dark'),
-    [t.scheme],
-  )
-  const [release, setRelease] = useState<ReleaseMeta | null>(null)
+  const colors = useMemo(() => getQuantZingColors(t.name), [t.name])
+
+  const [release, setRelease] = useState<QuantZingAppRelease | null>(null)
+  const [loadingRelease, setLoadingRelease] = useState(true)
   const [canInstallPwa, setCanInstallPwa] = useState(false)
   const [installFeedback, setInstallFeedback] = useState<string | null>(null)
   const [isIos, setIsIos] = useState(false)
 
   useEffect(() => {
-    if (Platform.OS !== 'web' || typeof window === 'undefined') return
-    const ua = navigator.userAgent || ''
-    setIsIos(/iPad|iPhone|iPod/i.test(ua))
-
-    const syncPrompt = () => {
-      setCanInstallPwa(Boolean((window as any).__qzDeferredInstall))
-    }
-    syncPrompt()
-    window.addEventListener('qz-install-ready', syncPrompt)
-
-    fetch('/api/quantzing/app-release')
-      .then(r => (r.ok ? r.json() : null))
+    let cancelled = false
+    fetchQuantZingAppRelease()
       .then(data => {
-        if (data && data.ok) setRelease(data)
+        if (!cancelled) {
+          setRelease(data)
+        }
       })
       .catch(() => {})
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingRelease(false)
+        }
+      })
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const ua = navigator.userAgent || ''
+      setIsIos(/iPad|iPhone|iPod/i.test(ua))
+
+      const syncPrompt = () => {
+        setCanInstallPwa(Boolean((window as any).__qzDeferredInstall))
+      }
+      syncPrompt()
+      window.addEventListener('qz-install-ready', syncPrompt)
+      return () => {
+        cancelled = true
+        window.removeEventListener('qz-install-ready', syncPrompt)
+      }
+    }
 
     return () => {
-      window.removeEventListener('qz-install-ready', syncPrompt)
+      cancelled = true
     }
   }, [])
 
-  const onInstallPwa = useCallback(async () => {
-    if (Platform.OS !== 'web' || typeof window === 'undefined') return
-    const deferred = (window as any).__qzDeferredInstall
-    if (deferred && typeof deferred.prompt === 'function') {
-      try {
-        await deferred.prompt()
-        const choice = await deferred.userChoice
-        if (choice?.outcome === 'accepted') {
-          setInstallFeedback(
-            'QuantZing is installing directly onto your device.',
-          )
-          ;(window as any).__qzDeferredInstall = null
-          setCanInstallPwa(false)
-        } else {
-          setInstallFeedback(
-            'Install dismissed. You can tap Install App again anytime.',
-          )
-        }
-        return
-      } catch {}
+  const resolveDownloadHref = useCallback((relativeOrFull: string): string => {
+    if (/^https?:\/\//i.test(relativeOrFull)) return relativeOrFull
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      return relativeOrFull
     }
+    return `${getQuantZingApiOrigin()}${relativeOrFull.startsWith('/') ? '' : '/'}${relativeOrFull}`
+  }, [])
+
+  const onDownloadApk = useCallback(() => {
+    const apkPath =
+      release?.android.downloadUrl || '/download/quantzing-android.apk'
+    const href = resolveDownloadHref(apkPath)
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.location.href = href
+    } else {
+      void Linking.openURL(href)
+    }
+    setInstallFeedback(
+      `Downloading QuantZing Android Native APK${release?.android.sizeLabel ? ` (${release.android.sizeLabel})` : ''} directly from Sovereign servers.`,
+    )
+  }, [release, resolveDownloadHref])
+
+  const onInstallIosProfile = useCallback(() => {
+    const profilePath =
+      release?.ios.mobileconfigUrl || '/download/quantzing-ios.mobileconfig'
+    const href = resolveDownloadHref(profilePath)
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.location.href = href
+    } else {
+      void Linking.openURL(href)
+    }
+    setInstallFeedback(
+      'Downloading QuantZing-iOS.mobileconfig profile. On iPhone or iPad, open Settings > Profile Downloaded > Tap Install.',
+    )
+  }, [release, resolveDownloadHref])
+
+  const onInstallPwa = useCallback(async () => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const deferred = (window as any).__qzDeferredInstall
+      if (deferred && typeof deferred.prompt === 'function') {
+        try {
+          await deferred.prompt()
+          const choice = await deferred.userChoice
+          if (choice?.outcome === 'accepted') {
+            setInstallFeedback(
+              'QuantZing Web App is installing directly onto your device.',
+            )
+            ;(window as any).__qzDeferredInstall = null
+            setCanInstallPwa(false)
+          } else {
+            setInstallFeedback(
+              'Install prompt dismissed. Tap Install Web App again anytime.',
+            )
+          }
+          return
+        } catch {}
+      }
+    }
+
     if (isIos) {
       setInstallFeedback(
-        'On iPhone/iPad Safari: tap the Share icon at the bottom, then choose "Add to Home Screen" to install QuantZing.',
+        'On iPhone or iPad Safari: tap the Share button at the bottom and choose "Add to Home Screen", or use the Direct Profile (.mobileconfig) installer above.',
       )
     } else {
       setInstallFeedback(
-        'Open your browser menu (three dots) and choose "Install app" or "Add to Home screen" to install QuantZing directly.',
+        'Open your browser menu (three dots) and choose "Install app" or "Add to Home screen" to install the QuantZing Web App directly.',
       )
     }
   }, [isIos])
-
-  const onDownloadApk = useCallback(() => {
-    if (Platform.OS !== 'web' || typeof window === 'undefined') return
-    if (release?.androidApkAvailable) {
-      window.location.href = release.androidApkUrl || '/download/quantzing-android.apk'
-      setInstallFeedback(
-        'Downloading QuantZing-Android.apk directly from QuantZing servers.',
-      )
-    } else {
-      setInstallFeedback(
-        'Direct Android APK package is being signed for release. Tap "Install QuantZing App" above for immediate standalone installation right now.',
-      )
-    }
-  }, [release])
 
   const onBack = useCallback(() => {
     if (navigation.canGoBack()) {
@@ -120,8 +154,17 @@ export function DownloadScreen() {
     }
   }, [navigation])
 
+  const displayVersion = release?.version || '1.140.0'
+  const displayDomain =
+    release?.domain ||
+    (Platform.OS === 'web' && typeof window !== 'undefined'
+      ? window.location.host
+      : 'quantzing.quantrinity.in')
+
   return (
-    <Layout.Screen style={[{backgroundColor: colors.bg}]}>
+    <Layout.Screen
+      testID="downloadScreen"
+      style={[{backgroundColor: colors.bg}]}>
       <ScrollView
         style={[a.flex_1, {backgroundColor: colors.bg}]}
         contentContainerStyle={{
@@ -132,7 +175,7 @@ export function DownloadScreen() {
           style={[
             a.w_full,
             {
-              maxWidth: 760,
+              maxWidth: 820,
               paddingHorizontal: gtMobile ? 28 : 16,
               paddingTop: 20,
             },
@@ -143,7 +186,7 @@ export function DownloadScreen() {
               a.flex_row,
               a.align_center,
               a.justify_between,
-              {marginBottom: 28},
+              {marginBottom: 24},
             ]}>
             <Pressable
               onPress={onBack}
@@ -171,35 +214,35 @@ export function DownloadScreen() {
             <View style={[a.flex_row, a.align_center, a.gap_sm]}>
               <Logo width={26} />
               <Text style={[a.text_md, a.font_bold, {color: colors.text}]}>
-                QuantZing
+                QuantZing v{displayVersion}
               </Text>
             </View>
           </View>
 
           {/* Hero */}
-          <View style={{marginBottom: 28}}>
+          <View style={{marginBottom: 24}}>
             <Text
               style={[
                 a.font_bold,
                 {
-                  fontSize: gtMobile ? 40 : 30,
-                  lineHeight: gtMobile ? 46 : 36,
+                  fontSize: gtMobile ? 38 : 28,
+                  lineHeight: gtMobile ? 44 : 34,
                   letterSpacing: -0.8,
                   color: colors.text,
                   marginBottom: 10,
                 },
               ]}>
-              Get the QuantZing App
+              Download QuantZing for Android, iPhone & Web
             </Text>
             <Text
               style={[
                 a.text_md,
-                {color: colors.muted, lineHeight: 22, maxWidth: 580},
+                {color: colors.muted, lineHeight: 22, maxWidth: 640},
               ]}>
-              Install QuantZing directly from our sovereign servers — no Play
-              Store or App Store wait required. Full-screen vertical Reels,
-              real-time Zings, encrypted DMs, and Quanty AI in a standalone
-              native-feel app.
+              Install QuantZing directly from our sovereign release distribution
+              on {displayDomain}. Signed Android Native APK, iPhone & iPad
+              Direct Profile (.mobileconfig), and Instant Web App (PWA) ready
+              now.
             </Text>
           </View>
 
@@ -210,162 +253,142 @@ export function DownloadScreen() {
                 padding: 14,
                 borderRadius: 14,
                 borderWidth: 1,
-                borderColor: '#1D9BF0',
-                backgroundColor: 'rgba(29, 155, 240, 0.12)',
+                borderColor: colors.accent,
+                backgroundColor: colors.accentSubtle,
                 marginBottom: 20,
               }}>
-              <Text style={[a.text_sm, a.font_semi_bold, {color: colors.text}]}>
+              <Text
+                style={[a.text_sm, a.font_semi_bold, {color: colors.text}]}>
                 {installFeedback}
               </Text>
             </View>
           )}
 
-          {/* Primary Cards Grid */}
-          <View
-            style={[
-              gtMobile ? a.flex_row : a.flex_col,
-              a.gap_md,
-              {marginBottom: 20},
-            ]}>
-            {/* Card 1: Instant App Install (Android / iOS / Desktop PWA) */}
+          {/* 3 Flagship Platform Cards */}
+          <View style={[a.gap_md, {marginBottom: 24}]}>
+            {/* Card 1: Android Native App (Direct APK) */}
             <View
-              style={[
-                a.flex_1,
-                {
-                  backgroundColor: colors.card,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  borderRadius: 18,
-                  padding: 20,
-                  gap: 14,
-                },
-              ]}>
-              <View style={[a.flex_row, a.align_center, a.justify_between]}>
-                <View
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 12,
-                    backgroundColor: 'rgba(29, 155, 240, 0.14)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                  <PhoneIcon width={22} fill="#1D9BF0" />
-                </View>
-                <View
-                  style={{
-                    paddingHorizontal: 10,
-                    paddingVertical: 4,
-                    borderRadius: 999,
-                    backgroundColor: 'rgba(0, 186, 124, 0.16)',
-                  }}>
-                  <Text
-                    style={[a.text_xs, a.font_bold, {color: '#00BA7C'}]}>
-                    READY NOW
-                  </Text>
-                </View>
-              </View>
-
-              <View style={{gap: 6}}>
-                <Text style={[a.text_xl, a.font_bold, {color: colors.text}]}>
-                  Install QuantZing App
-                </Text>
-                <Text style={[a.text_sm, {color: colors.muted, lineHeight: 20}]}>
-                  Direct 1-tap install on Android Chrome, iPhone Safari,
-                  Windows, and macOS. Runs full-screen from your Home Screen
-                  with automatic live updates.
-                </Text>
-              </View>
-
-              <Pressable
-                testID="installPwaDirectBtn"
-                onPress={() => void onInstallPwa()}
-                accessibilityRole="button"
-                accessibilityLabel="Install QuantZing App directly"
-                style={({pressed}) => [
+              testID="downloadAndroidCard"
+              style={{
+                backgroundColor: colors.card,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 18,
+                padding: 20,
+                gap: 14,
+              }}>
+              <View
+                style={[
                   a.flex_row,
+                  a.flex_wrap,
                   a.align_center,
-                  a.justify_center,
-                  a.gap_sm,
-                  a.rounded_full,
-                  {
-                    height: 46,
-                    backgroundColor: colors.ctaBg,
-                    opacity: pressed ? 0.85 : 1,
-                  },
-                  web({cursor: 'pointer'}),
+                  a.justify_between,
+                  a.gap_xs,
                 ]}>
-                <DownloadIcon width={18} fill={colors.ctaText} />
-                <Text style={[a.text_md, a.font_bold, {color: colors.ctaText}]}>
-                  {canInstallPwa
-                    ? 'Install Now (1-Tap)'
-                    : isIos
-                      ? 'Install on iPhone / iPad'
-                      : 'Install App Directly'}
-                </Text>
-              </Pressable>
-            </View>
-
-            {/* Card 2: Direct Android APK */}
-            <View
-              style={[
-                a.flex_1,
-                {
-                  backgroundColor: colors.card,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                  borderRadius: 18,
-                  padding: 20,
-                  gap: 14,
-                },
-              ]}>
-              <View style={[a.flex_row, a.align_center, a.justify_between]}>
-                <View
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 12,
-                    backgroundColor: 'rgba(239, 243, 244, 0.1)',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}>
-                  <DownloadIcon width={22} fill={colors.text} />
+                <View style={[a.flex_row, a.align_center, a.gap_sm, {flex: 1, minWidth: 200}]}>
+                  <View
+                    style={{
+                      width: 40,
+                      flexShrink: 0,
+                      height: 40,
+                      borderRadius: 12,
+                      backgroundColor: colors.accentSubtle,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                    <DownloadIcon width={20} fill={colors.accent} />
+                  </View>
+                  <View style={{flex: 1, minWidth: 0}}>
+                    <Text
+                      style={[a.text_xl, a.font_bold, {color: colors.text}]}>
+                      Android Native App (Direct APK)
+                    </Text>
+                    <Text style={[a.text_xs, {color: colors.muted}]}>
+                      Signed Android package · Direct sovereign download
+                    </Text>
+                  </View>
                 </View>
+
                 <View
                   style={{
                     paddingHorizontal: 10,
                     paddingVertical: 4,
                     borderRadius: 999,
-                    backgroundColor: release?.androidApkAvailable
-                      ? 'rgba(0, 186, 124, 0.16)'
-                      : 'rgba(29, 155, 240, 0.14)',
+                    backgroundColor: colors.rezingSubtle,
                   }}>
                   <Text
-                    style={[
-                      a.text_xs,
-                      a.font_bold,
-                      {
-                        color: release?.androidApkAvailable
-                          ? '#00BA7C'
-                          : '#1D9BF0',
-                      },
-                    ]}>
-                    {release?.androidApkAvailable
-                      ? `APK v${release.version}`
-                      : 'DIRECT ANDROID APK'}
+                    style={[a.text_xs, a.font_bold, {color: colors.rezing}]}>
+                    {loadingRelease
+                      ? 'VERIFYING APK...'
+                      : `APK v${displayVersion}${release?.android.sizeLabel ? ` · ${release.android.sizeLabel}` : ''}`}
                   </Text>
                 </View>
               </View>
 
-              <View style={{gap: 6}}>
-                <Text style={[a.text_xl, a.font_bold, {color: colors.text}]}>
-                  Android Direct APK
+              <Text style={[a.text_sm, {color: colors.muted, lineHeight: 20}]}>
+                Download the native signed QuantZing Android installer (
+                {release?.android.sizeLabel || 'Direct APK'}) hosted directly
+                on {displayDomain}. Full-screen native layout, Reels, ZingSpaces,
+                and Quanty AI without Play Store delays.
+              </Text>
+
+              {/* APK Metadata & SHA-256 Verification Box */}
+              <View
+                style={[
+                  a.p_sm,
+                  a.rounded_md,
+                  a.gap_2xs,
+                  {
+                    backgroundColor: colors.surface,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  },
+                ]}>
+                <View style={[a.flex_row, a.align_center, a.gap_xs]}>
+                  <ShieldIcon width={14} fill={colors.rezing} />
+                  <Text
+                    style={[a.text_xs, a.font_bold, {color: colors.text}]}>
+                    Release Verification · v{displayVersion}{' '}
+                    {release?.android.sizeLabel
+                      ? `(${release.android.sizeLabel})`
+                      : ''}
+                  </Text>
+                </View>
+                <Text
+                  selectable
+                  style={[
+                    {
+                      fontSize: 11,
+                      color: colors.muted,
+                      fontVariant: ['tabular-nums'],
+                    },
+                  ]}>
+                  SHA-256:{' '}
+                  {release?.android.sha256 ||
+                    'Verified on sovereign release server (/download/quantzing-android.apk)'}
                 </Text>
-                <Text style={[a.text_sm, {color: colors.muted, lineHeight: 20}]}>
-                  {release?.androidApkAvailable
-                    ? `Verified direct Android installer (${formatBytes(release.androidApkSizeBytes)}). Download and tap to install without Play Store.`
-                    : 'Direct signed Android APK hosted straight on quantzing.quantrinity.in. While the Play Store listing is pending, use Install App or direct APK once published.'}
+              </View>
+
+              {/* 3-Step Android Install Guide */}
+              <View style={[a.gap_xs]}>
+                <Text
+                  style={[a.text_xs, a.font_bold, {color: colors.muted}]}>
+                  3-STEP ANDROID INSTALL GUIDE
                 </Text>
+                {[
+                  '1. Tap "Download Android APK" below to save QuantZing-Android.apk.',
+                  '2. Open the downloaded APK and allow "Install Unknown Apps" for your browser if prompted.',
+                  '3. Tap Install and open QuantZing directly from your Android app drawer.',
+                ].map(step => (
+                  <View
+                    key={step}
+                    style={[a.flex_row, a.align_center, a.gap_xs]}>
+                    <CheckIcon width={14} fill={colors.rezing} />
+                    <Text style={[a.text_xs, {color: colors.text, flex: 1, minWidth: 0}]}>
+                      {step}
+                    </Text>
+                  </View>
+                ))}
               </View>
 
               <Pressable
@@ -381,101 +404,252 @@ export function DownloadScreen() {
                   a.rounded_full,
                   {
                     height: 46,
-                    borderWidth: 1,
-                    borderColor: '#1D9BF0',
-                    backgroundColor: release?.androidApkAvailable
-                      ? '#1D9BF0'
-                      : 'transparent',
+                    backgroundColor: colors.ctaBg,
                     opacity: pressed ? 0.85 : 1,
                   },
                   web({cursor: 'pointer'}),
                 ]}>
-                <DownloadIcon
-                  width={18}
-                  fill={release?.androidApkAvailable ? '#FFFFFF' : '#1D9BF0'}
-                />
+                {loadingRelease ? (
+                  <ActivityIndicator size="small" color={colors.ctaText} />
+                ) : (
+                  <DownloadIcon width={18} fill={colors.ctaText} />
+                )}
                 <Text
-                  style={[
-                    a.text_md,
-                    a.font_bold,
-                    {
-                      color: release?.androidApkAvailable
-                        ? '#FFFFFF'
-                        : '#1D9BF0',
-                    },
-                  ]}>
-                  {release?.androidApkAvailable
-                    ? 'Download Android APK'
-                    : 'Check APK Release'}
+                  style={[a.text_md, a.font_bold, {color: colors.ctaText}]}>
+                  Download Android APK
+                  {release?.android.sizeLabel
+                    ? ` (${release.android.sizeLabel})`
+                    : ''}
                 </Text>
               </Pressable>
             </View>
-          </View>
 
-          {/* Step-by-Step Direct Install Guide */}
-          <View
-            style={{
-              backgroundColor: colors.card,
-              borderWidth: 1,
-              borderColor: colors.border,
-              borderRadius: 18,
-              padding: 20,
-              gap: 14,
-              marginBottom: 20,
-            }}>
-            <View style={[a.flex_row, a.align_center, a.gap_sm]}>
-              <GlobeIcon width={18} fill="#1D9BF0" />
-              <Text style={[a.text_lg, a.font_bold, {color: colors.text}]}>
-                How to install in 10 seconds
-              </Text>
-            </View>
-
-            <View style={{gap: 10}}>
-              {[
-                {
-                  platform: 'Android (Chrome / Brave / Edge)',
-                  steps:
-                    'Tap "Install App Directly" above — or open browser menu (3 dots) -> "Install app" -> Confirm. QuantZing appears on your Home Screen like a native Play Store app.',
-                },
-                {
-                  platform: 'iPhone & iPad (Safari)',
-                  steps:
-                    'Open quantzing.quantrinity.in in Safari -> tap the Share button -> scroll down and tap "Add to Home Screen" -> tap "Add". Opens full-screen without Safari bars.',
-                },
-                {
-                  platform: 'Desktop (Windows / macOS / Linux)',
-                  steps:
-                    'Click the Install icon inside your Chrome/Edge address bar (or tap "Install App Directly" above) to run QuantZing as a dedicated desktop app window.',
-                },
-              ].map(item => (
-                <View
-                  key={item.platform}
-                  style={[
-                    a.flex_row,
-                    a.align_start,
-                    a.gap_sm,
-                    {
-                      padding: 12,
+            {/* Card 2: iPhone & iPad Direct Profile (.mobileconfig) */}
+            <View
+              testID="downloadIosCard"
+              style={{
+                backgroundColor: colors.card,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 18,
+                padding: 20,
+                gap: 14,
+              }}>
+              <View
+                style={[
+                  a.flex_row,
+                  a.flex_wrap,
+                  a.align_center,
+                  a.justify_between,
+                  a.gap_xs,
+                ]}>
+                <View style={[a.flex_row, a.align_center, a.gap_sm, {flex: 1, minWidth: 200}]}>
+                  <View
+                    style={{
+                      width: 40,
+                      flexShrink: 0,
+                      height: 40,
                       borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      backgroundColor: colors.bg,
-                    },
-                  ]}>
-                  <View style={{paddingTop: 2}}>
-                    <CheckIcon width={16} fill="#00BA7C" />
+                      backgroundColor: colors.accentSubtle,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                    <PhoneIcon width={20} fill={colors.accent} />
                   </View>
-                  <View style={[a.flex_1, {gap: 4}]}>
-                    <Text style={[a.text_sm, a.font_bold, {color: colors.text}]}>
-                      {item.platform}
-                    </Text>
+                  <View style={{flex: 1, minWidth: 0}}>
                     <Text
-                      style={[a.text_xs, {color: colors.muted, lineHeight: 18}]}>
-                      {item.steps}
+                      style={[a.text_xl, a.font_bold, {color: colors.text}]}>
+                      iPhone & iPad Direct Profile (.mobileconfig)
+                    </Text>
+                    <Text style={[a.text_xs, {color: colors.muted}]}>
+                      iOS Signed WebClip Configuration Profile · Full-screen
+                      standalone
                     </Text>
                   </View>
                 </View>
-              ))}
+
+                <View
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderRadius: 999,
+                    backgroundColor: colors.accentSubtle,
+                  }}>
+                  <Text
+                    style={[a.text_xs, a.font_bold, {color: colors.accent}]}>
+                    iOS DIRECT PROFILE
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={[a.text_sm, {color: colors.muted, lineHeight: 20}]}>
+                Install QuantZing on iPhone and iPad with our 1-tap Apple
+                Configuration Profile (.mobileconfig). Adds the native QuantZing
+                icon directly to your iOS Home Screen with full-screen
+                standalone launch.
+              </Text>
+
+              {/* iOS Install Steps */}
+              <View style={[a.gap_xs]}>
+                <Text
+                  style={[a.text_xs, a.font_bold, {color: colors.muted}]}>
+                  iOS DIRECT PROFILE INSTALL STEPS
+                </Text>
+                {[
+                  '1. Tap "Install Direct Profile (.mobileconfig)" below and tap Allow when iOS prompts to download the configuration profile.',
+                  '2. Open iOS Settings > tap "Profile Downloaded" near the top of Settings.',
+                  '3. Tap Install in the top-right corner to add the standalone QuantZing app to your iPhone or iPad Home Screen.',
+                ].map(step => (
+                  <View
+                    key={step}
+                    style={[a.flex_row, a.align_center, a.gap_xs]}>
+                    <CheckIcon width={14} fill={colors.accent} />
+                    <Text style={[a.text_xs, {color: colors.text, flex: 1, minWidth: 0}]}>
+                      {step}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Honest App Store / TestFlight .ipa Pipeline Note */}
+              <View
+                style={[
+                  a.p_sm,
+                  a.rounded_md,
+                  {
+                    backgroundColor: colors.surface,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  },
+                ]}>
+                <Text style={[a.text_xs, {color: colors.muted}]}>
+                  iOS App Store & TestFlight (.ipa) pipeline status:{' '}
+                  {release?.ios.appStoreStatus ||
+                    'pending_macos_ipa_submission'}{' '}
+                  (native Xcode project configured in /ios; use Direct Profile
+                  .mobileconfig or Safari Add to Home Screen today).
+                </Text>
+              </View>
+
+              <Pressable
+                testID="installIosProfileBtn"
+                onPress={onInstallIosProfile}
+                accessibilityRole="button"
+                accessibilityLabel="Install Direct Profile (.mobileconfig) for iPhone and iPad"
+                style={({pressed}) => [
+                  a.flex_row,
+                  a.align_center,
+                  a.justify_center,
+                  a.gap_sm,
+                  a.rounded_full,
+                  {
+                    height: 46,
+                    borderWidth: 1,
+                    borderColor: colors.accent,
+                    backgroundColor: colors.accent,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                  web({cursor: 'pointer'}),
+                ]}>
+                <DownloadIcon width={18} fill="#FFFFFF" />
+                <Text style={[a.text_md, a.font_bold, {color: '#FFFFFF'}]}>
+                  Install Direct Profile (.mobileconfig)
+                </Text>
+              </Pressable>
+            </View>
+
+            {/* Card 3: Instant Web App (PWA) */}
+            <View
+              testID="downloadPwaCard"
+              style={{
+                backgroundColor: colors.card,
+                borderWidth: 1,
+                borderColor: colors.border,
+                borderRadius: 18,
+                padding: 20,
+                gap: 14,
+              }}>
+              <View
+                style={[
+                  a.flex_row,
+                  a.flex_wrap,
+                  a.align_center,
+                  a.justify_between,
+                  a.gap_xs,
+                ]}>
+                <View style={[a.flex_row, a.align_center, a.gap_sm, {flex: 1, minWidth: 200}]}>
+                  <View
+                    style={{
+                      width: 40,
+                      flexShrink: 0,
+                      height: 40,
+                      borderRadius: 12,
+                      backgroundColor: colors.rezingSubtle,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                    <GlobeIcon width={20} fill={colors.rezing} />
+                  </View>
+                  <View style={{flex: 1, minWidth: 0}}>
+                    <Text
+                      style={[a.text_xl, a.font_bold, {color: colors.text}]}>
+                      Instant Web App (PWA)
+                    </Text>
+                    <Text style={[a.text_xs, {color: colors.muted}]}>
+                      Chrome, Safari, Edge, Brave · Desktop & Mobile
+                    </Text>
+                  </View>
+                </View>
+
+                <View
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 4,
+                    borderRadius: 999,
+                    backgroundColor: colors.rezingSubtle,
+                  }}>
+                  <Text
+                    style={[a.text_xs, a.font_bold, {color: colors.rezing}]}>
+                    READY NOW
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={[a.text_sm, {color: colors.muted, lineHeight: 20}]}>
+                1-tap Progressive Web App installation via browser
+                beforeinstallprompt or Safari "Add to Home Screen". Launches in
+                a dedicated app window with automatic live updates.
+              </Text>
+
+              <Pressable
+                testID="installPwaDirectBtn"
+                onPress={() => void onInstallPwa()}
+                accessibilityRole="button"
+                accessibilityLabel="Install Instant Web App (PWA)"
+                style={({pressed}) => [
+                  a.flex_row,
+                  a.align_center,
+                  a.justify_center,
+                  a.gap_sm,
+                  a.rounded_full,
+                  {
+                    height: 46,
+                    backgroundColor: colors.surface,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                  web({cursor: 'pointer'}),
+                ]}>
+                <DownloadIcon width={18} fill={colors.text} />
+                <Text style={[a.text_md, a.font_bold, {color: colors.text}]}>
+                  {canInstallPwa
+                    ? 'Install Web App Now (1-Tap)'
+                    : isIos
+                      ? 'Safari Add to Home Screen Guide'
+                      : 'Install Instant Web App (PWA)'}
+                </Text>
+              </Pressable>
             </View>
           </View>
 
@@ -492,19 +666,20 @@ export function DownloadScreen() {
                 borderRadius: 14,
                 borderWidth: 1,
                 borderColor: colors.border,
+                backgroundColor: colors.card,
               },
             ]}>
-            <View style={{gap: 2}}>
+            <View style={{gap: 2, flex: 1}}>
               <Text style={[a.text_sm, a.font_bold, {color: colors.text}]}>
-                Google Play & Apple App Store
+                Sovereign Distribution · com.quantzing.app
               </Text>
               <Text style={[a.text_xs, {color: colors.muted}]}>
-                Store submissions for com.quantzing.app are in preparation.
-                Direct install gives you the exact same sovereign network today.
+                Direct APK, iOS Configuration Profile (.mobileconfig), and PWA
+                connect straight to {displayDomain}.
               </Text>
             </View>
-            <Text style={[a.text_xs, a.font_bold, {color: '#1D9BF0'}]}>
-              v{release?.version || '1.139.0'} · QuantOS
+            <Text style={[a.text_xs, a.font_bold, {color: colors.accent}]}>
+              v{displayVersion} · QuantOS
             </Text>
           </View>
         </View>

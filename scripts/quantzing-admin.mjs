@@ -280,6 +280,7 @@ function buildInviteUrl(req, origin, token) {
 // ---------------------------------------------------------------------------
 
 const rateBuckets = new Map()
+let lastRateCleanupMs = 0
 const rateLimitStats = {
   totalChecks: 0,
   totalBlocked: 0,
@@ -304,8 +305,9 @@ export function checkRateLimit(bucketKey, maxRequests, windowMs) {
 
   rateLimitStats.totalChecks += 1
 
-  // Opportunistic cleanup so long-running servers don't leak memory
-  if (rateBuckets.size > 5000) {
+  // Throttled cleanup (at most once per 60s) so high-IP traffic never thrashes
+  if (rateBuckets.size > 5000 && now - lastRateCleanupMs > 60_000) {
+    lastRateCleanupMs = now
     const staleCutoff = now - 60 * 60 * 1000
     for (const [k, arr] of rateBuckets.entries()) {
       if (!arr.length || arr[arr.length - 1] < staleCutoff) {
@@ -320,8 +322,15 @@ export function checkRateLimit(bucketKey, maxRequests, windowMs) {
     rateBuckets.set(bucketKey, timestamps)
   }
 
-  while (timestamps.length > 0 && timestamps[0] <= cutoff) {
-    timestamps.shift()
+  if (timestamps.length > 0 && timestamps[0] <= cutoff) {
+    let firstValid = 0
+    while (firstValid < timestamps.length && timestamps[firstValid] <= cutoff) {
+      firstValid++
+    }
+    if (firstValid > 0) {
+      timestamps = timestamps.slice(firstValid)
+      rateBuckets.set(bucketKey, timestamps)
+    }
   }
 
   if (timestamps.length >= limit) {
@@ -523,7 +532,9 @@ export function ensureAdminState(db, helpers) {
         ? process.env.QUANTZING_FOUNDER_PASSWORD
         : null
     const password = envPassword || generateStrongPassword(24)
-    const {salt, hash} = helpers.hashPassword(password)
+    const {salt, hash} = helpers.hashPasswordSync
+      ? helpers.hashPasswordSync(password)
+      : helpers.hashPassword(password)
 
     if (!envPassword) {
       const dataDir = helpers.getDataDir()
@@ -777,12 +788,14 @@ export function isAccountSuspendedOrBanned(account) {
 
 export function isActorMutedByViewer(db, viewerDid, targetDid) {
   if (!viewerDid || !targetDid) return false
+  if (db?._store) return db._store.isMuted(viewerDid, targetDid)
   const list = db?.mutes?.[viewerDid]
   return Array.isArray(list) && list.includes(targetDid)
 }
 
 export function findViewerBlockUri(db, viewerDid, subjectDid, getCollectionMap) {
   if (!viewerDid || !subjectDid) return undefined
+  if (db?._store) return db._store.findBlockUri(viewerDid, subjectDid)
   const blocks = getCollectionMap(db, viewerDid, 'app.bsky.graph.block')
   for (const rec of Object.values(blocks)) {
     if (rec?.value?.subject === subjectDid) {
@@ -794,6 +807,18 @@ export function findViewerBlockUri(db, viewerDid, subjectDid, getCollectionMap) 
 
 export function isPostHiddenForViewer(db, postRec, viewerDid, getCollectionMap) {
   if (!postRec || !postRec.uri) return true
+  if (db?._store) {
+    if (db._store.isPostTakenDown(postRec.uri)) return true
+    const author = db._store.getAccountByDid(postRec.repo)
+    if (!author) return true
+    if (isAccountSuspendedOrBanned(author)) return true
+    if (viewerDid && viewerDid !== postRec.repo) {
+      if (db._store.isMuted(viewerDid, postRec.repo)) return true
+      if (db._store.findBlockUri(viewerDid, postRec.repo)) return true
+      if (db._store.findBlockUri(postRec.repo, viewerDid)) return true
+    }
+    return false
+  }
   if (db?.takedowns?.posts?.[postRec.uri]) return true
   const author = db?.accounts?.[postRec.repo]
   if (!author) return true
@@ -1253,11 +1278,11 @@ export async function handleQuantZingAdmin(req, res, ctx) {
         const candidate = helpers.findLocalAccount(db, String(body.identifier))
         if (
           candidate &&
-          helpers.verifyPassword(
+          (await helpers.verifyPassword(
             body.password,
             candidate.passwordSalt,
             candidate.passwordHash,
-          )
+          ))
         ) {
           appellant = candidate
         }
@@ -1375,11 +1400,11 @@ export async function handleQuantZingAdmin(req, res, ctx) {
       const account = helpers.findLocalAccount(db, identifier)
       if (
         !account ||
-        !helpers.verifyPassword(
+        !(await helpers.verifyPassword(
           password,
           account.passwordSalt,
           account.passwordHash,
-        )
+        ))
       ) {
         helpers.sendXrpcError(
           req,
@@ -1637,7 +1662,7 @@ export async function handleQuantZingAdmin(req, res, ctx) {
       }
 
       const did = helpers.createPlcDid()
-      const {salt, hash} = helpers.hashPassword(password)
+      const {salt, hash} = await helpers.hashPassword(password)
       const nowMs = Date.now()
       const nowIso = new Date(nowMs).toISOString()
       const expiresAt = new Date(
@@ -3817,7 +3842,7 @@ export async function handleQuantZingAdmin(req, res, ctx) {
       const files = fs.readdirSync(backupsDir)
       const backups = []
       for (const filename of files) {
-        if (!filename.endsWith('.json.gz')) continue
+        if (!filename.endsWith('.sqlite') && !filename.endsWith('.json.gz')) continue
         const fullPath = path.join(backupsDir, filename)
         try {
           const stat = fs.statSync(fullPath)
@@ -3848,24 +3873,34 @@ export async function handleQuantZingAdmin(req, res, ctx) {
       fs.mkdirSync(backupsDir, {recursive: true})
 
       const ts = new Date().toISOString().replace(/[:.]/g, '-')
-      const filename = `quantzing-db-${ts}.json.gz`
-      const targetPath = path.join(backupsDir, filename)
-      const tmpPath = `${targetPath}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`
+      let filename
+      let stat
 
-      const snapshotBuf = zlib.gzipSync(
-        Buffer.from(JSON.stringify(db, null, 2), 'utf8'),
-      )
-      fs.writeFileSync(tmpPath, snapshotBuf)
-      try {
-        fs.renameSync(tmpPath, targetPath)
-      } catch {
-        fs.copyFileSync(tmpPath, targetPath)
+      if (helpers.store && typeof helpers.store.backupTo === 'function') {
+        filename = `quantzing-db-${ts}.sqlite`
+        const targetPath = path.join(backupsDir, filename)
+        const snap = helpers.store.backupTo(targetPath)
+        stat = {size: snap.sizeBytes, mtime: new Date(snap.createdAt)}
+      } else {
+        filename = `quantzing-db-${ts}.json.gz`
+        const targetPath = path.join(backupsDir, filename)
+        const tmpPath = `${targetPath}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`
+
+        const snapshotBuf = zlib.gzipSync(
+          Buffer.from(JSON.stringify(db, null, 2), 'utf8'),
+        )
+        fs.writeFileSync(tmpPath, snapshotBuf)
         try {
-          fs.unlinkSync(tmpPath)
-        } catch {}
+          fs.renameSync(tmpPath, targetPath)
+        } catch {
+          fs.copyFileSync(tmpPath, targetPath)
+          try {
+            fs.unlinkSync(tmpPath)
+          } catch {}
+        }
+        stat = fs.statSync(targetPath)
       }
 
-      const stat = fs.statSync(targetPath)
       const backup = {
         filename,
         sizeBytes: stat.size,

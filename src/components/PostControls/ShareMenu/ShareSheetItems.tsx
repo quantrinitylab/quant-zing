@@ -61,7 +61,7 @@ export function ShareSheetItems({
     authorDid: postAuthor.did,
     url: toShareUrl(href),
     title: l({
-      message: `Post by @${postAuthor.handle} on Bluesky`,
+      message: `Post by @${postAuthor.handle} on QuantZing`,
       comment: 'Prefilled subject line when sharing a post to email or Reddit',
     }),
     loggedInOnlyNotice: hideInPWI

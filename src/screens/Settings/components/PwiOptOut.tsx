@@ -100,7 +100,7 @@ export function PwiOptOut() {
 
       <Text style={[a.leading_snug, t.atoms.text_contrast_high]}>
         <Trans>
-          Bluesky will not show your account to logged-out users and will ask
+          QuantZing will not show your account to logged-out users and will ask
           other apps to do the same. Other apps may not honor this request. It
           doesn't make your account private.
         </Trans>

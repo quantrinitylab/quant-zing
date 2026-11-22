@@ -46,7 +46,12 @@ export function useIntentHandler() {
       }
 
       const referrerInfo = await Referrer.getReferrerInfo()
-      if (referrerInfo && referrerInfo.hostname !== 'bsky.app') {
+      if (
+        referrerInfo &&
+        referrerInfo.hostname !== 'quantzing.com' &&
+        referrerInfo.hostname !== 'quantzing.in' &&
+        referrerInfo.hostname !== 'quantzing.quantrinity.in'
+      ) {
         ax.metric('deepLink:referrerReceived', {
           to: url,
           referrer: referrerInfo?.referrer,
@@ -74,7 +79,7 @@ export function useIntentHandler() {
       }
       const [, intent, intentType] = urlp.pathname.split('/')
 
-      // On native, our links look like bluesky://intent/SomeIntent, so we have to check the hostname for the
+      // On native, our links look like quantzing://intent/SomeIntent, so we have to check the hostname for the
       // intent check. On web, we have to check the first part of the path since we have an actual hostname
       const isIntent = intent === 'intent'
       const params = urlp.searchParams
@@ -185,7 +190,7 @@ export function useComposeIntent() {
         ?.split(',')
         .filter(part => {
           // For some security, we're going to filter out any image uri that is external. We don't want someone to
-          // be able to provide some link like "bluesky://intent/compose?imageUris=https://IHaveYourIpNow.com/image.jpeg
+          // be able to provide some link like "quantzing://intent/compose?imageUris=https://IHaveYourIpNow.com/image.jpeg
           // and we load that image
           if (part.includes('https://') || part.includes('http://')) {
             return false

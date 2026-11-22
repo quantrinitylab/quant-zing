@@ -24,10 +24,14 @@ function setGradlePropertiesValue(config, key, value) {
 }
 
 module.exports = function withGradleJVMHeapSizeIncrease(config) {
+  const defaultJvmArgs =
+    process.platform === 'win32'
+      ? '-Xmx2560m -XX:MaxMetaspaceSize=768m -Djavax.net.ssl.trustStoreType=WINDOWS-ROOT'
+      : '-Xmx2560m -XX:MaxMetaspaceSize=768m'
   config = setGradlePropertiesValue(
     config,
     'org.gradle.jvmargs',
-    '-Xmx4096m -XX:MaxMetaspaceSize=1024m', //Set data of your choice
+    process.env.QUANTZING_GRADLE_JVMARGS || defaultJvmArgs,
   )
 
   return config

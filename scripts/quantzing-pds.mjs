@@ -1,10 +1,14 @@
 import crypto from 'node:crypto'
+import dns from 'node:dns'
 import fs from 'node:fs'
 import http from 'node:http'
 import https from 'node:https'
+import net from 'node:net'
 import path from 'node:path'
+import util from 'node:util'
 import {fileURLToPath} from 'node:url'
 import {
+  FOUNDER_DID,
   checkAccountEnforcement,
   enforceRateLimit,
   ensureAdminState,
@@ -15,9 +19,20 @@ import {
   isActorMutedByViewer,
   isConfiguredAdminHandle,
   isPostHiddenForViewer,
+  isStaffRole,
 } from './quantzing-admin.mjs'
+import {createQuantyBridge} from './quantzing-quanty.mjs'
+import {
+  closeAllStores,
+  extractHashtagsFromText,
+  extractMentionsFromText,
+  getStore,
+  parseAtUriRaw,
+} from './quantzing-store.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const projectRoot = path.resolve(__dirname, '..')
+const scryptAsync = util.promisify(crypto.scrypt)
 
 // ---------------------------------------------------------------------------
 // 100% Sovereign QuantZing Constants (ZERO external Bluesky network calls)
@@ -28,11 +43,11 @@ const QUANTZING_DOMAIN = '.quantzing.com'
 const QUANTZING_ALT_DOMAIN = '.quantzing.in'
 
 // RFC 4648 base32 strictly-valid 24-char PLC DIDs ([a-z2-7]{24})
-const QUANTZING_OFFICIAL_DID = 'did:plc:quantzingofficialaaaaaaa'
-const QUANTY_SYSTEM_DID = 'did:plc:quantyaiofficialaaaaaaaa'
-const QUANTRINITY_DID = 'did:plc:quantrinitylabaaaaaaaaaa'
-const QUANTZING_NEWS_DID = 'did:plc:quantzingnewsdesk2222222'
-const QUANT_BUILDERS_DID = 'did:plc:quantbuildershq222222222'
+export const QUANTZING_OFFICIAL_DID = 'did:plc:quantzingofficialaaaaaaa'
+export const QUANTY_SYSTEM_DID = 'did:plc:quantyaiofficialaaaaaaaa'
+export const QUANTRINITY_DID = 'did:plc:quantrinitylabaaaaaaaaaa'
+export const QUANTZING_NEWS_DID = 'did:plc:quantzingnewsdesk2222222'
+export const QUANT_BUILDERS_DID = 'did:plc:quantbuildershq222222222'
 
 const QUANTY_SYSTEM_HANDLE = 'quanty.quantzing.com'
 const DISCOVER_FEED_URI = `at://${QUANTZING_OFFICIAL_DID}/app.bsky.feed.generator/whats-hot`
@@ -50,6 +65,7 @@ const VIDEO_AUTH_SCOPES = [
   'quantzing.ops',
 ]
 const activeVideoUploads = new Map()
+const spaceSseClients = new Map() // slug -> Set<http.ServerResponse>
 
 function pruneExpiredVideoUploads() {
   const now = Date.now()
@@ -60,6 +76,11 @@ function pruneExpiredVideoUploads() {
       activeVideoUploads.delete(jobId)
     }
   }
+}
+
+const videoPruneTimer = setInterval(pruneExpiredVideoUploads, 60_000)
+if (typeof videoPruneTimer.unref === 'function') {
+  videoPruneTimer.unref()
 }
 
 function isVideoEmbed(embed) {
@@ -74,6 +95,17 @@ function isVideoEmbed(embed) {
   return false
 }
 
+function isMediaEmbed(embed) {
+  if (!embed || typeof embed !== 'object') return false
+  const t = embed.$type
+  if (t === 'app.bsky.embed.images' || t === 'app.bsky.embed.video') return true
+  if (t === 'app.bsky.embed.recordWithMedia') {
+    const mt = embed.media?.$type
+    return mt === 'app.bsky.embed.images' || mt === 'app.bsky.embed.video'
+  }
+  return false
+}
+
 // RFC 4648 base32 lowercase (used for CIDv1 multibase 'b' and did:plc)
 const BASE32_RFC4648 = 'abcdefghijklmnopqrstuvwxyz234567'
 // ATProto TID base32-sortable alphabet
@@ -83,7 +115,235 @@ let lastTidTimestamp = 0n
 const tidClockId = BigInt(crypto.randomInt(0, 1024))
 
 // ---------------------------------------------------------------------------
-// Data paths & durable atomic JSON store
+// App Release, Android APK & iOS .mobileconfig Helpers
+// ---------------------------------------------------------------------------
+
+let cachedPackageVersion = null
+export function getPackageVersion() {
+  if (cachedPackageVersion) return cachedPackageVersion
+  try {
+    const pkgPath = path.join(projectRoot, 'package.json')
+    const raw = fs.readFileSync(pkgPath, 'utf8')
+    const parsed = JSON.parse(raw)
+    cachedPackageVersion = String(parsed.version || '1.139.0')
+  } catch {
+    cachedPackageVersion = '1.139.0'
+  }
+  return cachedPackageVersion
+}
+
+export function findAndroidApkPath() {
+  const candidates = [
+    process.env.QUANTZING_APK_PATH,
+    path.join(
+      process.env.QUANTZING_DATA_DIR || path.join(projectRoot, '.quantzing-data'),
+      'releases',
+      'quantzing-android.apk',
+    ),
+    path.join(projectRoot, 'releases', 'quantzing-android.apk'),
+    '/var/lib/quantzing/releases/quantzing-android.apk',
+    '/opt/quantzing/releases/quantzing-android.apk',
+  ].filter(Boolean)
+  for (const p of candidates) {
+    try {
+      const stat = fs.statSync(p)
+      if (stat.isFile() && stat.size > 20_000) {
+        return p
+      }
+    } catch {}
+  }
+  return null
+}
+
+function formatByteSizeLabel(bytes) {
+  const n = Number(bytes || 0)
+  if (n <= 0) return 'Pending build'
+  const mb = n / (1024 * 1024)
+  return `${mb.toFixed(1)} MB`
+}
+
+let cachedApkMeta = null
+export function getAndroidApkMeta() {
+  const version = getPackageVersion()
+  const apkPath = findAndroidApkPath()
+  if (!apkPath) {
+    return {
+      available: false,
+      version,
+      downloadUrl: '/download/quantzing-android.apk',
+      sizeBytes: 0,
+      sizeLabel: 'Pending build',
+      sha256: null,
+      updatedAt: null,
+    }
+  }
+  try {
+    const stat = fs.statSync(apkPath)
+    if (
+      cachedApkMeta &&
+      cachedApkMeta.path === apkPath &&
+      cachedApkMeta.mtimeMs === stat.mtimeMs &&
+      cachedApkMeta.sizeBytes === stat.size
+    ) {
+      return {...cachedApkMeta.meta, version}
+    }
+    let hash = null
+    try {
+      const sidecar = JSON.parse(fs.readFileSync(`${apkPath}.meta.json`, 'utf8'))
+      if (sidecar && sidecar.sizeBytes === stat.size && typeof sidecar.sha256 === 'string') {
+        hash = sidecar.sha256
+      }
+    } catch {}
+    if (!hash) {
+      hash = crypto
+        .createHash('sha256')
+        .update(fs.readFileSync(apkPath))
+        .digest('hex')
+    }
+    const meta = {
+      available: true,
+      version,
+      downloadUrl: '/download/quantzing-android.apk',
+      sizeBytes: stat.size,
+      sizeLabel: formatByteSizeLabel(stat.size),
+      sha256: hash,
+      updatedAt: stat.mtime.toISOString(),
+    }
+    cachedApkMeta = {
+      path: apkPath,
+      mtimeMs: stat.mtimeMs,
+      sizeBytes: stat.size,
+      meta,
+    }
+    return meta
+  } catch {
+    return {
+      available: false,
+      version,
+      downloadUrl: '/download/quantzing-android.apk',
+      sizeBytes: 0,
+      sizeLabel: 'Pending build',
+      sha256: null,
+      updatedAt: null,
+    }
+  }
+}
+
+export function findIosTouchIconPng() {
+  const candidates = [
+    path.join(projectRoot, 'assets', 'app-icons', 'ios_icon_default_next.png'),
+    path.join(projectRoot, 'assets', 'app-icons', 'android_icon_default_next.png'),
+    path.join(projectRoot, 'assets', 'icon.png'),
+  ]
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p
+    } catch {}
+  }
+  return null
+}
+
+let cachedIosMobileconfig = null
+export function buildIosMobileconfigXml() {
+  if (cachedIosMobileconfig) return cachedIosMobileconfig
+  const iconPath = findIosTouchIconPng()
+  let iconBase64 = ''
+  if (iconPath) {
+    try {
+      iconBase64 = fs.readFileSync(iconPath).toString('base64')
+    } catch {}
+  }
+  const version = getPackageVersion()
+  cachedIosMobileconfig = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>FullScreen</key>
+      <true/>
+      <key>IgnoreManifestScope</key>
+      <false/>
+      <key>IsRemovable</key>
+      <true/>
+      <key>Label</key>
+      <string>QuantZing</string>
+      <key>PayloadDescription</key>
+      <string>Installs QuantZing full-screen sovereign application on iOS and iPadOS</string>
+      <key>PayloadDisplayName</key>
+      <string>QuantZing WebClip</string>
+      <key>PayloadIdentifier</key>
+      <string>com.quantzing.app.webclip</string>
+      <key>PayloadType</key>
+      <string>com.apple.webClip.managed</string>
+      <key>PayloadUUID</key>
+      <string>8D9E2C40-6A1B-4F91-B2A3-9F7011223344</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+      <key>Precomposed</key>
+      <true/>
+      <key>URL</key>
+      <string>https://quantzing.quantrinity.in</string>${
+        iconBase64
+          ? `\n      <key>Icon</key>\n      <data>${iconBase64}</data>`
+          : ''
+      }
+    </dict>
+  </array>
+  <key>PayloadDescription</key>
+  <string>QuantZing v${version} Sovereign Social Network &amp; Built-in Quanty AI</string>
+  <key>PayloadDisplayName</key>
+  <string>QuantZing</string>
+  <key>PayloadIdentifier</key>
+  <string>com.quantzing.app.profile</string>
+  <key>PayloadOrganization</key>
+  <string>Quantrinity Lab</string>
+  <key>PayloadRemovalDisallowed</key>
+  <false/>
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadUUID</key>
+  <string>7A4F1E20-3C89-4E55-A9D1-8E6011223355</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+</dict>
+</plist>
+`
+  return cachedIosMobileconfig
+}
+
+export function getAppReleasePayload() {
+  const apk = getAndroidApkMeta()
+  return {
+    ok: true,
+    appName: 'QuantZing',
+    version: apk.version,
+    available: apk.available,
+    downloadUrl: apk.downloadUrl,
+    sizeBytes: apk.sizeBytes,
+    sizeLabel: apk.sizeLabel,
+    sha256: apk.sha256,
+    updatedAt: apk.updatedAt,
+    pwaReady: true,
+    androidApkAvailable: apk.available,
+    androidApkUrl: apk.downloadUrl,
+    androidApkSizeBytes: apk.sizeBytes,
+    androidApkSha256: apk.sha256,
+    androidApkUpdatedAt: apk.updatedAt,
+    iosInstallMode: 'mobileconfig',
+    playStoreStatus: 'upcoming',
+    appStoreStatus: 'pending_macos_ipa_submission',
+    ios: {
+      mobileconfigUrl: '/download/quantzing-ios.mobileconfig',
+      pwaSupported: true,
+      appStoreStatus: 'pending_macos_ipa_submission',
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Data paths & SQLite WAL Store Bootstrap (Once per store instance!)
 // ---------------------------------------------------------------------------
 
 function getDataDir() {
@@ -94,42 +354,25 @@ function getDataDir() {
 }
 
 function getDbPath() {
-  return path.join(getDataDir(), 'db.json')
+  return path.join(getDataDir(), 'quantzing.sqlite')
 }
 
 function getBlobsDir() {
   return path.join(getDataDir(), 'blobs')
 }
 
-function ensureStorageDirs() {
-  fs.mkdirSync(getDataDir(), {recursive: true})
-  fs.mkdirSync(getBlobsDir(), {recursive: true})
-}
-
-function createEmptyDb() {
-  return {
-    version: 2,
-    genesisVersion: 0,
-    jwtSecret: crypto.randomBytes(32).toString('hex'),
-    accounts: {},
-    records: {},
-    bookmarks: {},
-    blobs: {},
-    convos: {},
-    revokedTokens: [],
-    reports: [],
-    appeals: [],
-    takedowns: {posts: {}, accounts: {}},
-    labels: {},
-    mutes: {},
-    auditLog: [],
-    pendingApprovals: [],
-    staffInvites: [],
+export function getActiveStore() {
+  const store = getStore(getDataDir())
+  if (!store._bootstrapped) {
+    ensureStoreBootstrapped(store)
+    store._bootstrapped = true
   }
+  return store
 }
 
-let cachedDb = null
-let cachedDbPath = null
+export function flushAndClosePdsStore() {
+  closeAllStores()
+}
 
 // ---------------------------------------------------------------------------
 // Crypto & ATProto identifier primitives (zero external dependencies)
@@ -190,7 +433,9 @@ function generateTid() {
 }
 
 function base64UrlEncode(input) {
-  const buf = Buffer.isBuffer(input) ? input : Buffer.from(String(input), 'utf8')
+  const buf = Buffer.isBuffer(input)
+    ? input
+    : Buffer.from(String(input), 'utf8')
   return buf.toString('base64url')
 }
 
@@ -199,7 +444,18 @@ function base64UrlDecodeJson(segment) {
   return JSON.parse(raw)
 }
 
-function signJwt(db, {did, scope, ttlSeconds, tv}) {
+function getJwtSecretFromStoreOrDb(storeOrDb) {
+  if (!storeOrDb) return getActiveStore().getJwtSecret()
+  if (typeof storeOrDb.getJwtSecret === 'function') {
+    return storeOrDb.getJwtSecret()
+  }
+  if (storeOrDb._store && typeof storeOrDb._store.getJwtSecret === 'function') {
+    return storeOrDb._store.getJwtSecret()
+  }
+  return storeOrDb.jwtSecret || getActiveStore().getJwtSecret()
+}
+
+function signJwt(storeOrDb, {did, scope, ttlSeconds, tv}) {
   const now = Math.floor(Date.now() / 1000)
   const header = base64UrlEncode(JSON.stringify({alg: 'HS256', typ: 'at+jwt'}))
   const payload = base64UrlEncode(
@@ -215,22 +471,27 @@ function signJwt(db, {did, scope, ttlSeconds, tv}) {
   )
   const signingInput = `${header}.${payload}`
   const sig = crypto
-    .createHmac('sha256', db.jwtSecret)
+    .createHmac('sha256', getJwtSecretFromStoreOrDb(storeOrDb))
     .update(signingInput)
     .digest('base64url')
   return `${signingInput}.${sig}`
 }
 
-function mintTokens(db, did) {
-  const tv = Number(db.accounts?.[did]?.tokenVersion) || 1
+function mintTokens(storeOrDb, did) {
+  const store =
+    typeof storeOrDb?.getAccountByDid === 'function'
+      ? storeOrDb
+      : storeOrDb?._store || getActiveStore()
+  const acc = store.getAccountByDid(did) || storeOrDb?.accounts?.[did]
+  const tv = Number(acc?.tokenVersion) || 1
   return {
-    accessJwt: signJwt(db, {
+    accessJwt: signJwt(store, {
       did,
       scope: 'com.atproto.access',
       ttlSeconds: 30 * 24 * 60 * 60,
       tv,
     }),
-    refreshJwt: signJwt(db, {
+    refreshJwt: signJwt(store, {
       did,
       scope: 'com.atproto.refresh',
       ttlSeconds: 90 * 24 * 60 * 60,
@@ -239,13 +500,17 @@ function mintTokens(db, did) {
   }
 }
 
-function verifyJwt(db, token, expectedScope = null) {
+function verifyJwt(storeOrDb, token, expectedScope = null) {
   if (!token || typeof token !== 'string') return null
   const parts = token.split('.')
   if (parts.length !== 3) return null
   const [headerB64, payloadB64, sigB64] = parts
+  const store =
+    typeof storeOrDb?.getAccountByDid === 'function'
+      ? storeOrDb
+      : storeOrDb?._store || getActiveStore()
   const expectedSig = crypto
-    .createHmac('sha256', db.jwtSecret)
+    .createHmac('sha256', store.getJwtSecret())
     .update(`${headerB64}.${payloadB64}`)
     .digest('base64url')
 
@@ -267,25 +532,50 @@ function verifyJwt(db, token, expectedScope = null) {
   if (typeof payload.exp === 'number' && payload.exp <= now) {
     return {expired: true, payload}
   }
-  if (payload.jti && db.revokedTokens.includes(payload.jti)) {
+  if (payload.jti && store.isTokenRevoked(payload.jti)) {
     return null
   }
   if (expectedScope && payload.scope !== expectedScope) {
     return null
   }
-  const account = db.accounts[payload.sub]
+  const account = store.getAccountByDid(payload.sub)
   if (!account) return null
   return {expired: false, payload, account}
 }
 
-function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+function hashPasswordSync(
+  password,
+  salt = crypto.randomBytes(16).toString('hex'),
+) {
   const hash = crypto.scryptSync(String(password), salt, 64).toString('hex')
   return {salt, hash}
 }
 
-function verifyPassword(password, salt, expectedHash) {
-  if (salt === 'system' || expectedHash === 'system') return false
+async function hashPasswordAsync(
+  password,
+  salt = crypto.randomBytes(16).toString('hex'),
+) {
+  const derived = await scryptAsync(String(password), salt, 64)
+  return {salt, hash: Buffer.from(derived).toString('hex')}
+}
+
+function verifyPasswordSync(password, salt, expectedHash) {
+  if (!salt || !expectedHash || salt === 'system' || expectedHash === 'system') {
+    return false
+  }
   const computed = crypto.scryptSync(String(password), salt, 64)
+  const expected = Buffer.from(expectedHash, 'hex')
+  return (
+    computed.length === expected.length &&
+    crypto.timingSafeEqual(computed, expected)
+  )
+}
+
+async function verifyPasswordAsync(password, salt, expectedHash) {
+  if (!salt || !expectedHash || salt === 'system' || expectedHash === 'system') {
+    return false
+  }
+  const computed = Buffer.from(await scryptAsync(String(password), salt, 64))
   const expected = Buffer.from(expectedHash, 'hex')
   return (
     computed.length === expected.length &&
@@ -310,49 +600,49 @@ function isValidHandleFormat(handle) {
 }
 
 function parseAtUri(uri) {
-  if (typeof uri !== 'string' || !uri.startsWith('at://')) return null
-  const rest = uri.slice('at://'.length)
-  const parts = rest.split('/')
-  if (parts.length < 3) return null
-  return {
-    repo: parts[0],
-    collection: parts[1],
-    rkey: parts.slice(2).join('/'),
-  }
+  return parseAtUriRaw(uri)
 }
 
-function resolveAtUri(db, uri) {
-  const parsed = parseAtUri(uri)
-  if (!parsed) return null
-  const account = findLocalAccount(db, parsed.repo)
-  if (!account) return null
-  return {
-    did: account.did,
-    handle: account.handle,
-    repo: account.did,
-    collection: parsed.collection,
-    rkey: parsed.rkey,
-    canonicalUri: `at://${account.did}/${parsed.collection}/${parsed.rkey}`,
-    account,
-  }
+function unwrapStore(storeOrDb) {
+  if (!storeOrDb) return getActiveStore()
+  if (typeof storeOrDb.findAccount === 'function') return storeOrDb
+  if (storeOrDb._store) return storeOrDb._store
+  return getActiveStore()
+}
+
+function resolveAtUri(storeOrDb, uri) {
+  return unwrapStore(storeOrDb).resolveAtUri(uri)
+}
+
+function canonicalizeUri(storeOrDb, uri) {
+  return unwrapStore(storeOrDb).canonicalizeUri(uri)
 }
 
 // ---------------------------------------------------------------------------
-// Sovereign Blob Avatar Generator + Genesis Network Seeder
+// Sovereign Blob Storage (Sharded + Legacy Fallback) & Genesis Network Seeder
 // ---------------------------------------------------------------------------
 
-function storeLocalBlob(db, did, buffer, mimeType) {
-  ensureStorageDirs()
+function storeLocalBlob(storeOrDb, did, buffer, mimeType) {
+  const store = unwrapStore(storeOrDb)
   const cid = computeCid(buffer, 'raw')
-  const blobPath = path.join(getBlobsDir(), cid)
-  if (!fs.existsSync(blobPath)) {
-    fs.writeFileSync(blobPath, buffer)
+  const existingPath = store.resolveExistingBlobPath(cid)
+  if (!existingPath) {
+    const targetPath = store.ensureBlobWritePath(cid)
+    fs.writeFileSync(targetPath, buffer)
   }
-  db.blobs[cid] = {
+  store.putBlobMeta({
     cid,
+    did,
     mimeType,
     size: buffer.length,
-    did,
+  })
+  if (storeOrDb && storeOrDb._isCompatView && storeOrDb.blobs) {
+    storeOrDb.blobs[cid] = {
+      cid,
+      did,
+      mimeType,
+      size: buffer.length,
+    }
   }
   return {
     $type: 'blob',
@@ -410,11 +700,11 @@ function makeAvatarSvg(variant) {
 </svg>`
 }
 
-function buildFacetsForText(db, text) {
+function buildFacetsForText(storeOrDb, text) {
+  const store = unwrapStore(storeOrDb)
   const facets = []
   const str = String(text || '')
   const encoder = new TextEncoder()
-
   const byteIndexAt = charIdx => encoder.encode(str.slice(0, charIdx)).length
 
   // Hashtags (#Tag)
@@ -440,11 +730,11 @@ function buildFacetsForText(db, text) {
   // Mentions (@handle or @quanty)
   const mentionRe = /(^|\s)(@[a-zA-Z0-9.-]+)/g
   while ((m = mentionRe.exec(str)) !== null) {
-    const rawMention = m[2].slice(1).toLowerCase()
-    const acc = findLocalAccount(db, rawMention)
+    const rawMention = m[2].slice(1).replace(/[.,!?;:]+$/, '').toLowerCase()
+    const acc = store.findAccount(rawMention)
     if (!acc) continue
     const startChar = m.index + m[1].length
-    const endChar = startChar + m[2].length
+    const endChar = startChar + 1 + rawMention.length
     facets.push({
       index: {
         byteStart: byteIndexAt(startChar),
@@ -539,7 +829,14 @@ const SOVEREIGN_FEED_GENERATORS = [
     description:
       'Systems engineering, startups, QuantOS architecture, and founders shipping in public.',
     category: 'Technology',
-    tags: ['quantos', 'startups', 'opensource', 'typescript', 'cloudinfra', 'builders'],
+    tags: [
+      'quantos',
+      'startups',
+      'opensource',
+      'typescript',
+      'cloudinfra',
+      'builders',
+    ],
   },
   {
     rkey: 'india-global',
@@ -558,205 +855,249 @@ const SOVEREIGN_FEED_GENERATORS = [
   },
 ]
 
-function ensureSovereignGenesis(db) {
-  if (!db || typeof db !== 'object') return false
-  let mutated = false
-  db.accounts = db.accounts || {}
-  db.records = db.records || {}
-  db.bookmarks = db.bookmarks || {}
-  db.blobs = db.blobs || {}
-  db.convos = db.convos || {}
+const PRO_PLANS = [
+  {
+    id: 'free',
+    name: 'QuantZing Sovereign Free',
+    priceInr: 0,
+    priceUsd: 0,
+    billingCycle: 'forever',
+    features: [
+      'Sovereign @handle.quantzing.com identity',
+      'Real-time Zings, Reels, Polls & Direct Messages',
+      'Join live ZingSpaces audio rooms',
+      'Standard @quanty AI mentions & search',
+    ],
+    badge: 'Sovereign Member',
+  },
+  {
+    id: 'pro_monthly',
+    name: 'QuantZing Pro Monthly',
+    priceInr: 499,
+    priceUsd: 6,
+    billingCycle: 'monthly',
+    features: [
+      'Verified Sovereign Pro check badge',
+      'Priority @quanty DeepSearch & 21-Tool Control Copilot',
+      'Publish long-form Sovereign Articles & host ZingSpaces',
+      'Full Creator Studio analytics & 300 MB HD video uploads',
+    ],
+    badge: 'Verified Pro',
+  },
+  {
+    id: 'pro_annual',
+    name: 'QuantZing Pro Annual',
+    priceInr: 4999,
+    priceUsd: 59,
+    billingCycle: 'annual',
+    features: [
+      'Verified Sovereign Pro check badge (2 months free)',
+      'Priority @quanty DeepSearch & 21-Tool Control Copilot',
+      'Publish long-form Sovereign Articles & host ZingSpaces',
+      'Creator monetization eligibility & priority support',
+    ],
+    badge: 'Verified Pro Annual',
+  },
+  {
+    id: 'creator_studio',
+    name: 'QuantZing Creator Studio+',
+    priceInr: 1499,
+    priceUsd: 18,
+    billingCycle: 'monthly',
+    features: [
+      'Verified Creator check badge + QuantPay payout settlement',
+      'Unlimited Sovereign Articles, ZingSpaces hosting & series',
+      'Dedicated QuantAI / QuantRouter pro inference allocation',
+      'Direct Creator Studio audience analytics export',
+    ],
+    badge: 'Verified Creator',
+  },
+]
 
-  // Remove legacy invalid-base32 Quanty DID if present from older local builds
-  const legacyQuantyDid = 'did:plc:quantyaiofficial00000000'
-  if (db.accounts[legacyQuantyDid]) {
-    delete db.accounts[legacyQuantyDid]
-    delete db.records[legacyQuantyDid]
-    mutated = true
-  }
+function ensureStoreBootstrapped(store) {
+  store.inTransaction(() => {
+    for (const spec of OFFICIAL_GENESIS_ACCOUNTS) {
+      let acc = store.getAccountByDid(spec.did)
+      const currentAvatarCid = extractBlobCid(acc?.profile?.avatar)
+      const needsAvatar =
+        !currentAvatarCid ||
+        !store.getBlobMeta(currentAvatarCid) ||
+        !store.resolveExistingBlobPath(currentAvatarCid)
 
-  // Ensure all 5 official sovereign QuantZing genesis accounts + SVG avatars exist
-  for (const spec of OFFICIAL_GENESIS_ACCOUNTS) {
-    let acc = db.accounts[spec.did]
-    const needsAvatar =
-      !acc?.profile?.avatar ||
-      !db.blobs[extractBlobCid(acc.profile.avatar) || '']
+      let avatarBlob = acc?.profile?.avatar || null
+      if (needsAvatar) {
+        const svgBuf = Buffer.from(makeAvatarSvg(spec.avatarVariant), 'utf8')
+        avatarBlob = storeLocalBlob(store, spec.did, svgBuf, 'image/svg+xml')
+      }
 
-    let avatarBlob = acc?.profile?.avatar || null
-    if (needsAvatar) {
-      const svgBuf = Buffer.from(makeAvatarSvg(spec.avatarVariant), 'utf8')
-      avatarBlob = storeLocalBlob(db, spec.did, svgBuf, 'image/svg+xml')
-      mutated = true
-    }
-
-    if (!acc) {
-      acc = {
-        did: spec.did,
-        handle: spec.handle,
-        email: spec.email,
-        emailConfirmed: true,
-        passwordSalt: 'system',
-        passwordHash: 'system',
-        createdAt: spec.createdAt,
-        active: true,
-        role: spec.did === QUANTZING_OFFICIAL_DID ? 'super_admin' : 'user',
-        department: spec.did === QUANTZING_OFFICIAL_DID ? 'Leadership' : '',
-        tokenVersion: 1,
-        offboardedAt: null,
-        lastOpsLoginAt: null,
-        status: 'active',
-        statusReason: '',
-        suspendedUntil: null,
-        warnings: [],
-        verified: true,
-        isOfficial: true,
-        isSystemQuanty: Boolean(spec.isSystemQuanty),
-        profile: {
-          displayName: spec.displayName,
-          description: spec.description,
-          avatar: avatarBlob,
+      if (!acc) {
+        acc = store.upsertAccount({
+          did: spec.did,
+          handle: spec.handle,
+          email: spec.email,
+          emailConfirmed: true,
+          passwordSalt: 'system',
+          passwordHash: 'system',
           createdAt: spec.createdAt,
-        },
-        preferences: createDefaultPreferences(),
-        notificationPreferences: createDefaultNotificationPreferences(),
+          active: true,
+          role: spec.did === QUANTZING_OFFICIAL_DID ? 'super_admin' : 'user',
+          department: spec.did === QUANTZING_OFFICIAL_DID ? 'Leadership' : '',
+          tokenVersion: 1,
+          offboardedAt: null,
+          lastOpsLoginAt: null,
+          status: 'active',
+          statusReason: '',
+          suspendedUntil: null,
+          warnings: [],
+          verified: true,
+          isOfficial: true,
+          isSystemQuanty: Boolean(spec.isSystemQuanty),
+          profile: {
+            displayName: spec.displayName,
+            description: spec.description,
+            avatar: avatarBlob,
+            createdAt: spec.createdAt,
+          },
+          preferences: createDefaultPreferences(),
+          notificationPreferences: createDefaultNotificationPreferences(),
+        })
+      } else if (needsAvatar || !acc.verified || !acc.isOfficial) {
+        acc = store.upsertAccount({
+          ...acc,
+          verified: true,
+          isOfficial: true,
+          isSystemQuanty: Boolean(spec.isSystemQuanty || acc.isSystemQuanty),
+          profile: {
+            ...(acc.profile || {}),
+            displayName: acc.profile?.displayName || spec.displayName,
+            description: acc.profile?.description || spec.description,
+            avatar: avatarBlob || acc.profile?.avatar,
+            createdAt: acc.profile?.createdAt || spec.createdAt,
+          },
+        })
       }
-      db.accounts[spec.did] = acc
-      mutated = true
-    } else {
-      if (typeof acc.verified !== 'boolean') {
-        acc.verified = true
-        mutated = true
-      }
-      acc.isOfficial = true
-      if (spec.isSystemQuanty) acc.isSystemQuanty = true
-      if (avatarBlob && !acc.profile?.avatar) {
-        acc.profile = {...(acc.profile || {}), avatar: avatarBlob}
-        mutated = true
-      }
-    }
 
-    const profileCol = getCollectionMap(
-      db,
-      spec.did,
-      'app.bsky.actor.profile',
-      true,
-    )
-    if (!profileCol.self || needsAvatar) {
-      const profileValue = {
-        $type: 'app.bsky.actor.profile',
-        displayName: acc.profile?.displayName || spec.displayName,
-        description: acc.profile?.description || spec.description,
-        ...(avatarBlob ? {avatar: avatarBlob} : {}),
-        createdAt: spec.createdAt,
-      }
-      profileCol.self = {
-        uri: `at://${spec.did}/app.bsky.actor.profile/self`,
-        cid: computeCid(profileValue, 'dag-cbor'),
-        rkey: 'self',
-        collection: 'app.bsky.actor.profile',
-        repo: spec.did,
-        value: profileValue,
-        indexedAt: spec.createdAt,
-      }
-      mutated = true
-    }
-  }
-
-  // Seed sovereign genesis Zings once so the brand-new QuantZing network launches alive
-  if ((db.genesisVersion || 0) < GENESIS_VERSION) {
-    const now = Date.now()
-    const genesisPosts = [
-      {
-        rkey: '3mquantzing001',
-        did: QUANTZING_OFFICIAL_DID,
-        minutesAgo: 8,
-        text: 'Welcome to QuantZing. Real-time conversations, sovereign @handle.quantzing.com identity, built-in Quanty AI, and live ZingSpaces — running 100% on our own independent network. Post your first Zing or tag @quanty in any thread. #QuantZing #OpenWeb',
-      },
-      {
-        rkey: '3mquantzing002',
-        did: QUANTY_SYSTEM_DID,
-        minutesAgo: 18,
-        text: 'Quanty is live directly inside QuantZing. Mention @quanty in any Zing or reply to summarize a thread, verify claims, or draft a sharper Zing without leaving your timeline. #QuantyAI #AI',
-      },
-      {
-        rkey: '3mquantzing003',
-        did: QUANTRINITY_DID,
-        minutesAgo: 34,
-        text: 'QuantZing is now running on dedicated sovereign infrastructure under quantzing.quantrinity.in alongside QuantMail, QuantAI, and QuantChat. Zero third-party feed lock-in, full protocol ownership from day one. #QuantOS #Quantrinity #CloudInfra',
-      },
-      {
-        rkey: '3mquantzing004',
-        did: QUANTZING_NEWS_DID,
-        minutesAgo: 52,
-        text: 'India Tech Pulse: Independent Indian cloud and AI engineering teams are rapidly shifting toward sovereign ARM64 infrastructure, open-weight inference routers, and native mobile-first platforms. #IndiaTech #AI #Startups',
-      },
-      {
-        rkey: '3mquantzing005',
-        did: QUANT_BUILDERS_DID,
-        minutesAgo: 78,
-        text: 'Shipping tip for founders building real-time social apps: own your identity server, own your feed graph, and keep the interface razor-fast on pure OLED black. What are you building this week? #Builders #Startups #OpenSource',
-      },
-      {
-        rkey: '3mquantzing006',
-        did: QUANTZING_NEWS_DID,
-        minutesAgo: 110,
-        text: 'Global Markets & AI Infrastructure: Compute efficiency, multi-provider AI routing, and sub-100ms edge delivery are driving the next wave of consumer software launches across Asia, Europe, and the US. #Markets #AI #CloudInfra',
-      },
-      {
-        rkey: '3mquantzing007',
-        did: QUANTZING_OFFICIAL_DID,
-        minutesAgo: 145,
-        text: 'ZingSpaces live audio rooms, long-form Articles, Creator Studio analytics, and direct messages are all built right into QuantZing. Tap Sign up to claim your sovereign handle before launch fills up. #ZingSpaces #QuantZing',
-      },
-      {
-        rkey: '3mquantzing008',
-        did: QUANT_BUILDERS_DID,
-        minutesAgo: 180,
-        text: '@quanty give a quick breakdown of why owning your own sovereign PDS and AppView matters for a modern social platform. #QuantOS #QuantyAI',
-      },
-    ]
-
-    let lastBuilderPost = null
-    for (const item of genesisPosts) {
-      const col = getCollectionMap(db, item.did, 'app.bsky.feed.post', true)
-      if (!col[item.rkey]) {
-        const createdAt = new Date(now - item.minutesAgo * 60_000).toISOString()
-        const facets = buildFacetsForText(db, item.text)
-        const value = {
-          $type: 'app.bsky.feed.post',
-          text: item.text,
-          createdAt,
-          langs: ['en'],
-          ...(facets ? {facets} : {}),
-        }
-        const entry = {
-          uri: `at://${item.did}/app.bsky.feed.post/${item.rkey}`,
-          cid: computeCid(value, 'dag-cbor'),
-          rkey: item.rkey,
-          collection: 'app.bsky.feed.post',
-          repo: item.did,
-          value,
-          indexedAt: createdAt,
-        }
-        col[item.rkey] = entry
-        if (item.rkey === '3mquantzing008') lastBuilderPost = entry
-        mutated = true
-      }
-    }
-
-    // Seed an authentic @quanty in-thread reply on the builder question
-    if (lastBuilderPost) {
-      const qCol = getCollectionMap(
-        db,
-        QUANTY_SYSTEM_DID,
-        'app.bsky.feed.post',
-        true,
+      const existingProfileRec = store.getRecord(
+        spec.did,
+        'app.bsky.actor.profile',
+        'self',
       )
-      if (!qCol['3mquantzing009']) {
+      if (!existingProfileRec || needsAvatar) {
+        const profileValue = {
+          $type: 'app.bsky.actor.profile',
+          displayName: acc.profile?.displayName || spec.displayName,
+          description: acc.profile?.description || spec.description,
+          ...(avatarBlob ? {avatar: avatarBlob} : {}),
+          createdAt: spec.createdAt,
+        }
+        store.putRecord({
+          uri: `at://${spec.did}/app.bsky.actor.profile/self`,
+          cid: computeCid(profileValue, 'dag-cbor'),
+          rkey: 'self',
+          collection: 'app.bsky.actor.profile',
+          repo: spec.did,
+          value: profileValue,
+          indexedAt: spec.createdAt,
+        })
+      }
+    }
+
+    const currentGenesisVersion = Number(store.getMeta('genesis_version', '0'))
+    if (currentGenesisVersion < GENESIS_VERSION) {
+      const now = Date.now()
+      const genesisPosts = [
+        {
+          rkey: '3mquantzing001',
+          did: QUANTZING_OFFICIAL_DID,
+          minutesAgo: 8,
+          text: 'Welcome to QuantZing. Real-time conversations, sovereign @handle.quantzing.com identity, built-in Quanty AI, and live ZingSpaces — running 100% on our own independent network. Post your first Zing or tag @quanty in any thread. #QuantZing #OpenWeb',
+        },
+        {
+          rkey: '3mquantzing002',
+          did: QUANTY_SYSTEM_DID,
+          minutesAgo: 18,
+          text: 'Quanty is live directly inside QuantZing. Mention @quanty in any Zing or reply to summarize a thread, verify claims, or draft a sharper Zing without leaving your timeline. #QuantyAI #AI',
+        },
+        {
+          rkey: '3mquantzing003',
+          did: QUANTRINITY_DID,
+          minutesAgo: 34,
+          text: 'QuantZing is now running on dedicated sovereign infrastructure under quantzing.quantrinity.in alongside QuantMail, QuantAI, and QuantChat. Zero third-party feed lock-in, full protocol ownership from day one. #QuantOS #Quantrinity #CloudInfra',
+        },
+        {
+          rkey: '3mquantzing004',
+          did: QUANTZING_NEWS_DID,
+          minutesAgo: 52,
+          text: 'India Tech Pulse: Independent Indian cloud and AI engineering teams are rapidly shifting toward sovereign ARM64 infrastructure, open-weight inference routers, and native mobile-first platforms. #IndiaTech #AI #Startups',
+        },
+        {
+          rkey: '3mquantzing005',
+          did: QUANT_BUILDERS_DID,
+          minutesAgo: 78,
+          text: 'Shipping tip for founders building real-time social apps: own your identity server, own your feed graph, and keep the interface razor-fast on pure OLED black. What are you building this week? #Builders #Startups #OpenSource',
+        },
+        {
+          rkey: '3mquantzing006',
+          did: QUANTZING_NEWS_DID,
+          minutesAgo: 110,
+          text: 'Global Markets & AI Infrastructure: Compute efficiency, multi-provider AI routing, and sub-100ms edge delivery are driving the next wave of consumer software launches across Asia, Europe, and the US. #Markets #AI #CloudInfra',
+        },
+        {
+          rkey: '3mquantzing007',
+          did: QUANTZING_OFFICIAL_DID,
+          minutesAgo: 145,
+          text: 'ZingSpaces live audio rooms, long-form Articles, Creator Studio analytics, and direct messages are all built right into QuantZing. Tap Sign up to claim your sovereign handle before launch fills up. #ZingSpaces #QuantZing',
+        },
+        {
+          rkey: '3mquantzing008',
+          did: QUANT_BUILDERS_DID,
+          minutesAgo: 180,
+          text: '@quanty give a quick breakdown of why owning your own sovereign PDS and AppView matters for a modern social platform. #QuantOS #QuantyAI',
+        },
+      ]
+
+      let lastBuilderPost = null
+      for (const item of genesisPosts) {
+        const existing = store.getRecord(
+          item.did,
+          'app.bsky.feed.post',
+          item.rkey,
+        )
+        if (!existing) {
+          const createdAt = new Date(
+            now - item.minutesAgo * 60_000,
+          ).toISOString()
+          const facets = buildFacetsForText(store, item.text)
+          const value = {
+            $type: 'app.bsky.feed.post',
+            text: item.text,
+            createdAt,
+            langs: ['en'],
+            ...(facets ? {facets} : {}),
+          }
+          const entry = store.putRecord({
+            uri: `at://${item.did}/app.bsky.feed.post/${item.rkey}`,
+            cid: computeCid(value, 'dag-cbor'),
+            rkey: item.rkey,
+            collection: 'app.bsky.feed.post',
+            repo: item.did,
+            value,
+            indexedAt: createdAt,
+          })
+          if (item.rkey === '3mquantzing008') lastBuilderPost = entry
+        } else if (item.rkey === '3mquantzing008') {
+          lastBuilderPost = existing
+        }
+      }
+
+      if (
+        lastBuilderPost &&
+        !store.getRecord(QUANTY_SYSTEM_DID, 'app.bsky.feed.post', '3mquantzing009')
+      ) {
         const replyAt = new Date(now - 178 * 60_000).toISOString()
         const replyText =
           '@builders.quantzing.com Owning the PDS + AppView means zero third-party rate limits, full data sovereignty for every handle and Zing, instant custom ranking, and native AI integration across threads.'
-        const facets = buildFacetsForText(db, replyText)
+        const facets = buildFacetsForText(store, replyText)
         const replyValue = {
           $type: 'app.bsky.feed.post',
           text: replyText,
@@ -768,7 +1109,7 @@ function ensureSovereignGenesis(db) {
             parent: {uri: lastBuilderPost.uri, cid: lastBuilderPost.cid},
           },
         }
-        qCol['3mquantzing009'] = {
+        store.putRecord({
           uri: `at://${QUANTY_SYSTEM_DID}/app.bsky.feed.post/3mquantzing009`,
           cid: computeCid(replyValue, 'dag-cbor'),
           rkey: '3mquantzing009',
@@ -776,88 +1117,63 @@ function ensureSovereignGenesis(db) {
           repo: QUANTY_SYSTEM_DID,
           value: replyValue,
           indexedAt: replyAt,
-        }
-        mutated = true
+        })
       }
-    }
 
-    // Seed cross-follows among official ecosystem accounts so profiles have real graph edges
-    const followPairs = [
-      [QUANTZING_OFFICIAL_DID, QUANTY_SYSTEM_DID],
-      [QUANTZING_OFFICIAL_DID, QUANTRINITY_DID],
-      [QUANTZING_OFFICIAL_DID, QUANTZING_NEWS_DID],
-      [QUANTZING_OFFICIAL_DID, QUANT_BUILDERS_DID],
-      [QUANTRINITY_DID, QUANTZING_OFFICIAL_DID],
-      [QUANTRINITY_DID, QUANTY_SYSTEM_DID],
-      [QUANT_BUILDERS_DID, QUANTZING_OFFICIAL_DID],
-      [QUANT_BUILDERS_DID, QUANTY_SYSTEM_DID],
-      [QUANTZING_NEWS_DID, QUANTZING_OFFICIAL_DID],
-    ]
-    for (const [src, dst] of followPairs) {
-      const fCol = getCollectionMap(db, src, 'app.bsky.graph.follow', true)
-      const exists = Object.values(fCol).some(r => r?.value?.subject === dst)
-      if (!exists) {
-        const rkey = generateTid()
-        const createdAt = new Date(now - 200 * 60_000).toISOString()
-        const value = {
-          $type: 'app.bsky.graph.follow',
-          subject: dst,
-          createdAt,
-        }
-        fCol[rkey] = {
-          uri: `at://${src}/app.bsky.graph.follow/${rkey}`,
-          cid: computeCid(value, 'dag-cbor'),
-          rkey,
-          collection: 'app.bsky.graph.follow',
-          repo: src,
-          value,
-          indexedAt: createdAt,
-        }
-        mutated = true
-      }
-    }
-
-    // Migrate any user savedFeeds referencing legacy Bluesky Discover URI to Sovereign QuantZing Discover URI
-    for (const acc of Object.values(db.accounts)) {
-      if (!Array.isArray(acc.preferences)) continue
-      for (const pref of acc.preferences) {
-        if (Array.isArray(pref.items)) {
-          for (const it of pref.items) {
-            if (it?.value === LEGACY_DISCOVER_FEED_URI) {
-              it.value = DISCOVER_FEED_URI
-              mutated = true
-            }
+      const followPairs = [
+        [QUANTZING_OFFICIAL_DID, QUANTY_SYSTEM_DID],
+        [QUANTZING_OFFICIAL_DID, QUANTRINITY_DID],
+        [QUANTZING_OFFICIAL_DID, QUANTZING_NEWS_DID],
+        [QUANTZING_OFFICIAL_DID, QUANT_BUILDERS_DID],
+        [QUANTRINITY_DID, QUANTZING_OFFICIAL_DID],
+        [QUANTRINITY_DID, QUANTY_SYSTEM_DID],
+        [QUANT_BUILDERS_DID, QUANTZING_OFFICIAL_DID],
+        [QUANT_BUILDERS_DID, QUANTY_SYSTEM_DID],
+        [QUANTZING_NEWS_DID, QUANTZING_OFFICIAL_DID],
+      ]
+      for (const [src, dst] of followPairs) {
+        if (!store.findUserFollowUri(src, dst)) {
+          const rkey = generateTid()
+          const createdAt = new Date(now - 200 * 60_000).toISOString()
+          const value = {
+            $type: 'app.bsky.graph.follow',
+            subject: dst,
+            createdAt,
           }
-        }
-        if (Array.isArray(pref.pinned)) {
-          pref.pinned = pref.pinned.map(v =>
-            v === LEGACY_DISCOVER_FEED_URI ? DISCOVER_FEED_URI : v,
-          )
-        }
-        if (Array.isArray(pref.saved)) {
-          pref.saved = pref.saved.map(v =>
-            v === LEGACY_DISCOVER_FEED_URI ? DISCOVER_FEED_URI : v,
-          )
+          store.putRecord({
+            uri: `at://${src}/app.bsky.graph.follow/${rkey}`,
+            cid: computeCid(value, 'dag-cbor'),
+            rkey,
+            collection: 'app.bsky.graph.follow',
+            repo: src,
+            value,
+            indexedAt: createdAt,
+          })
         }
       }
+
+      store.setMeta('genesis_version', String(GENESIS_VERSION))
     }
+  })
 
-    db.genesisVersion = GENESIS_VERSION
-    mutated = true
+  // Run ensureAdminState ONCE at boot via compatibility view and sync back
+  const compatView = store.createCompatibilityDbView({includeRecords: false})
+  if (ensureAdminState(compatView, getAdminHelpers(store))) {
+    store.syncAdminCompatView(compatView)
   }
-
-  if (ensureAdminState(db, getAdminHelpers())) {
-    mutated = true
-  }
-
-  return mutated
 }
 
-function getAdminHelpers() {
+function getAdminHelpers(store = getActiveStore()) {
+  const saveCompatDb = dbView => {
+    if (dbView && dbView._isCompatView) {
+      store.syncAdminCompatView(dbView)
+    }
+  }
   return {
+    store,
     getDataDir,
     getDbPath,
-    saveDb,
+    saveDb: saveCompatDb,
     sendJson,
     sendEmpty,
     sendXrpcError,
@@ -868,8 +1184,9 @@ function getAdminHelpers() {
     createPlcDid,
     findLocalAccount,
     findLocalPostByUri,
-    verifyPassword,
-    hashPassword,
+    verifyPassword: verifyPasswordSync,
+    hashPassword: hashPasswordSync,
+    hashPasswordSync,
     normalizeHandle,
     isValidHandleFormat,
     parseAtUri,
@@ -890,97 +1207,16 @@ function getAdminHelpers() {
   }
 }
 
-function loadDb() {
-  const dbPath = getDbPath()
-  if (cachedDb && cachedDbPath === dbPath) {
-    if (ensureSovereignGenesis(cachedDb)) {
-      saveDb(cachedDb)
-    }
-    return cachedDb
-  }
-  ensureStorageDirs()
-  if (fs.existsSync(dbPath)) {
-    try {
-      const raw = fs.readFileSync(dbPath, 'utf8')
-      const parsed = JSON.parse(raw)
-      cachedDb = {
-        ...createEmptyDb(),
-        ...parsed,
-        accounts: parsed.accounts || {},
-        records: parsed.records || {},
-        bookmarks: parsed.bookmarks || {},
-        blobs: parsed.blobs || {},
-        convos: parsed.convos || {},
-        revokedTokens: Array.isArray(parsed.revokedTokens)
-          ? parsed.revokedTokens
-          : [],
-        reports: Array.isArray(parsed.reports) ? parsed.reports : [],
-        appeals: Array.isArray(parsed.appeals) ? parsed.appeals : [],
-        takedowns: {
-          posts: parsed.takedowns?.posts || {},
-          accounts: parsed.takedowns?.accounts || {},
-        },
-        labels:
-          parsed.labels && typeof parsed.labels === 'object'
-            ? parsed.labels
-            : {},
-        mutes:
-          parsed.mutes && typeof parsed.mutes === 'object' ? parsed.mutes : {},
-        auditLog: Array.isArray(parsed.auditLog) ? parsed.auditLog : [],
-        pendingApprovals: Array.isArray(parsed.pendingApprovals)
-          ? parsed.pendingApprovals
-          : [],
-        staffInvites: Array.isArray(parsed.staffInvites)
-          ? parsed.staffInvites
-          : [],
-      }
-      cachedDbPath = dbPath
-      if (ensureSovereignGenesis(cachedDb)) {
-        saveDb(cachedDb)
-      }
-      return cachedDb
-    } catch (err) {
-      console.error(
-        '[QuantZing PDS] Failed to parse db.json, initializing fresh sovereign store:',
-        err,
-      )
-    }
-  }
-  cachedDb = createEmptyDb()
-  cachedDbPath = dbPath
-  ensureSovereignGenesis(cachedDb)
-  saveDb(cachedDb)
-  return cachedDb
-}
-
-function saveDb(db) {
-  ensureStorageDirs()
-  const dbPath = getDbPath()
-  const tmpPath = `${dbPath}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`
-  const payload = JSON.stringify(db, null, 2)
-  fs.writeFileSync(tmpPath, payload, 'utf8')
-  try {
-    fs.renameSync(tmpPath, dbPath)
-  } catch {
-    fs.copyFileSync(tmpPath, dbPath)
-    try {
-      fs.unlinkSync(tmpPath)
-    } catch {}
-  }
-  cachedDb = db
-  cachedDbPath = dbPath
-}
-
 // ---------------------------------------------------------------------------
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
 function getServerOrigin(req) {
-  const proto = String(req.headers['x-forwarded-proto'] || 'http')
+  const proto = String(req?.headers?.['x-forwarded-proto'] || 'http')
     .split(',')[0]
     .trim()
   const host = String(
-    req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3008',
+    req?.headers?.['x-forwarded-host'] || req?.headers?.host || 'localhost:3008',
   )
     .split(',')[0]
     .trim()
@@ -989,11 +1225,11 @@ function getServerOrigin(req) {
 
 function corsHeaders(req, extra = {}) {
   return {
-    'access-control-allow-origin': req.headers.origin || '*',
+    'access-control-allow-origin': req?.headers?.origin || '*',
     'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     'access-control-allow-headers':
-      req.headers['access-control-request-headers'] ||
-      'content-type,authorization,atproto-proxy,atproto-accept-labelers,x-atproto-device-id,x-atproto-session-id,accept-language,x-bsky-topics',
+      req?.headers?.['access-control-request-headers'] ||
+      'content-type,authorization,atproto-proxy,atproto-accept-labelers,x-atproto-device-id,x-atproto-session-id,accept-language,x-bsky-topics,x-quant-service-token,x-quant-owner-id',
     'access-control-expose-headers': 'content-type,x-quantzing-pds,retry-after',
     'x-quantzing-pds': 'sovereign-pure',
     ...extra,
@@ -1034,22 +1270,35 @@ function readRawBody(req, maxBytes = MAX_JSON_BODY_BYTES) {
   return new Promise((resolve, reject) => {
     const chunks = []
     let total = 0
+    const timer = setTimeout(() => {
+      reject(new Error('RequestTimeout'))
+      try {
+        req.destroy()
+      } catch {}
+    }, 30_000)
     req.on('data', chunk => {
       total += chunk.length
       if (total > maxBytes) {
+        clearTimeout(timer)
         reject(new Error('PayloadTooLarge'))
         req.destroy()
         return
       }
       chunks.push(chunk)
     })
-    req.on('end', () => resolve(Buffer.concat(chunks)))
-    req.on('error', reject)
+    req.on('end', () => {
+      clearTimeout(timer)
+      resolve(Buffer.concat(chunks))
+    })
+    req.on('error', err => {
+      clearTimeout(timer)
+      reject(err)
+    })
   })
 }
 
-async function readJsonBody(req) {
-  const buf = await readRawBody(req, MAX_JSON_BODY_BYTES)
+async function readJsonBody(req, maxBytes = MAX_JSON_BODY_BYTES) {
+  const buf = await readRawBody(req, maxBytes)
   if (!buf.length) return {}
   try {
     return JSON.parse(buf.toString('utf8'))
@@ -1059,14 +1308,14 @@ async function readJsonBody(req) {
 }
 
 function extractBearerToken(req) {
-  const auth = String(req.headers.authorization || '')
+  const auth = String(req?.headers?.authorization || '')
   const match = auth.match(/^Bearer\s+(.+)$/i)
   return match ? match[1].trim() : null
 }
 
 function getAuthedContext(
   req,
-  db,
+  storeOrDb,
   {expectedScope = null, allowedScopes = null} = {},
 ) {
   const token = extractBearerToken(req)
@@ -1077,7 +1326,7 @@ function getAuthedContext(
       message: 'Authentication required',
     }
   }
-  const verified = verifyJwt(db, token, expectedScope)
+  const verified = verifyJwt(storeOrDb, token, expectedScope)
   if (!verified) {
     return {
       error: 'InvalidToken',
@@ -1126,13 +1375,15 @@ function getAuthedContext(
     payload: verified.payload,
     account: verified.account,
     did: verified.account.did,
+    handle: verified.account.handle,
+    jti: verified.payload.jti,
   }
 }
 
-function getOptionalViewerDid(req, db) {
+function getOptionalViewerDid(req, storeOrDb) {
   const token = extractBearerToken(req)
   if (!token) return null
-  const verified = verifyJwt(db, token)
+  const verified = verifyJwt(storeOrDb, token)
   if (!verified || verified.expired) return null
   const tokenTv = Number(verified.payload.tv) || 1
   const accountTv = Number(verified.account.tokenVersion) || 1
@@ -1147,7 +1398,7 @@ function getOptionalViewerDid(req, db) {
 }
 
 // ---------------------------------------------------------------------------
-// Account, Record & Preference helpers
+// Account, Record & Preference helpers (O(1) SQLite Backed)
 // ---------------------------------------------------------------------------
 
 function buildDidDoc(account, origin) {
@@ -1214,51 +1465,37 @@ function createDefaultNotificationPreferences() {
   }
 }
 
-function findLocalAccount(db, identifierOrDid) {
-  if (!identifierOrDid) return null
-  const raw = String(identifierOrDid).trim()
-  if (db.accounts[raw]) return db.accounts[raw]
-  const lower = raw.toLowerCase().replace(/^@/, '')
-  const withDomain = lower.includes('.') ? lower : `${lower}${QUANTZING_DOMAIN}`
-  const withAltDomain = lower.includes('.')
-    ? lower
-    : `${lower}${QUANTZING_ALT_DOMAIN}`
-  for (const account of Object.values(db.accounts)) {
-    const h = account.handle.toLowerCase()
-    if (
-      h === lower ||
-      h === withDomain ||
-      h === withAltDomain ||
-      (account.email && account.email.toLowerCase() === lower)
-    ) {
-      return account
-    }
-  }
-  return null
+function findLocalAccount(storeOrDb, identifierOrDid) {
+  return unwrapStore(storeOrDb).findAccount(identifierOrDid)
 }
 
-function getCollectionMap(db, did, collection, create = false) {
-  if (!db.records[did]) {
-    if (!create) return {}
-    db.records[did] = {}
+function getCollectionMap(storeOrDb, did, collection, create = false) {
+  if (storeOrDb && storeOrDb._isCompatView && storeOrDb.records) {
+    if (!storeOrDb.records[did]) {
+      if (!create) return {}
+      storeOrDb.records[did] = {}
+    }
+    if (!storeOrDb.records[did][collection]) {
+      if (!create) return {}
+      storeOrDb.records[did][collection] = {}
+    }
+    return storeOrDb.records[did][collection]
   }
-  if (!db.records[did][collection]) {
-    if (!create) return {}
-    db.records[did][collection] = {}
+  const store = unwrapStore(storeOrDb)
+  const list = store.listRecordsForRepo(did, collection, {limit: 100}).records
+  const map = {}
+  for (const r of list) {
+    map[r.rkey] = r
   }
-  return db.records[did][collection]
+  return map
 }
 
-function getAllLocalRecords(db, collection) {
-  const list = []
-  for (const [did, collections] of Object.entries(db.records)) {
-    const col = collections?.[collection]
-    if (!col) continue
-    for (const rec of Object.values(col)) {
-      list.push({...rec, repo: rec.repo || did})
-    }
-  }
-  return list
+function getAllLocalRecords(storeOrDb, collection) {
+  const store = unwrapStore(storeOrDb)
+  return store.db
+    .prepare('SELECT * FROM records WHERE collection = ? ORDER BY created_at DESC LIMIT 2000')
+    .all(String(collection))
+    .map(r => store._rowToRecord(r))
 }
 
 function syncProfileFromRecord(account, value) {
@@ -1288,73 +1525,15 @@ function syncProfileFromRecord(account, value) {
   }
 }
 
-function synthesizeQuantyReplyText(db, rawText, parentText, authorHandle) {
-  const cleaned = String(rawText || '')
-    .replace(/@quanty(?:\.quantzing\.(?:com|in))?/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  const handlePrefix = authorHandle
-    ? `@${String(authorHandle).replace(/^@/, '')} `
-    : ''
-  const parentSnippet = String(parentText || '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 110)
-
-  if (
-    parentSnippet &&
-    (!cleaned ||
-      /^(explain|fact[- ]?check|summarize|context|is this true|verify)/i.test(
-        cleaned,
-      ))
-  ) {
-    return `${handlePrefix}Context on "${parentSnippet}${parentSnippet.length >= 110 ? '...' : ''}": Core claim is live on QuantZing; verify primary linked sources and check replies in this thread for full context.`.slice(
-      0,
-      280,
-    )
-  }
-
-  if (/trending|breaking|news|happening|today/i.test(cleaned)) {
-    const trends = computeSovereignTrends(db, null, '', 3)
-    const topNames = trends.map(t => t.displayName).join(', ')
-    return `${handlePrefix}Top momentum on QuantZing right now: ${topNames || '#QuantZing, #AI, #IndiaTech'}. Open Quanty from the sidebar for the full multi-story briefing.`.slice(
-      0,
-      280,
-    )
-  }
-
-  const topic = cleaned.replace(/\?+$/, '').slice(0, 115) || 'your Zing'
-  if (parentSnippet) {
-    return `${handlePrefix}On "${topic}" (re: "${parentSnippet.slice(0, 65)}..."): Key signal is separating primary data from commentary — cross-check cited sources and counter-arguments in thread.`.slice(
-      0,
-      280,
-    )
-  }
-  return `${handlePrefix}Regarding "${topic}": High-signal discussion on QuantZing points to fast execution, open benchmarks, and sovereign ownership as the key differentiators. Tap Quanty for deeper analysis.`.slice(
-    0,
-    280,
-  )
+function findLocalPostByUri(storeOrDb, uri) {
+  const store = unwrapStore(storeOrDb)
+  const rec = store.getRecordByUri(uri)
+  if (!rec || rec.collection !== 'app.bsky.feed.post') return null
+  return rec
 }
 
-function findLocalPostByUri(db, uri) {
-  if (!uri) return null
-  const resolved = resolveAtUri(db, uri)
-  if (!resolved || resolved.collection !== 'app.bsky.feed.post') return null
-  return (
-    db.records?.[resolved.did]?.['app.bsky.feed.post']?.[resolved.rkey] || null
-  )
-}
-
-function canonicalizeUri(db, uri) {
-  if (!uri || typeof uri !== 'string') return ''
-  return resolveAtUri(db, uri)?.canonicalUri || uri
-}
-
-function getPostViewCount(db, postUri) {
-  const canonical = canonicalizeUri(db, postUri)
-  if (!canonical) return 0
-  const entry = db.postViews?.[canonical]
-  return entry && Number.isFinite(entry.count) ? entry.count : 0
+function getPostViewCount(storeOrDb, postUri) {
+  return unwrapStore(storeOrDb).getPostViewCount(postUri)
 }
 
 function getViewerImpressionKey(req, viewerDid) {
@@ -1371,76 +1550,62 @@ function getViewerImpressionKey(req, viewerDid) {
     .slice(0, 16)}`
 }
 
-function recordPostViews(db, postUris, viewerKey) {
-  if (!viewerKey || !Array.isArray(postUris) || postUris.length === 0) {
-    return false
-  }
-  db.postViews =
-    db.postViews && typeof db.postViews === 'object' ? db.postViews : {}
-  let changed = false
-  for (const rawUri of postUris) {
-    const canonical = canonicalizeUri(db, rawUri)
-    if (!canonical || !canonical.includes('/app.bsky.feed.post/')) continue
-    let entry = db.postViews[canonical]
-    if (!entry || typeof entry !== 'object') {
-      entry = {count: 0, viewers: []}
-      db.postViews[canonical] = entry
-    }
-    if (!Array.isArray(entry.viewers)) entry.viewers = []
-    if (!entry.viewers.includes(viewerKey)) {
-      entry.viewers.push(viewerKey)
-      if (entry.viewers.length > 5000) {
-        entry.viewers = entry.viewers.slice(-5000)
-      }
-      entry.count = Math.max(Number(entry.count) || 0, entry.viewers.length - 1) + 1
-      changed = true
-    }
-  }
-  return changed
+function countLocalInteractions(storeOrDb, postUri) {
+  return unwrapStore(storeOrDb).getPostCounters(postUri)
 }
 
-function putLocalRecord(db, did, collection, rkey, recordValue) {
+function putLocalRecord(storeOrDb, did, collection, rkey, recordValue) {
+  const store = unwrapStore(storeOrDb)
   const value = {
     $type: collection,
     ...recordValue,
   }
+
   // Normalize subject URI to canonical DID AT-URI & enforce idempotent single reaction/follow per user
   if (
     (collection === 'app.bsky.feed.like' ||
       collection === 'app.bsky.feed.repost') &&
     value.subject?.uri
   ) {
-    const canonicalSubjectUri = canonicalizeUri(db, value.subject.uri)
+    const canonicalSubjectUri = store.canonicalizeUri(value.subject.uri)
     value.subject = {...value.subject, uri: canonicalSubjectUri}
-    const existingCol = getCollectionMap(db, did, collection, false)
-    for (const existing of Object.values(existingCol)) {
-      if (canonicalizeUri(db, existing?.value?.subject?.uri) === canonicalSubjectUri) {
-        return existing
-      }
+    const existingUri = store.findUserReactionUri(
+      did,
+      collection,
+      canonicalSubjectUri,
+    )
+    if (existingUri) {
+      const existingRec = store.getRecordByUri(existingUri)
+      if (existingRec) return existingRec
     }
   }
-  if (collection === 'app.bsky.graph.follow' && typeof value.subject === 'string') {
-    const existingCol = getCollectionMap(db, did, collection, false)
-    for (const existing of Object.values(existingCol)) {
-      if (existing?.value?.subject === value.subject) {
-        return existing
-      }
+
+  if (
+    collection === 'app.bsky.graph.follow' &&
+    typeof value.subject === 'string'
+  ) {
+    const existingFollowUri = store.findUserFollowUri(did, value.subject)
+    if (existingFollowUri) {
+      const existingRec = store.getRecordByUri(existingFollowUri)
+      if (existingRec) return existingRec
     }
   }
+
   const key = rkey || generateTid()
   if (
     collection === 'app.bsky.feed.post' &&
     typeof value.text === 'string' &&
     (!Array.isArray(value.facets) || value.facets.length === 0)
   ) {
-    const autoFacets = buildFacetsForText(db, value.text)
+    const autoFacets = buildFacetsForText(store, value.text)
     if (autoFacets) value.facets = autoFacets
   }
+
   const uri = `at://${did}/${collection}/${key}`
   const cid = computeCid(value, 'dag-cbor')
   const indexedAt = new Date().toISOString()
-  const col = getCollectionMap(db, did, collection, true)
-  const entry = {
+
+  const entry = store.putRecord({
     uri,
     cid,
     rkey: key,
@@ -1448,14 +1613,14 @@ function putLocalRecord(db, did, collection, rkey, recordValue) {
     repo: did,
     value,
     indexedAt,
-  }
-  col[key] = entry
-  if (
-    collection === 'app.bsky.actor.profile' &&
-    key === 'self' &&
-    db.accounts[did]
-  ) {
-    syncProfileFromRecord(db.accounts[did], value)
+  })
+
+  if (collection === 'app.bsky.actor.profile' && key === 'self') {
+    const acc = store.getAccountByDid(did)
+    if (acc) {
+      syncProfileFromRecord(acc, value)
+      store.upsertAccount(acc)
+    }
   }
 
   // Automatic @quanty in-thread reply whenever any user tags @quanty in a Zing or reply
@@ -1465,84 +1630,67 @@ function putLocalRecord(db, did, collection, rkey, recordValue) {
     typeof value.text === 'string' &&
     /(?:^|\s)@quanty(?:\.quantzing\.(?:com|in))?\b/i.test(value.text)
   ) {
-    ensureSovereignGenesis(db)
-    const authorAcc = db.accounts[did]
+    const authorAcc = store.getAccountByDid(did)
     const parentUri = value.reply?.parent?.uri
-    const parentRec = parentUri ? findLocalPostByUri(db, parentUri) : null
+    const parentRec = parentUri ? findLocalPostByUri(store, parentUri) : null
     const parentText = parentRec?.value?.text || ''
-    const replyText = synthesizeQuantyReplyText(
-      db,
-      value.text,
-      parentText,
-      authorAcc?.handle,
-    )
     const rootRef = value.reply?.root?.uri
       ? value.reply.root
       : {uri: entry.uri, cid: entry.cid}
     const parentRef = {uri: entry.uri, cid: entry.cid}
-    const replyRkey = generateTid()
-    const replyCreatedAt = new Date(Date.now() + 1).toISOString()
-    const facets = buildFacetsForText(db, replyText)
-    const replyValue = {
-      $type: 'app.bsky.feed.post',
-      text: replyText,
-      createdAt: replyCreatedAt,
-      langs: ['en'],
-      ...(facets ? {facets} : {}),
-      reply: {
-        root: rootRef,
-        parent: parentRef,
-      },
-    }
-    const qCol = getCollectionMap(
-      db,
-      QUANTY_SYSTEM_DID,
-      'app.bsky.feed.post',
-      true,
-    )
-    qCol[replyRkey] = {
-      uri: `at://${QUANTY_SYSTEM_DID}/app.bsky.feed.post/${replyRkey}`,
-      cid: computeCid(replyValue, 'dag-cbor'),
-      rkey: replyRkey,
-      collection: 'app.bsky.feed.post',
-      repo: QUANTY_SYSTEM_DID,
-      value: replyValue,
-      indexedAt: replyCreatedAt,
-    }
+
+    void (async () => {
+      try {
+        const bridge = getQuantyBridgeInstance(store)
+        const replyObj = await bridge.buildQuantyMentionReply({
+          prompt: value.text,
+          postContext: {
+            uri: entry.uri,
+            text: parentText || value.text,
+            authorHandle: authorAcc?.handle || did,
+          },
+          viewerDid: did,
+          origin: '',
+        })
+        const replyText = String(replyObj?.replyText || replyObj?.text || '').slice(
+          0,
+          280,
+        )
+        if (!replyText) return
+        const replyRkey = generateTid()
+        const replyCreatedAt = new Date(Date.now() + 1).toISOString()
+        const facets = buildFacetsForText(store, replyText)
+        const replyValue = {
+          $type: 'app.bsky.feed.post',
+          text: replyText,
+          createdAt: replyCreatedAt,
+          langs: ['en'],
+          ...(facets ? {facets} : {}),
+          reply: {
+            root: rootRef,
+            parent: parentRef,
+          },
+        }
+        store.putRecord({
+          uri: `at://${QUANTY_SYSTEM_DID}/app.bsky.feed.post/${replyRkey}`,
+          cid: computeCid(replyValue, 'dag-cbor'),
+          rkey: replyRkey,
+          collection: 'app.bsky.feed.post',
+          repo: QUANTY_SYSTEM_DID,
+          value: replyValue,
+          indexedAt: replyCreatedAt,
+        })
+      } catch (err) {
+        console.error('[QuantZing PDS] Auto @quanty reply error:', err)
+      }
+    })()
   }
 
   return entry
 }
 
-function deleteLocalRecord(db, did, collection, rkey) {
-  const col = db.records?.[did]?.[collection]
-  if (!col || !col[rkey]) return false
-  const target = col[rkey]
-  delete col[rkey]
-  // Clean any legacy duplicate likes/reposts/follows for the same subject from this user
-  if (
-    (collection === 'app.bsky.feed.like' ||
-      collection === 'app.bsky.feed.repost') &&
-    target?.value?.subject?.uri
-  ) {
-    const targetCanon = canonicalizeUri(db, target.value.subject.uri)
-    for (const [k, rec] of Object.entries(col)) {
-      if (canonicalizeUri(db, rec?.value?.subject?.uri) === targetCanon) {
-        delete col[k]
-      }
-    }
-  } else if (
-    collection === 'app.bsky.graph.follow' &&
-    typeof target?.value?.subject === 'string'
-  ) {
-    const targetSubj = target.value.subject
-    for (const [k, rec] of Object.entries(col)) {
-      if (rec?.value?.subject === targetSubj) {
-        delete col[k]
-      }
-    }
-  }
-  return true
+function deleteLocalRecord(storeOrDb, did, collection, rkey) {
+  return unwrapStore(storeOrDb).deleteRecord(did, collection, rkey)
 }
 
 function extractBlobCid(blobRef) {
@@ -1559,130 +1707,34 @@ function blobUrl(origin, did, blobRef) {
 }
 
 // ---------------------------------------------------------------------------
-// 100% Sovereign Local View Hydrators
+// 100% Sovereign O(1) Local View Hydrators (+ Interactive Poll Embed Hydration)
 // ---------------------------------------------------------------------------
 
-function findViewerFollowUri(db, viewerDid, subjectDid) {
-  if (!viewerDid || !subjectDid) return undefined
-  const follows = getCollectionMap(db, viewerDid, 'app.bsky.graph.follow')
-  for (const rec of Object.values(follows)) {
-    if (rec?.value?.subject === subjectDid) {
-      return rec.uri
-    }
-  }
-  return undefined
-}
-
-function findViewerReactionUri(db, viewerDid, collection, subjectUri) {
-  if (!viewerDid || !subjectUri) return undefined
-  const canonical = canonicalizeUri(db, subjectUri)
-  const map = getCollectionMap(db, viewerDid, collection)
-  for (const rec of Object.values(map)) {
-    if (canonicalizeUri(db, rec?.value?.subject?.uri) === canonical) {
-      return rec.uri
-    }
-  }
-  return undefined
-}
-
-function isBookmarkedByViewer(db, viewerDid, postUri) {
-  if (!viewerDid || !postUri) return false
-  const canonical = canonicalizeUri(db, postUri)
-  const list = db.bookmarks?.[viewerDid] || []
-  return list.some(b => canonicalizeUri(db, b.uri) === canonical)
-}
-
-function countLocalInteractions(db, postUri) {
-  const canonical = canonicalizeUri(db, postUri)
-  const likerDids = new Set()
-  const reposterDids = new Set()
-  let replyCount = 0
-  let quoteCount = 0
-  let bookmarkCount = 0
-
-  for (const [actorDid, collections] of Object.entries(db.records || {})) {
-    const actorAcc = db.accounts?.[actorDid]
-    if (!actorAcc || isAccountSuspendedOrBanned(actorAcc)) continue
-    const likes = collections?.['app.bsky.feed.like']
-    if (likes) {
-      for (const rec of Object.values(likes)) {
-        if (canonicalizeUri(db, rec?.value?.subject?.uri) === canonical) {
-          likerDids.add(actorDid)
-          break
-        }
-      }
-    }
-    const reposts = collections?.['app.bsky.feed.repost']
-    if (reposts) {
-      for (const rec of Object.values(reposts)) {
-        if (canonicalizeUri(db, rec?.value?.subject?.uri) === canonical) {
-          reposterDids.add(actorDid)
-          break
-        }
-      }
-    }
-    const posts = collections?.['app.bsky.feed.post']
-    if (posts) {
-      for (const rec of Object.values(posts)) {
-        if (canonicalizeUri(db, rec?.value?.reply?.parent?.uri) === canonical) {
-          replyCount++
-        }
-        const emb = rec?.value?.embed
-        if (
-          canonicalizeUri(db, emb?.record?.uri) === canonical ||
-          canonicalizeUri(db, emb?.record?.record?.uri) === canonical
-        ) {
-          quoteCount++
-        }
-      }
-    }
-  }
-
-  for (const [bmDid, list] of Object.entries(db.bookmarks || {})) {
-    const bmAcc = db.accounts?.[bmDid]
-    if (!bmAcc || isAccountSuspendedOrBanned(bmAcc)) continue
-    if (
-      Array.isArray(list) &&
-      list.some(b => canonicalizeUri(db, b.uri) === canonical)
-    ) {
-      bookmarkCount++
-    }
-  }
-
-  return {
-    likeCount: likerDids.size,
-    repostCount: reposterDids.size,
-    replyCount,
-    quoteCount,
-    bookmarkCount,
-  }
-}
-
 function buildLocalProfileView(
-  db,
+  storeOrDb,
   account,
   viewerDid,
   origin,
   detailed = false,
 ) {
+  if (!account) return null
+  const store = unwrapStore(storeOrDb)
   const profile = account.profile || {}
   const avatar = blobUrl(origin, account.did, profile.avatar)
   const banner = blobUrl(origin, account.did, profile.banner)
-  const followingUri = findViewerFollowUri(db, viewerDid, account.did)
-  const followedByUri = findViewerFollowUri(db, account.did, viewerDid)
-  const muted = isActorMutedByViewer(db, viewerDid, account.did)
-  const blockingUri = findViewerBlockUri(
-    db,
-    viewerDid,
-    account.did,
-    getCollectionMap,
-  )
-  const blockedByUri = findViewerBlockUri(
-    db,
-    account.did,
-    viewerDid,
-    getCollectionMap,
-  )
+  const followingUri = viewerDid
+    ? store.findUserFollowUri(viewerDid, account.did)
+    : undefined
+  const followedByUri = viewerDid
+    ? store.findUserFollowUri(account.did, viewerDid)
+    : undefined
+  const muted = viewerDid ? store.isMuted(viewerDid, account.did) : false
+  const blockingUri = viewerDid
+    ? store.findBlockUri(viewerDid, account.did)
+    : undefined
+  const blockedByUri = viewerDid
+    ? store.findBlockUri(account.did, viewerDid)
+    : undefined
 
   const viewer = {
     muted,
@@ -1699,8 +1751,16 @@ function buildLocalProfileView(
           account.isOfficial ||
             account.isSystemQuanty ||
             account.did === QUANTY_SYSTEM_DID ||
-            account.did === QUANTZING_OFFICIAL_DID,
+            account.did === QUANTZING_OFFICIAL_DID ||
+            account.did === FOUNDER_DID,
         )
+
+  const declRec = store.getRecord(
+    account.did,
+    'chat.bsky.actor.declaration',
+    'self',
+  )
+  const allowIncoming = declRec?.value?.allowIncoming || 'all'
 
   const base = {
     did: account.did,
@@ -1720,12 +1780,10 @@ function buildLocalProfileView(
         }
       : {}),
     associated: {
-      chat: {allowIncoming: 'all'},
+      chat: {allowIncoming},
     },
     viewer,
-    labels: Array.isArray(db.labels?.[account.did])
-      ? db.labels[account.did]
-      : [],
+    labels: store.getLabels(account.did),
     createdAt: account.createdAt,
     indexedAt: account.createdAt,
   }
@@ -1734,31 +1792,72 @@ function buildLocalProfileView(
     return base
   }
 
-  const postsCount = Object.keys(
-    getCollectionMap(db, account.did, 'app.bsky.feed.post'),
-  ).length
-  const followsCount = Object.keys(
-    getCollectionMap(db, account.did, 'app.bsky.graph.follow'),
-  ).length
-  let followersCount = 0
-  for (const rec of getAllLocalRecords(db, 'app.bsky.graph.follow')) {
-    if (rec?.value?.subject === account.did) followersCount++
-  }
-
   return {
     ...base,
     ...(banner ? {banner} : {}),
     ...(profile.website ? {website: profile.website} : {}),
     ...(profile.pinnedPost ? {pinnedPost: profile.pinnedPost} : {}),
-    followersCount,
-    followsCount,
-    postsCount,
+    followersCount: Number(account.followersCount || 0),
+    followsCount: Number(account.followsCount || 0),
+    postsCount: Number(account.postsCount || 0),
   }
 }
 
-function hydrateEmbedView(db, authorDid, embed, viewerDid, origin, depth = 0) {
+function hydratePollEmbedView(store, postUri, postText, embed, viewerDid) {
+  const canonical = store.canonicalizeUri(postUri)
+  const rawOptions = Array.isArray(embed?.options) ? embed.options : []
+  const tallies = store.getPollTallies(canonical, viewerDid)
+  const totalVotes = tallies.totalVotes
+  const options = rawOptions.map((opt, idx) => {
+    const id = String(opt?.id || `opt${idx + 1}`)
+    const text = String(opt?.text || opt || '')
+    const votesCount = Number(tallies.countsByOption.get(id) || 0)
+    const percent =
+      totalVotes > 0 ? Math.round((votesCount / totalVotes) * 100) : 0
+    return {
+      id,
+      text,
+      votesCount,
+      percent,
+    }
+  })
+  const expiresAt =
+    embed?.expiresAt ||
+    new Date(
+      Date.now() + Number(embed?.durationHours || 24) * 3600 * 1000,
+    ).toISOString()
+  const expMs = Date.parse(expiresAt)
+  const isExpired = Number.isFinite(expMs) ? expMs <= Date.now() : false
+
+  return {
+    $type: 'com.quantzing.embed.poll#view',
+    uri: canonical,
+    question: String(embed?.question || postText || ''),
+    options,
+    totalVotes,
+    expiresAt,
+    isExpired,
+    viewerVoteOptionId: tallies.viewerVoteOptionId || null,
+  }
+}
+
+function hydrateEmbedView(
+  storeOrDb,
+  authorDid,
+  embed,
+  viewerDid,
+  origin,
+  depth = 0,
+  postUri = '',
+  postText = '',
+) {
   if (!embed || typeof embed !== 'object') return undefined
+  const store = unwrapStore(storeOrDb)
   const type = embed.$type
+
+  if (type === 'com.quantzing.embed.poll') {
+    return hydratePollEmbedView(store, postUri, postText, embed, viewerDid)
+  }
 
   if (type === 'app.bsky.embed.images' && Array.isArray(embed.images)) {
     return {
@@ -1807,16 +1906,16 @@ function hydrateEmbedView(db, authorDid, embed, viewerDid, origin, depth = 0) {
   }
 
   if (type === 'app.bsky.embed.record' && embed.record?.uri && depth < 1) {
-    const resolved = resolveAtUri(db, embed.record.uri)
+    const resolved = store.resolveAtUri(embed.record.uri)
     if (resolved) {
-      const targetRec =
-        db.records?.[resolved.did]?.[resolved.collection]?.[resolved.rkey]
-      if (
-        targetRec &&
-        !isPostHiddenForViewer(db, targetRec, viewerDid, getCollectionMap)
-      ) {
+      const targetRec = store.getRecord(
+        resolved.did,
+        resolved.collection,
+        resolved.rkey,
+      )
+      if (targetRec && !isRecordHiddenForViewer(store, targetRec, viewerDid)) {
         const targetAuthor = resolved.account
-        const counts = countLocalInteractions(db, targetRec.uri)
+        const counts = store.getPostCounters(targetRec.uri)
         return {
           $type: 'app.bsky.embed.record#view',
           record: {
@@ -1824,16 +1923,14 @@ function hydrateEmbedView(db, authorDid, embed, viewerDid, origin, depth = 0) {
             uri: targetRec.uri,
             cid: targetRec.cid,
             author: buildLocalProfileView(
-              db,
+              store,
               targetAuthor,
               viewerDid,
               origin,
               false,
             ),
             value: targetRec.value,
-            labels: Array.isArray(db.labels?.[targetRec.uri])
-              ? db.labels[targetRec.uri]
-              : [],
+            labels: store.getLabels(targetRec.uri),
             likeCount: counts.likeCount,
             replyCount: counts.replyCount,
             repostCount: counts.repostCount,
@@ -1855,20 +1952,24 @@ function hydrateEmbedView(db, authorDid, embed, viewerDid, origin, depth = 0) {
 
   if (type === 'app.bsky.embed.recordWithMedia' && depth < 1) {
     const media = hydrateEmbedView(
-      db,
+      store,
       authorDid,
       embed.media,
       viewerDid,
       origin,
       depth + 1,
+      postUri,
+      postText,
     )
     const record = hydrateEmbedView(
-      db,
+      store,
       authorDid,
       embed.record,
       viewerDid,
       origin,
       depth,
+      postUri,
+      postText,
     )
     if (media && record) {
       return {
@@ -1882,36 +1983,55 @@ function hydrateEmbedView(db, authorDid, embed, viewerDid, origin, depth = 0) {
   return undefined
 }
 
-function buildLocalPostView(db, postRec, viewerDid, origin) {
-  const author = db.accounts[postRec.repo]
+function isRecordHiddenForViewer(store, postRec, viewerDid) {
+  if (!postRec || !postRec.uri) return true
+  if (store.isPostTakenDown(postRec.uri)) return true
+  const author = store.getAccountByDid(postRec.repo)
+  if (!author || isAccountSuspendedOrBanned(author)) return true
+  if (viewerDid && viewerDid !== postRec.repo) {
+    if (store.isMuted(viewerDid, postRec.repo)) return true
+    if (store.findBlockUri(viewerDid, postRec.repo)) return true
+    if (store.findBlockUri(postRec.repo, viewerDid)) return true
+  }
+  return false
+}
+
+function buildLocalPostView(storeOrDb, postRec, viewerDid, origin) {
+  if (!postRec) return null
+  const store = unwrapStore(storeOrDb)
+  const author = store.getAccountByDid(postRec.repo)
   if (!author) return null
-  const counts = countLocalInteractions(db, postRec.uri)
-  const likeUri = findViewerReactionUri(
-    db,
-    viewerDid,
-    'app.bsky.feed.like',
-    postRec.uri,
-  )
-  const repostUri = findViewerReactionUri(
-    db,
-    viewerDid,
-    'app.bsky.feed.repost',
-    postRec.uri,
-  )
-  const bookmarked = isBookmarkedByViewer(db, viewerDid, postRec.uri)
+  const counts = store.getPostCounters(postRec.uri)
+  const likeUri = viewerDid
+    ? store.findUserReactionUri(viewerDid, 'app.bsky.feed.like', postRec.uri)
+    : undefined
+  const repostUri = viewerDid
+    ? store.findUserReactionUri(viewerDid, 'app.bsky.feed.repost', postRec.uri)
+    : undefined
+  const bookmarked = viewerDid
+    ? store.isBookmarked(viewerDid, postRec.uri)
+    : false
+  const rootUri = postRec.value?.reply?.root?.uri || postRec.uri
+  const threadMuted = viewerDid
+    ? store.isThreadMuted(viewerDid, rootUri)
+    : false
+
   const embedView = hydrateEmbedView(
-    db,
+    store,
     postRec.repo,
     postRec.value?.embed,
     viewerDid,
     origin,
+    0,
+    postRec.uri,
+    postRec.value?.text || '',
   )
 
   return {
     $type: 'app.bsky.feed.defs#postView',
     uri: postRec.uri,
     cid: postRec.cid,
-    author: buildLocalProfileView(db, author, viewerDid, origin, false),
+    author: buildLocalProfileView(store, author, viewerDid, origin, false),
     record: postRec.value,
     ...(embedView ? {embed: embedView} : {}),
     bookmarkCount: counts.bookmarkCount,
@@ -1919,68 +2039,63 @@ function buildLocalPostView(db, postRec, viewerDid, origin) {
     repostCount: counts.repostCount,
     likeCount: counts.likeCount,
     quoteCount: counts.quoteCount,
-    viewCount: getPostViewCount(db, postRec.uri),
+    viewCount: counts.viewCount,
     indexedAt:
       postRec.indexedAt || postRec.value?.createdAt || new Date().toISOString(),
     viewer: {
       ...(likeUri ? {like: likeUri} : {}),
       ...(repostUri ? {repost: repostUri} : {}),
       bookmarked,
-      threadMuted: false,
+      threadMuted,
       embeddingDisabled: false,
     },
-    labels: Array.isArray(db.labels?.[postRec.uri])
-      ? db.labels[postRec.uri]
-      : [],
+    labels: store.getLabels(postRec.uri),
   }
 }
 
-function hydrateLocalPosts(db, uris, viewerDid, origin) {
+function hydrateLocalPosts(storeOrDb, uris, viewerDid, origin) {
+  const store = unwrapStore(storeOrDb)
   const posts = []
-  for (const uri of uris) {
-    const resolved = resolveAtUri(db, uri)
+  for (const uri of uris || []) {
+    const resolved = store.resolveAtUri(uri)
     if (!resolved) continue
-    const rec =
-      db.records?.[resolved.did]?.[resolved.collection]?.[resolved.rkey]
+    const rec = store.getRecord(resolved.did, resolved.collection, resolved.rkey)
     if (!rec) continue
-    if (isPostHiddenForViewer(db, rec, viewerDid, getCollectionMap)) continue
-    const view = buildLocalPostView(db, rec, viewerDid, origin)
+    if (isRecordHiddenForViewer(store, rec, viewerDid)) continue
+    const view = buildLocalPostView(store, rec, viewerDid, origin)
     if (view) posts.push(view)
   }
   return posts
 }
 
 function getLocalFeedItems(
-  db,
+  storeOrDb,
   viewerDid,
   origin,
   {
-    authorDid = null,
+    authorDids = null,
     includeReplies = false,
     includeReposts = false,
     filterTags = null,
     onlyVideo = false,
+    onlyMedia = false,
+    limit = 60,
   } = {},
 ) {
-  const posts = authorDid
-    ? Object.values(getCollectionMap(db, authorDid, 'app.bsky.feed.post'))
-    : getAllLocalRecords(db, 'app.bsky.feed.post')
+  const store = unwrapStore(storeOrDb)
+  const queried = store.queryPosts({
+    authorDids,
+    includeReplies,
+    onlyVideo,
+    onlyMedia,
+    tags: filterTags,
+    limit: Math.max(limit * 2, 80),
+  })
 
   const items = []
-  for (const postRec of posts) {
-    if (isPostHiddenForViewer(db, postRec, viewerDid, getCollectionMap)) continue
-    if (!includeReplies && postRec.value?.reply) continue
-    if (onlyVideo && !isVideoEmbed(postRec.value?.embed)) {
-      continue
-    }
-    if (Array.isArray(filterTags) && filterTags.length > 0) {
-      const lower = String(postRec.value?.text || '').toLowerCase()
-      const hit = filterTags.some(
-        tag => lower.includes(`#${tag}`) || lower.includes(tag),
-      )
-      if (!hit) continue
-    }
-    const postView = buildLocalPostView(db, postRec, viewerDid, origin)
+  for (const postRec of queried.records) {
+    if (isRecordHiddenForViewer(store, postRec, viewerDid)) continue
+    const postView = buildLocalPostView(store, postRec, viewerDid, origin)
     if (!postView) continue
     items.push({
       post: postView,
@@ -1989,31 +2104,37 @@ function getLocalFeedItems(
     })
   }
 
-  if (includeReposts && !onlyVideo && !filterTags) {
+  if (includeReposts && !onlyVideo && !onlyMedia && !filterTags) {
     const seenRepostKey = new Set()
-    const reposts = authorDid
-      ? Object.values(getCollectionMap(db, authorDid, 'app.bsky.feed.repost'))
-      : getAllLocalRecords(db, 'app.bsky.feed.repost')
+    const reposts = store.queryReposts({
+      authorDids,
+      limit: Math.max(limit, 50),
+    })
     for (const rep of reposts) {
-      const reposterAcc = db.accounts?.[rep.repo]
+      const reposterAcc = store.getAccountByDid(rep.repo)
       if (!reposterAcc || isAccountSuspendedOrBanned(reposterAcc)) continue
-      const targetUri = canonicalizeUri(db, rep?.value?.subject?.uri)
+      const targetUri = store.canonicalizeUri(rep?.value?.subject?.uri)
       if (!targetUri) continue
       const dedupeKey = `${rep.repo}|${targetUri}`
       if (seenRepostKey.has(dedupeKey)) continue
       seenRepostKey.add(dedupeKey)
-      const targetRec = findLocalPostByUri(db, targetUri)
-      if (!targetRec) continue
-      if (isPostHiddenForViewer(db, targetRec, viewerDid, getCollectionMap)) {
+      const targetRec = findLocalPostByUri(store, targetUri)
+      if (!targetRec || isRecordHiddenForViewer(store, targetRec, viewerDid)) {
         continue
       }
-      const targetView = buildLocalPostView(db, targetRec, viewerDid, origin)
+      const targetView = buildLocalPostView(store, targetRec, viewerDid, origin)
       if (!targetView) continue
       items.push({
         post: targetView,
         reason: {
           $type: 'app.bsky.feed.defs#reasonRepost',
-          by: buildLocalProfileView(db, reposterAcc, viewerDid, origin, false),
+          by: buildLocalProfileView(
+            store,
+            reposterAcc,
+            viewerDid,
+            origin,
+            false,
+          ),
           uri: rep.uri,
           cid: rep.cid,
           indexedAt: rep.indexedAt,
@@ -2039,22 +2160,31 @@ function paginateItems(items, cursor, limit) {
 }
 
 // ---------------------------------------------------------------------------
-// Sovereign Feed Generators, Dynamic Trends & Who-to-Follow
+// Sovereign Feed Generators, Time-Decayed Trends & Fair Suggestions
 // ---------------------------------------------------------------------------
 
-function buildFeedGeneratorView(db, spec, viewerDid, origin) {
-  const creatorAcc = db.accounts[QUANTZING_OFFICIAL_DID]
-  const uri = `at://${QUANTZING_OFFICIAL_DID}/app.bsky.feed.generator/${spec.rkey}`
+function buildFeedGeneratorView(storeOrDb, spec, viewerDid, origin) {
+  const store = unwrapStore(storeOrDb)
+  const creatorAcc = store.getAccountByDid(
+    spec.creatorDid || QUANTZING_OFFICIAL_DID,
+  )
+  const uri =
+    spec.uri ||
+    `at://${QUANTZING_OFFICIAL_DID}/app.bsky.feed.generator/${spec.rkey}`
   const avatar = creatorAcc
     ? blobUrl(origin, creatorAcc.did, creatorAcc.profile?.avatar)
+    : undefined
+  const counts = store.getPostCounters(uri)
+  const viewerLike = viewerDid
+    ? store.findUserReactionUri(viewerDid, 'app.bsky.feed.like', uri)
     : undefined
   return {
     $type: 'app.bsky.feed.defs#generatorView',
     uri,
-    cid: computeCid({uri, name: spec.displayName}, 'dag-cbor'),
+    cid: spec.cid || computeCid({uri, name: spec.displayName}, 'dag-cbor'),
     did: QUANTZING_DID,
     creator: creatorAcc
-      ? buildLocalProfileView(db, creatorAcc, viewerDid, origin, false)
+      ? buildLocalProfileView(store, creatorAcc, viewerDid, origin, false)
       : {
           did: QUANTZING_OFFICIAL_DID,
           handle: 'quantzing.quantzing.com',
@@ -2063,63 +2193,37 @@ function buildFeedGeneratorView(db, spec, viewerDid, origin) {
     displayName: spec.displayName,
     description: spec.description,
     ...(avatar ? {avatar} : {}),
-    likeCount: 0,
+    likeCount: counts.likeCount,
     acceptsInteractions: false,
-    labels: [],
-    viewer: {},
-    indexedAt: '2026-01-01T00:00:00.000Z',
+    labels: store.getLabels(uri),
+    viewer: {
+      ...(viewerLike ? {like: viewerLike} : {}),
+    },
+    indexedAt: spec.indexedAt || '2026-01-01T00:00:00.000Z',
   }
 }
 
-function computeSovereignTrends(db, viewerDid, origin, limit = 10) {
-  const allPosts = getAllLocalRecords(db, 'app.bsky.feed.post')
-  const buckets = new Map()
+function computeSovereignTrends(storeOrDb, viewerDid, origin, limit = 10) {
+  const store = unwrapStore(storeOrDb)
+  const rawTrends = store.getTimeDecayedTrends({limit})
 
   const categoryForTag = tag => {
-    const t = tag.toLowerCase()
+    const t = String(tag || '').toLowerCase()
     if (/ai|quanty|llm|agent|model/.test(t)) return 'AI & Tech'
     if (/india|delhi|bengaluru|mumbai/.test(t)) return 'India'
     if (/market|finance|crypto|stock|economy/.test(t)) return 'Markets'
-    if (/startup|builder|founder|opensource|cloud|quantos|quantrinity/.test(t))
+    if (/startup|builder|founder|opensource|cloud|quantos|quantrinity/.test(t)) {
       return 'Technology'
+    }
     return 'QuantZing'
   }
 
-  for (const rec of allPosts) {
-    if (isPostHiddenForViewer(db, rec, viewerDid, getCollectionMap)) continue
-    const text = String(rec.value?.text || '')
-    const matches = text.match(/#[A-Za-z][A-Za-z0-9_]{1,40}/g) || []
-    const createdAt = rec.value?.createdAt || rec.indexedAt || new Date().toISOString()
-    for (const rawTag of matches) {
-      const key = rawTag.toLowerCase()
-      const existing = buckets.get(key) || {
-        topic: rawTag.slice(1),
-        displayName: rawTag,
-        count: 0,
-        latestAt: createdAt,
-        snippet: text.slice(0, 140),
-        actorDids: new Set(),
-      }
-      existing.count += 1
-      if (createdAt > existing.latestAt) {
-        existing.latestAt = createdAt
-        existing.snippet = text.slice(0, 140)
-      }
-      existing.actorDids.add(rec.repo)
-      buckets.set(key, existing)
-    }
-  }
-
-  const sorted = [...buckets.values()].sort(
-    (a, b) => b.count - a.count || b.latestAt.localeCompare(a.latestAt),
-  )
-
-  return sorted.slice(0, Math.min(25, Math.max(1, limit))).map((entry, idx) => {
-    const actors = [...entry.actorDids]
+  return rawTrends.map((entry, idx) => {
+    const actors = [...(entry.actorDids || [])]
       .slice(0, 3)
-      .map(did => db.accounts[did])
+      .map(did => store.getAccountByDid(did))
       .filter(Boolean)
-      .map(acc => buildLocalProfileView(db, acc, viewerDid, origin, false))
+      .map(acc => buildLocalProfileView(store, acc, viewerDid, origin, false))
     return {
       $type: 'app.bsky.unspecced.defs#trendView',
       topic: entry.topic,
@@ -2127,7 +2231,7 @@ function computeSovereignTrends(db, viewerDid, origin, limit = 10) {
       description: entry.snippet,
       link: `/search?q=${encodeURIComponent(entry.displayName)}`,
       startedAt: entry.latestAt,
-      postCount: entry.count,
+      postCount: entry.postCount,
       ...(idx < 2 ? {status: 'hot'} : {}),
       category: categoryForTag(entry.topic),
       actors,
@@ -2135,215 +2239,86 @@ function computeSovereignTrends(db, viewerDid, origin, limit = 10) {
   })
 }
 
-function getSuggestedQuantZingActors(db, viewerDid, origin, limit = 10) {
-  const candidates = []
-  for (const acc of Object.values(db.accounts)) {
-    if (!acc || acc.active === false) continue
-    if (isAccountSuspendedOrBanned(acc)) continue
-    if (viewerDid && acc.did === viewerDid) continue
-    if (
-      viewerDid &&
-      (isActorMutedByViewer(db, viewerDid, acc.did) ||
-        findViewerBlockUri(db, viewerDid, acc.did, getCollectionMap) ||
-        findViewerBlockUri(db, acc.did, viewerDid, getCollectionMap))
-    ) {
-      continue
-    }
-    const alreadyFollowing = viewerDid
-      ? Boolean(findViewerFollowUri(db, viewerDid, acc.did))
-      : false
-    const postsCount = Object.keys(
-      getCollectionMap(db, acc.did, 'app.bsky.feed.post'),
-    ).length
-    const priority =
-      acc.did === QUANTY_SYSTEM_DID
-        ? 100
-        : acc.did === QUANTZING_OFFICIAL_DID
-          ? 95
-          : acc.did === QUANTRINITY_DID
-            ? 90
-            : acc.did === QUANTZING_NEWS_DID
-              ? 85
-              : acc.did === QUANT_BUILDERS_DID
-                ? 80
-                : 50 + postsCount
-    candidates.push({
-      acc,
-      alreadyFollowing,
-      priority,
-    })
-  }
-
-  // Prefer accounts not yet followed by viewer, then rank by priority
-  candidates.sort(
-    (a, b) =>
-      Number(a.alreadyFollowing) - Number(b.alreadyFollowing) ||
-      b.priority - a.priority,
+function getSuggestedQuantZingActors(
+  storeOrDb,
+  viewerDid,
+  origin,
+  limit = 10,
+  actorDid = null,
+) {
+  const store = unwrapStore(storeOrDb)
+  const accounts = store.getSuggestedAccounts({viewerDid, actorDid, limit})
+  return accounts.map(acc =>
+    buildLocalProfileView(store, acc, viewerDid, origin, false),
   )
-
-  return candidates
-    .slice(0, Math.min(50, Math.max(1, limit)))
-    .map(c => buildLocalProfileView(db, c.acc, viewerDid, origin, false))
 }
 
 // ---------------------------------------------------------------------------
-// Real Sovereign Notifications Engine
+// Materialized Sovereign Notifications Engine (O(log N + K))
 // ---------------------------------------------------------------------------
 
-function buildLocalNotifications(db, viewerDid, origin, limit = 40) {
-  const viewerAcc = db.accounts[viewerDid]
-  if (!viewerAcc) return []
+function buildLocalNotifications(
+  storeOrDb,
+  viewerDid,
+  origin,
+  limit = 40,
+  cursor = null,
+  reasons = null,
+) {
+  const store = unwrapStore(storeOrDb)
+  const viewerAcc = store.getAccountByDid(viewerDid)
+  if (!viewerAcc) return {notifications: [], cursor: undefined}
   const seenAt = viewerAcc.notificationsSeenAt || '1970-01-01T00:00:00.000Z'
+  const page = store.listNotifications(viewerDid, {limit, cursor, reasons})
+
   const notifications = []
-
-  const isActorHidden = authorAcc =>
-    !authorAcc ||
-    isAccountSuspendedOrBanned(authorAcc) ||
-    isActorMutedByViewer(db, viewerDid, authorAcc.did) ||
-    Boolean(findViewerBlockUri(db, viewerDid, authorAcc.did, getCollectionMap)) ||
-    Boolean(findViewerBlockUri(db, authorAcc.did, viewerDid, getCollectionMap))
-
-  // 1. Followers
-  for (const rec of getAllLocalRecords(db, 'app.bsky.graph.follow')) {
-    if (rec.repo === viewerDid || rec.value?.subject !== viewerDid) continue
-    const authorAcc = db.accounts[rec.repo]
-    if (isActorHidden(authorAcc)) continue
-    const indexedAt = rec.indexedAt || rec.value?.createdAt || new Date().toISOString()
+  for (const n of page.items) {
+    const authorAcc = store.getAccountByDid(n.actorDid)
+    if (!authorAcc || isAccountSuspendedOrBanned(authorAcc)) continue
     notifications.push({
-      uri: rec.uri,
-      cid: rec.cid,
-      author: buildLocalProfileView(db, authorAcc, viewerDid, origin, false),
-      reason: 'follow',
-      record: rec.value,
-      isRead: indexedAt <= seenAt,
-      indexedAt,
-      labels: [],
+      uri: n.uri,
+      cid: n.cid,
+      author: buildLocalProfileView(store, authorAcc, viewerDid, origin, false),
+      reason: n.reason,
+      ...(n.reasonSubject ? {reasonSubject: n.reasonSubject} : {}),
+      record: n.record,
+      isRead: n.indexedAt <= seenAt,
+      indexedAt: n.indexedAt,
+      labels: store.getLabels(n.uri),
     })
   }
-
-  // 2. Likes & Reposts on viewer's posts
-  const viewerPostUris = new Set(
-    Object.values(getCollectionMap(db, viewerDid, 'app.bsky.feed.post')).map(
-      p => p.uri,
-    ),
-  )
-
-  for (const rec of getAllLocalRecords(db, 'app.bsky.feed.like')) {
-    const subjectUri = rec.value?.subject?.uri
-    if (rec.repo === viewerDid || !viewerPostUris.has(subjectUri)) continue
-    const authorAcc = db.accounts[rec.repo]
-    if (isActorHidden(authorAcc)) continue
-    const indexedAt = rec.indexedAt || rec.value?.createdAt || new Date().toISOString()
-    notifications.push({
-      uri: rec.uri,
-      cid: rec.cid,
-      author: buildLocalProfileView(db, authorAcc, viewerDid, origin, false),
-      reason: 'like',
-      reasonSubject: subjectUri,
-      record: rec.value,
-      isRead: indexedAt <= seenAt,
-      indexedAt,
-      labels: [],
-    })
-  }
-
-  for (const rec of getAllLocalRecords(db, 'app.bsky.feed.repost')) {
-    const subjectUri = rec.value?.subject?.uri
-    if (rec.repo === viewerDid || !viewerPostUris.has(subjectUri)) continue
-    const authorAcc = db.accounts[rec.repo]
-    if (isActorHidden(authorAcc)) continue
-    const indexedAt = rec.indexedAt || rec.value?.createdAt || new Date().toISOString()
-    notifications.push({
-      uri: rec.uri,
-      cid: rec.cid,
-      author: buildLocalProfileView(db, authorAcc, viewerDid, origin, false),
-      reason: 'repost',
-      reasonSubject: subjectUri,
-      record: rec.value,
-      isRead: indexedAt <= seenAt,
-      indexedAt,
-      labels: [],
-    })
-  }
-
-  // 3. Replies, Quotes & Mentions targeting viewer
-  const handleNeedle = `@${viewerAcc.handle.toLowerCase()}`
-  const shortNeedle = `@${viewerAcc.handle.split('.')[0].toLowerCase()}`
-  for (const rec of getAllLocalRecords(db, 'app.bsky.feed.post')) {
-    if (rec.repo === viewerDid) continue
-    if (isPostHiddenForViewer(db, rec, viewerDid, getCollectionMap)) continue
-    const authorAcc = db.accounts[rec.repo]
-    if (!authorAcc) continue
-    const parentUri = rec.value?.reply?.parent?.uri
-    const isReplyToViewer = parentUri && viewerPostUris.has(parentUri)
-    const quotedUri =
-      rec.value?.embed?.$type === 'app.bsky.embed.record'
-        ? rec.value?.embed?.record?.uri
-        : rec.value?.embed?.$type === 'app.bsky.embed.recordWithMedia'
-          ? rec.value?.embed?.record?.record?.uri
-          : null
-    const isQuoteOfViewer = quotedUri && viewerPostUris.has(quotedUri)
-    const textLower = String(rec.value?.text || '').toLowerCase()
-    const isMention =
-      textLower.includes(handleNeedle) ||
-      new RegExp(`(?:^|\\s)${shortNeedle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(
-        textLower,
-      )
-    if (!isReplyToViewer && !isQuoteOfViewer && !isMention) continue
-    const indexedAt = rec.indexedAt || rec.value?.createdAt || new Date().toISOString()
-    const reason = isReplyToViewer
-      ? 'reply'
-      : isQuoteOfViewer
-        ? 'quote'
-        : 'mention'
-    const reasonSubject = isReplyToViewer
-      ? parentUri
-      : isQuoteOfViewer
-        ? quotedUri
-        : undefined
-    notifications.push({
-      uri: rec.uri,
-      cid: rec.cid,
-      author: buildLocalProfileView(db, authorAcc, viewerDid, origin, false),
-      reason,
-      ...(reasonSubject ? {reasonSubject} : {}),
-      record: rec.value,
-      isRead: indexedAt <= seenAt,
-      indexedAt,
-      labels: [],
-    })
-  }
-
-  notifications.sort((a, b) =>
-    String(b.indexedAt || '').localeCompare(String(a.indexedAt || '')),
-  )
-  return notifications.slice(0, limit)
+  return {notifications, cursor: page.cursor}
 }
 
 function buildGroupedNotifications(
-  db,
+  storeOrDb,
   viewerDid,
   origin,
   feed = 'all',
   limit = 30,
 ) {
-  const viewerAcc = db.accounts[viewerDid]
+  const store = unwrapStore(storeOrDb)
+  const viewerAcc = store.getAccountByDid(viewerDid)
   if (!viewerAcc) {
     return {groups: [], relatedViews: [], seenAt: new Date().toISOString()}
   }
   const seenAt = viewerAcc.notificationsSeenAt || '1970-01-01T00:00:00.000Z'
-  const raw = buildLocalNotifications(db, viewerDid, origin, 100)
-
-  const followingSet = new Set(
-    Object.values(getCollectionMap(db, viewerDid, 'app.bsky.graph.follow'))
-      .map(r => r.value?.subject)
-      .filter(Boolean),
+  const {notifications: raw} = buildLocalNotifications(
+    store,
+    viewerDid,
+    origin,
+    100,
   )
+
+  const followingSet = new Set(store.getFollowedDids(viewerDid))
 
   const filtered = raw.filter(n => {
     if (feed === 'people-i-follow') return followingSet.has(n.author?.did)
-    if (feed === 'conversations')
-      return n.reason === 'reply' || n.reason === 'quote' || n.reason === 'mention'
+    if (feed === 'conversations') {
+      return (
+        n.reason === 'reply' || n.reason === 'quote' || n.reason === 'mention'
+      )
+    }
     if (feed === 'followers') return n.reason === 'follow'
     if (feed === 'activity') return n.reason === 'like' || n.reason === 'repost'
     return true
@@ -2354,22 +2329,19 @@ function buildGroupedNotifications(
 
   const registerProfile = did => {
     if (!did || profileViews.has(did)) return
-    const acc = db.accounts[did]
+    const acc = store.getAccountByDid(did)
     if (!acc) return
     profileViews.set(did, {
       $type: 'app.bsky.actor.defs#profileViewBasic',
-      ...buildLocalProfileView(db, acc, viewerDid, origin, false),
+      ...buildLocalProfileView(store, acc, viewerDid, origin, false),
     })
   }
 
   const registerPost = uri => {
     if (!uri || postViews.has(uri)) return
-    const resolved = resolveAtUri(db, uri)
-    if (!resolved) return
-    const rec =
-      db.records?.[resolved.did]?.[resolved.collection]?.[resolved.rkey]
+    const rec = store.getRecordByUri(uri)
     if (!rec) return
-    const pv = buildLocalPostView(db, rec, viewerDid, origin)
+    const pv = buildLocalPostView(store, rec, viewerDid, origin)
     if (pv) postViews.set(uri, pv)
   }
 
@@ -2538,49 +2510,125 @@ function buildGroupedNotifications(
 }
 
 // ---------------------------------------------------------------------------
-// Sovereign Link Metadata Extractor (replaces cardyb.bsky.app)
+// DNS-Validated SSRF-Safe Link Metadata Extractor
 // ---------------------------------------------------------------------------
 
-function isPrivateOrBlockedHost(hostname) {
-  const h = String(hostname || '').toLowerCase()
-  return (
-    !h ||
-    h === 'localhost' ||
-    h === '127.0.0.1' ||
-    h === '::1' ||
-    h === '0.0.0.0' ||
-    h.startsWith('10.') ||
-    h.startsWith('192.168.') ||
-    h.startsWith('169.254.') ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
-    h.endsWith('.local') ||
-    h.endsWith('.internal')
-  )
+function isBlockedIpAddress(ipRaw) {
+  const ip = String(ipRaw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+  if (!ip) return true
+
+  // Unwrap IPv4-mapped IPv6 (e.g. ::ffff:127.0.0.1)
+  if (ip.startsWith('::ffff:')) {
+    const mapped = ip.slice('::ffff:'.length)
+    if (net.isIPv4(mapped)) {
+      return isBlockedIpAddress(mapped)
+    }
+  }
+
+  if (net.isIPv4(ip)) {
+    const parts = ip.split('.').map(n => parseInt(n, 10))
+    const [a, b] = parts
+    if (a === 0) return true // 0.0.0.0/8
+    if (a === 10) return true // 10.0.0.0/8
+    if (a === 127) return true // 127.0.0.0/8 loopback
+    if (a === 169 && b === 254) return true // 169.254.0.0/16 link-local & cloud metadata
+    if (a === 172 && b >= 16 && b <= 31) return true // 172.16.0.0/12
+    if (a === 192 && b === 168) return true // 192.168.0.0/16
+    if (a === 100 && b >= 64 && b <= 127) return true // 100.64.0.0/10 CGNAT
+    if (a === 198 && (b === 18 || b === 19)) return true // 198.18.0.0/15
+    if (a >= 224) return true // Multicast & reserved
+    return false
+  }
+
+  if (net.isIPv6(ip)) {
+    if (ip === '::' || ip === '::1') return true
+    if (ip.startsWith('fe8') || ip.startsWith('fe9') || ip.startsWith('fea') || ip.startsWith('feb')) {
+      return true // fe80::/10 link-local
+    }
+    if (ip.startsWith('fc') || ip.startsWith('fd')) {
+      return true // fc00::/7 unique local
+    }
+    if (ip.startsWith('ff')) return true // multicast
+    if (ip.startsWith('100:')) return true // discard prefix
+    return false
+  }
+
+  return true
 }
 
-function fetchLinkMetaSafe(rawUrl, redirectsLeft = 3) {
+function isPrivateOrBlockedHostString(hostname) {
+  const h = String(hostname || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+  if (
+    !h ||
+    h === 'localhost' ||
+    h.endsWith('.localhost') ||
+    h.endsWith('.local') ||
+    h.endsWith('.internal') ||
+    h === 'metadata.google.internal'
+  ) {
+    return true
+  }
+  if (net.isIP(h)) {
+    return isBlockedIpAddress(h)
+  }
+  return false
+}
+
+async function resolveSafePublicHost(hostname) {
+  if (isPrivateOrBlockedHostString(hostname)) return false
+  try {
+    const records = await dns.promises.lookup(hostname, {
+      all: true,
+      verbatim: true,
+    })
+    if (!Array.isArray(records) || records.length === 0) return false
+    for (const rec of records) {
+      if (!rec?.address || isBlockedIpAddress(rec.address)) {
+        return false
+      }
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function fetchLinkMetaSafe(rawUrl, redirectsLeft = 3) {
+  let parsed
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    return {error: 'Invalid URL', title: '', description: '', image: ''}
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return {
+      error: '',
+      likely_type: 'html',
+      url: rawUrl,
+      title: parsed.hostname || rawUrl,
+      description: '',
+      image: '',
+    }
+  }
+  const isSafe = await resolveSafePublicHost(parsed.hostname)
+  if (!isSafe) {
+    return {
+      error: '',
+      likely_type: 'html',
+      url: rawUrl,
+      title: parsed.hostname || rawUrl,
+      description: '',
+      image: '',
+    }
+  }
+
   return new Promise(resolve => {
-    let parsed
-    try {
-      parsed = new URL(rawUrl)
-    } catch {
-      resolve({error: 'Invalid URL', title: '', description: '', image: ''})
-      return
-    }
-    if (
-      (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
-      isPrivateOrBlockedHost(parsed.hostname)
-    ) {
-      resolve({
-        error: '',
-        likely_type: 'html',
-        url: rawUrl,
-        title: parsed.hostname || rawUrl,
-        description: '',
-        image: '',
-      })
-      return
-    }
     const client = parsed.protocol === 'https:' ? https : http
     const req = client.get(
       parsed,
@@ -2614,7 +2662,10 @@ function fetchLinkMetaSafe(rawUrl, redirectsLeft = 3) {
             res.destroy()
           }
         })
+        let settled = false
         const done = () => {
+          if (settled) return
+          settled = true
           const titleMatch =
             html.match(
               /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i,
@@ -2671,23 +2722,27 @@ function fetchLinkMetaSafe(rawUrl, redirectsLeft = 3) {
 }
 
 // ---------------------------------------------------------------------------
-// Sovereign Direct Messages (chat.bsky.convo.*)
+// Sovereign Direct Messages Hydrator (chat.bsky.convo.*)
 // ---------------------------------------------------------------------------
 
-function buildConvoView(db, convo, viewerDid, origin) {
-  const members = (convo.members || [])
-    .map(did => db.accounts[did])
+function buildConvoView(storeOrDb, convo, viewerDid, origin) {
+  const store = unwrapStore(storeOrDb)
+  const memberDids =
+    Array.isArray(convo.allMemberDids) && convo.allMemberDids.length > 0
+      ? convo.allMemberDids
+      : convo.members || []
+  const members = memberDids
+    .map(did => store.getAccountByDid(did))
     .filter(Boolean)
     .map(acc => ({
-      ...buildLocalProfileView(db, acc, viewerDid, origin, false),
+      ...buildLocalProfileView(store, acc, viewerDid, origin, false),
       chatDisabled: false,
     }))
-  const messages = Array.isArray(convo.messages) ? convo.messages : []
-  const lastMsg = messages.length > 0 ? messages[messages.length - 1] : undefined
+  const lastMsg = store.getLastMessageForConvo(convo.id, viewerDid)
   const readRev = convo.readBy?.[viewerDid] || ''
-  const unreadCount = messages.filter(
-    m => m.sender?.did !== viewerDid && m.rev > readRev,
-  ).length
+  const unreadCount = viewerDid
+    ? store.countUnreadMessages(convo.id, viewerDid, readRev)
+    : 0
   return {
     $type: 'chat.bsky.convo.defs#convoView',
     id: convo.id,
@@ -2696,13 +2751,649 @@ function buildConvoView(db, convo, viewerDid, origin) {
     members,
     ...(lastMsg ? {lastMessage: lastMsg} : {}),
     muted: Boolean(convo.mutedBy?.[viewerDid]),
-    status: 'accepted',
+    status: convo.statusBy?.[viewerDid] || 'accepted',
     unreadCount,
   }
 }
 
 // ---------------------------------------------------------------------------
-// Route predicate & main Sovereign XRPC handler
+// Real Domain Hydrators (Articles, ZingSpaces, SSE Broadcast, Quanty Bridge)
+// ---------------------------------------------------------------------------
+
+function hydrateArticleView(store, article, origin) {
+  if (!article) return null
+  const authorAcc = store.getAccountByDid(article.authorDid)
+  const authorAvatar = authorAcc
+    ? blobUrl(origin, authorAcc.did, authorAcc.profile?.avatar)
+    : undefined
+  return {
+    id: article.id,
+    uri: article.uri || `at://${article.authorDid}/com.quantzing.article/${article.id}`,
+    ...(article.cid ? {cid: article.cid} : {}),
+    authorDid: article.authorDid,
+    authorHandle: authorAcc?.handle || article.authorDid,
+    authorDisplayName:
+      authorAcc?.profile?.displayName ||
+      authorAcc?.handle?.split('.')[0] ||
+      'QuantZing Author',
+    ...(authorAvatar ? {authorAvatar} : {}),
+    title: article.title,
+    subtitle: article.subtitle || '',
+    body: article.body || '',
+    tags: Array.isArray(article.tags) ? article.tags : [],
+    ...(article.coverUrl ? {coverUrl: article.coverUrl} : {}),
+    status: article.status === 'published' ? 'published' : 'draft',
+    readTimeMinutes: Number(article.readTimeMinutes || 1),
+    viewsCount: Number(article.viewsCount || 0),
+    createdAt: article.createdAt,
+    updatedAt: article.updatedAt,
+    ...(article.publishedAt ? {publishedAt: article.publishedAt} : {}),
+  }
+}
+
+function hydrateSpaceView(store, space, origin) {
+  if (!space) return null
+  const hostAcc = store.getAccountByDid(space.hostDid)
+  const hostAvatar = hostAcc
+    ? blobUrl(origin, hostAcc.did, hostAcc.profile?.avatar)
+    : undefined
+  const participants = (space.participants || []).map(p => {
+    const acc = store.getAccountByDid(p.did)
+    const avatar = acc
+      ? blobUrl(origin, acc.did, acc.profile?.avatar)
+      : undefined
+    return {
+      did: p.did,
+      handle: acc?.handle || p.did,
+      displayName:
+        acc?.profile?.displayName || acc?.handle?.split('.')[0] || p.did,
+      ...(avatar ? {avatar} : {}),
+      role: p.role || 'listener',
+      handRaised: Boolean(p.handRaised),
+      muted: Boolean(p.muted),
+      joinedAt: p.joinedAt,
+    }
+  })
+  const recentReactions = (space.recentReactions || []).map(r => {
+    const acc = store.getAccountByDid(r.did)
+    return {
+      id: r.id,
+      did: r.did,
+      handle: acc?.handle || r.did,
+      kind: r.kind,
+      createdAt: r.createdAt,
+    }
+  })
+  return {
+    id: space.id,
+    slug: space.slug,
+    title: space.title,
+    topic: space.topic || '',
+    hostDid: space.hostDid,
+    hostHandle: hostAcc?.handle || space.hostDid,
+    hostDisplayName:
+      hostAcc?.profile?.displayName ||
+      hostAcc?.handle?.split('.')[0] ||
+      'QuantZing Host',
+    ...(hostAvatar ? {hostAvatar} : {}),
+    status: space.status || 'live',
+    startedAt: space.startedAt || space.createdAt,
+    ...(space.scheduledFor ? {scheduledFor: space.scheduledFor} : {}),
+    ...(space.endedAt ? {endedAt: space.endedAt} : {}),
+    audioMode: space.audioMode || 'text_stage_ready',
+    allowRecording: Boolean(space.allowRecording),
+    coHostEnabled: Boolean(space.coHostEnabled),
+    listenerCount: participants.length,
+    speakerCount: participants.filter(
+      p => p.role === 'host' || p.role === 'speaker',
+    ).length,
+    participants,
+    recentReactions,
+  }
+}
+
+function broadcastSpaceUpdate(slug, hydratedSpace) {
+  const clients = spaceSseClients.get(slug)
+  if (!clients || clients.size === 0) return
+  const payload = JSON.stringify({
+    type: 'space_update',
+    space: hydratedSpace,
+    timestamp: new Date().toISOString(),
+  })
+  const frame = `event: space_update\ndata: ${payload}\n\n`
+  for (const clientRes of [...clients]) {
+    try {
+      if (clientRes.writableEnded || clientRes.destroyed) {
+        clients.delete(clientRes)
+      } else {
+        clientRes.write(frame)
+      }
+    } catch {
+      clients.delete(clientRes)
+    }
+  }
+}
+
+function buildQuantyBridgeForStore(store) {
+  return createQuantyBridge({
+    store,
+    getDb: () => ({
+      jwtSecret: store.getJwtSecret(),
+      _store: store,
+      get bookmarks() {
+        return new Proxy(
+          {},
+          {
+            get(_, did) {
+              if (typeof did !== 'string') return []
+              return store.getBookmarks(did, {limit: 50}).items
+            },
+          },
+        )
+      },
+    }),
+    getAuth: req => {
+      const auth = getAuthedContext(req, store)
+      if (!auth || auth.error) return null
+      return auth
+    },
+    getOptionalViewerDid: req => getOptionalViewerDid(req, store),
+    checkAccountEnforcement: did => {
+      const acc = store.getAccountByDid(did)
+      if (!acc) return {allowed: false, status: 'guest', reason: 'Account not found'}
+      const enf = checkAccountEnforcement(store, acc)
+      return {
+        allowed: enf.allowed,
+        status: acc.status || 'active',
+        reason: enf.message,
+      }
+    },
+    readJsonBody: (req, maxBytes) => readJsonBody(req, maxBytes),
+    sendJson: (res, status, payload) => {
+      if (res.headersSent) return
+      // Normalize 201 -> 200 for full REST & E2E client compatibility
+      const code = status === 201 ? 200 : status
+      const bodyStr = JSON.stringify(payload)
+      res.writeHead(
+        code,
+        corsHeaders(null, {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+        }),
+      )
+      res.write(bodyStr)
+      res.end()
+    },
+    helpers: {
+      findLocalAccount: actor => store.findAccount(actor),
+      buildLocalProfileView: (acc, viewerDid, origin, detailed) =>
+        buildLocalProfileView(store, acc, viewerDid, origin, detailed),
+      buildLocalPostView: (arg1, arg2, arg3, arg4, arg5) => {
+        if (arg1 && typeof arg1 === 'object' && arg1.uri) {
+          return buildLocalPostView(store, arg1, arg2, arg3)
+        }
+        const entry =
+          arg3 && typeof arg3 === 'object' && arg3.value
+            ? {...arg3, repo: arg3.repo || arg1, rkey: arg3.rkey || arg2}
+            : store.getRecord(arg1, 'app.bsky.feed.post', arg2)
+        return entry ? buildLocalPostView(store, entry, arg4, arg5) : null
+      },
+      hydrateLocalPosts: (uris, viewerDid, origin) =>
+        hydrateLocalPosts(store, uris, viewerDid, origin),
+      resolveAtUri: uri => store.resolveAtUri(uri),
+      putLocalRecord: (did, collection, rkey, record) =>
+        putLocalRecord(store, did, collection, rkey, record),
+      deleteLocalRecord: (did, collection, rkey) =>
+        deleteLocalRecord(store, did, collection, rkey),
+      computeSovereignTrends: (viewerDid, origin, limit) =>
+        computeSovereignTrends(store, viewerDid, origin, limit),
+      searchLocalPosts: ({
+        query = '',
+        author = null,
+        tag = null,
+        sort = 'top',
+        limit = 10,
+        viewerDid = null,
+        origin = '',
+      } = {}) => {
+        const authorAcc = author ? store.findAccount(author) : null
+        if (author && !authorAcc) return []
+        const res = store.searchPosts({
+          query,
+          authorDid: authorAcc?.did || null,
+          tags: tag ? [tag] : [],
+          sort,
+          limit,
+        })
+        return res.records
+          .filter(r => !isRecordHiddenForViewer(store, r, viewerDid))
+          .map(r => buildLocalPostView(store, r, viewerDid, origin))
+          .filter(Boolean)
+      },
+      searchLocalActors: ({
+        query = '',
+        limit = 10,
+        viewerDid = null,
+        origin = '',
+      } = {}) => {
+        const res = store.searchActors({query, viewerDid, limit})
+        return res.accounts
+          .map(a => buildLocalProfileView(store, a, viewerDid, origin, false))
+          .filter(Boolean)
+      },
+      buildLocalNotifications: (did, origin, limit) =>
+        buildLocalNotifications(store, did, origin, limit).notifications,
+      getPostViewCount: uri => store.getPostViewCount(uri),
+      getUserAnalytics: (did, windowDays) =>
+        store.getCreatorAnalytics(did, windowDays),
+      listUserConvos: (did, origin, limit = 15) => {
+        const res = store.listConvosForMember(did, {limit})
+        return res.convos.map(c => buildConvoView(store, c, did, origin))
+      },
+      sendLocalDm: ({senderDid, targetHandleOrDid, text, origin = ''}) => {
+        const target = store.findAccount(targetHandleOrDid)
+        if (!target) throw new Error(`Recipient ${targetHandleOrDid} not found`)
+        const members = [...new Set([senderDid, target.did])].sort()
+        const key = members.join('|')
+        let convo = store.getConvoByMemberKey(key)
+        if (!convo) {
+          convo = store.createConvo({
+            id: generateTid(),
+            members,
+            rev: generateTid(),
+          })
+        }
+        const rev = generateTid()
+        const message = store.sendConvoMessage({
+          convoId: convo.id,
+          messageId: generateTid(),
+          rev,
+          senderDid,
+          text,
+          facets: buildFacetsForText(store, text),
+        })
+        const updatedConvo = store.getConvoById(convo.id)
+        return {
+          convoId: convo.id,
+          convo: buildConvoView(store, updatedConvo, senderDid, origin),
+          message,
+        }
+      },
+      listArticles: ({
+        actor = null,
+        status = 'published',
+        limit = 20,
+        viewerDid = null,
+        origin = '',
+      } = {}) => {
+        const authorAcc = actor ? store.findAccount(actor) : null
+        const rows = store.listArticles({
+          actorDid: authorAcc?.did || null,
+          status,
+          viewerDid,
+          limit,
+        })
+        return rows.map(a => hydrateArticleView(store, a, origin))
+      },
+      upsertArticle: ({
+        authorDid,
+        id,
+        title,
+        subtitle = '',
+        body = '',
+        tags = [],
+        coverUrl = null,
+        status = 'published',
+        origin = '',
+      }) => {
+        const rkey = id || generateTid()
+        const uri = `at://${authorDid}/com.quantzing.article/${rkey}`
+        const recVal = {
+          $type: 'com.quantzing.article',
+          title,
+          subtitle,
+          body,
+          tags,
+          ...(coverUrl ? {coverUrl} : {}),
+          status,
+          createdAt: new Date().toISOString(),
+        }
+        const cid = computeCid(recVal, 'dag-cbor')
+        store.putRecord({
+          uri,
+          cid,
+          rkey,
+          collection: 'com.quantzing.article',
+          repo: authorDid,
+          value: recVal,
+          indexedAt: recVal.createdAt,
+        })
+        const saved = store.upsertArticle({
+          id: rkey,
+          uri,
+          cid,
+          authorDid,
+          title,
+          subtitle,
+          body,
+          tags,
+          coverUrl,
+          status,
+        })
+        return hydrateArticleView(store, saved, origin)
+      },
+      deleteArticle: ({authorDid, id}) => store.deleteArticle(id, authorDid),
+      createLocalList: ({
+        authorDid,
+        name,
+        purpose = 'app.bsky.graph.defs#curatelist',
+        description = '',
+      }) => {
+        const entry = putLocalRecord(store, authorDid, 'app.bsky.graph.list', undefined, {
+          $type: 'app.bsky.graph.list',
+          name,
+          purpose,
+          description,
+          createdAt: new Date().toISOString(),
+        })
+        return {uri: entry.uri, cid: entry.cid, rkey: entry.rkey, list: entry}
+      },
+      addListMember: ({authorDid, listUri, subjectDid}) => {
+        const entry = putLocalRecord(
+          store,
+          authorDid,
+          'app.bsky.graph.listitem',
+          undefined,
+          {
+            $type: 'app.bsky.graph.listitem',
+            list: store.canonicalizeUri(listUri),
+            subject: subjectDid,
+            createdAt: new Date().toISOString(),
+          },
+        )
+        return {uri: entry.uri, cid: entry.cid, rkey: entry.rkey}
+      },
+      toggleFollow: ({viewerDid, targetDid, follow = true}) => {
+        const existingUri = store.findUserFollowUri(viewerDid, targetDid)
+        if (follow) {
+          if (existingUri) return {uri: existingUri, following: true}
+          const entry = putLocalRecord(
+            store,
+            viewerDid,
+            'app.bsky.graph.follow',
+            undefined,
+            {
+              $type: 'app.bsky.graph.follow',
+              subject: targetDid,
+              createdAt: new Date().toISOString(),
+            },
+          )
+          return {uri: entry.uri, following: true}
+        }
+        if (existingUri) {
+          const parsed = parseAtUri(existingUri)
+          if (parsed) {
+            deleteLocalRecord(store, viewerDid, 'app.bsky.graph.follow', parsed.rkey)
+          }
+        }
+        return {following: false}
+      },
+      toggleLike: ({viewerDid, subjectUri, subjectCid = '', like = true}) => {
+        const canonical = store.canonicalizeUri(subjectUri)
+        const existingUri = store.findUserReactionUri(
+          viewerDid,
+          'app.bsky.feed.like',
+          canonical,
+        )
+        if (like) {
+          if (existingUri) return {uri: existingUri, liked: true}
+          const targetRec = store.getRecordByUri(canonical)
+          const entry = putLocalRecord(
+            store,
+            viewerDid,
+            'app.bsky.feed.like',
+            undefined,
+            {
+              $type: 'app.bsky.feed.like',
+              subject: {
+                uri: canonical,
+                cid: subjectCid || targetRec?.cid || computeCid(canonical),
+              },
+              createdAt: new Date().toISOString(),
+            },
+          )
+          return {uri: entry.uri, liked: true}
+        }
+        if (existingUri) {
+          const parsed = parseAtUri(existingUri)
+          if (parsed) {
+            deleteLocalRecord(store, viewerDid, 'app.bsky.feed.like', parsed.rkey)
+          }
+        }
+        return {liked: false}
+      },
+      toggleRepost: ({
+        viewerDid,
+        subjectUri,
+        subjectCid = '',
+        repost = true,
+      }) => {
+        const canonical = store.canonicalizeUri(subjectUri)
+        const existingUri = store.findUserReactionUri(
+          viewerDid,
+          'app.bsky.feed.repost',
+          canonical,
+        )
+        if (repost) {
+          if (existingUri) return {uri: existingUri, reposted: true}
+          const targetRec = store.getRecordByUri(canonical)
+          const entry = putLocalRecord(
+            store,
+            viewerDid,
+            'app.bsky.feed.repost',
+            undefined,
+            {
+              $type: 'app.bsky.feed.repost',
+              subject: {
+                uri: canonical,
+                cid: subjectCid || targetRec?.cid || computeCid(canonical),
+              },
+              createdAt: new Date().toISOString(),
+            },
+          )
+          return {uri: entry.uri, reposted: true}
+        }
+        if (existingUri) {
+          const parsed = parseAtUri(existingUri)
+          if (parsed) {
+            deleteLocalRecord(store, viewerDid, 'app.bsky.feed.repost', parsed.rkey)
+          }
+        }
+        return {reposted: false}
+      },
+      toggleBookmark: ({viewerDid, uri, cid = '', bookmarked = true}) => {
+        const canonical = store.canonicalizeUri(uri)
+        if (bookmarked) {
+          const targetRec = store.getRecordByUri(canonical)
+          store.createBookmark(
+            viewerDid,
+            canonical,
+            cid || targetRec?.cid || computeCid(canonical),
+          )
+          return {uri: canonical, bookmarked: true}
+        }
+        store.deleteBookmark(viewerDid, canonical)
+        return {uri: canonical, bookmarked: false}
+      },
+      updateProfile: ({did, displayName, description}) => {
+        const acc = store.getAccountByDid(did)
+        if (!acc) throw new Error('Account not found')
+        const existingRec = store.getRecord(did, 'app.bsky.actor.profile', 'self')
+        const baseValue = existingRec?.value || {
+          $type: 'app.bsky.actor.profile',
+          displayName: acc.profile?.displayName || '',
+          description: acc.profile?.description || '',
+          createdAt: acc.createdAt,
+        }
+        const nextValue = {
+          ...baseValue,
+          ...(displayName !== undefined ? {displayName} : {}),
+          ...(description !== undefined ? {description} : {}),
+        }
+        putLocalRecord(store, did, 'app.bsky.actor.profile', 'self', nextValue)
+        const updatedAcc = store.getAccountByDid(did)
+        return {
+          did,
+          displayName: updatedAcc?.profile?.displayName,
+          description: updatedAcc?.profile?.description,
+          profile: updatedAcc?.profile,
+        }
+      },
+      toggleMuteActor: ({viewerDid, targetDid, muted = true}) => {
+        if (muted) store.muteActor(viewerDid, targetDid)
+        else store.unmuteActor(viewerDid, targetDid)
+        return {muted: Boolean(muted)}
+      },
+      toggleBlockActor: ({viewerDid, targetDid, blocked = true}) => {
+        const existingUri = store.findBlockUri(viewerDid, targetDid)
+        if (blocked) {
+          if (existingUri) return {blocked: true, uri: existingUri}
+          const entry = putLocalRecord(
+            store,
+            viewerDid,
+            'app.bsky.graph.block',
+            undefined,
+            {
+              $type: 'app.bsky.graph.block',
+              subject: targetDid,
+              createdAt: new Date().toISOString(),
+            },
+          )
+          return {blocked: true, uri: entry.uri}
+        }
+        if (existingUri) {
+          const parsed = parseAtUri(existingUri)
+          if (parsed) {
+            deleteLocalRecord(store, viewerDid, 'app.bsky.graph.block', parsed.rkey)
+          }
+        }
+        return {blocked: false}
+      },
+      togglePinPost: ({did, uri = null}) => {
+        const acc = store.getAccountByDid(did)
+        if (!acc) throw new Error('Account not found')
+        let pinnedPost = null
+        if (uri) {
+          const rec = store.getRecordByUri(uri)
+          if (rec) pinnedPost = {uri: rec.uri, cid: rec.cid}
+        }
+        const existingRec = store.getRecord(did, 'app.bsky.actor.profile', 'self')
+        const nextVal = {
+          ...(existingRec?.value || {$type: 'app.bsky.actor.profile'}),
+          pinnedPost,
+        }
+        putLocalRecord(store, did, 'app.bsky.actor.profile', 'self', nextVal)
+        return {pinnedPost}
+      },
+      listSpaces: ({status = 'all', limit = 20, origin = ''} = {}) => {
+        const rows = store.listSpaces({status, limit})
+        return rows.map(s => hydrateSpaceView(store, s, origin))
+      },
+      createSpace: ({
+        hostDid,
+        title,
+        topic = '',
+        scheduledFor = null,
+        origin = '',
+      }) => {
+        const status = scheduledFor ? 'scheduled' : 'live'
+        const sp = store.createSpace({
+          hostDid,
+          title,
+          topic,
+          status,
+          scheduledFor,
+        })
+        return hydrateSpaceView(store, sp, origin)
+      },
+      createPollPost: ({
+        authorDid,
+        text,
+        options = [],
+        durationHours = 24,
+        origin = '',
+      }) => {
+        const dur = Math.min(168, Math.max(1, Number(durationHours) || 24))
+        const expiresAt = new Date(Date.now() + dur * 3600 * 1000).toISOString()
+        const normOpts = options.slice(0, 4).map((o, idx) => ({
+          id: typeof o === 'object' && o?.id ? String(o.id) : `opt${idx + 1}`,
+          text: String(typeof o === 'object' ? o.text : o).slice(0, 80),
+        }))
+        const createdAt = new Date().toISOString()
+        const entry = putLocalRecord(
+          store,
+          authorDid,
+          'app.bsky.feed.post',
+          undefined,
+          {
+            $type: 'app.bsky.feed.post',
+            text,
+            createdAt,
+            langs: ['en'],
+            embed: {
+              $type: 'com.quantzing.embed.poll',
+              question: text,
+              options: normOpts,
+              durationHours: dur,
+              expiresAt,
+            },
+          },
+        )
+        const postView = buildLocalPostView(store, entry, authorDid, origin)
+        return {
+          uri: entry.uri,
+          cid: entry.cid,
+          rkey: entry.rkey,
+          post: postView,
+          poll: postView?.embed,
+        }
+      },
+      recordAuditEvent: ({actorDid, action, target, metadata = {}}) => {
+        const acc = store.getAccountByDid(actorDid)
+        return store.appendAuditEvent({
+          actorDid: actorDid || 'system',
+          actorHandle: acc?.handle || 'system',
+          actorRole: acc?.role || 'user',
+          action,
+          target,
+          details: metadata,
+        })
+      },
+      quantOsUrls: {
+        aiUrl:
+          process.env.QUANT_AI_URL ||
+          `http://${process.env.QUANT_AI_HOST || '127.0.0.1'}:${process.env.QUANT_AI_PORT || '4240'}`,
+        routerUrl:
+          process.env.QUANT_ROUTER_URL ||
+          `http://${process.env.QUANT_ROUTER_HOST || '127.0.0.1'}:${process.env.QUANT_ROUTER_PORT || '4003'}`,
+        payUrl:
+          process.env.QUANT_PAY_URL ||
+          `http://${process.env.QUANT_PAY_HOST || '127.0.0.1'}:${process.env.QUANT_PAY_PORT || '4002'}`,
+        internalApiKey: process.env.QUANTOS_INTERNAL_TOKEN || '',
+      },
+    },
+  })
+}
+
+function getQuantyBridgeInstance(store = getActiveStore()) {
+  if (!store._quantyBridge) {
+    store._quantyBridge = buildQuantyBridgeForStore(store)
+  }
+  return store._quantyBridge
+}
+
+// ---------------------------------------------------------------------------
+// Route predicate & main Sovereign XRPC + REST + MCP handler
 // ---------------------------------------------------------------------------
 
 export function isQuantZingPdsRoute(urlPath) {
@@ -2711,6 +3402,10 @@ export function isQuantZingPdsRoute(urlPath) {
     pathname.startsWith('/xrpc/') ||
     pathname.startsWith('/blob/') ||
     pathname.startsWith('/api/quantzing/') ||
+    pathname === '/mcp' ||
+    pathname.startsWith('/mcp/') ||
+    pathname === '/download/quantzing-ios.mobileconfig' ||
+    pathname === '/apple-touch-icon.png' ||
     pathname === '/.well-known/did.json'
   )
 }
@@ -2738,290 +3433,1430 @@ export async function handleQuantZingPds(req, res) {
 
   const {pathname, searchParams} = parsedUrl
   const method = (req.method || 'GET').toUpperCase()
-  const db = loadDb()
+  const store = getActiveStore()
 
-  // -------------------------------------------------------------------------
-  // Sovereign QuantZing Config, Geolocation, Link Meta, Quanty Mention & DID
-  // -------------------------------------------------------------------------
+  try {
+    // -----------------------------------------------------------------------
+    // 0. App Release, iOS .mobileconfig, apple-touch-icon & Quanty / MCP Bridge
+    // -----------------------------------------------------------------------
 
-  if (pathname === '/api/quantzing/config') {
-    sendJson(req, res, 200, {
-      ok: true,
-      app: 'QuantZing',
-      domain: 'quantzing.quantrinity.in',
-      primaryDomain: 'quantzing.com',
-      did: QUANTZING_DID,
-      pds: origin,
-      appView: origin,
-      mode: 'sovereign-pure',
-      blueskyUpstream: false,
-      features: {
-        localPds: true,
-        sovereignAppView: true,
-        publicAppViewProxy: false,
-        blobStorage: true,
-        bookmarks: true,
-        quantyMentions: true,
-        directMessages: true,
-      },
-    })
-    return true
-  }
-
-  if (pathname === '/api/quantzing/geolocation') {
-    sendJson(req, res, 200, {
-      countryCode: 'IN',
-      regionCode: 'DL',
-      city: 'New Delhi',
-      isAgeRestrictedGeo: false,
-      isAgeBlockedGeo: false,
-    })
-    return true
-  }
-
-  if (pathname === '/api/quantzing/link-meta' && method === 'GET') {
-    const target = searchParams.get('url') || ''
-    const meta = await fetchLinkMetaSafe(target)
-    sendJson(req, res, 200, meta)
-    return true
-  }
-
-  if (pathname === '/api/quantzing/link-favicon' && method === 'GET') {
-    const svg = Buffer.from(
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#16181C"/><circle cx="16" cy="16" r="9" fill="none" stroke="#1D9BF0" stroke-width="2"/><path d="M7 16h18M16 7a13 13 0 0 1 0 18M16 7a13 13 0 0 0 0 18" fill="none" stroke="#1D9BF0" stroke-width="1.5"/></svg>',
-      'utf8',
-    )
-    res.writeHead(
-      200,
-      corsHeaders(req, {
-        'content-type': 'image/svg+xml',
-        'content-length': svg.length,
-        'cache-control': 'public, max-age=86400',
-      }),
-    )
-    res.end(svg)
-    return true
-  }
-
-  if (pathname.startsWith('/api/quantzing/gifs')) {
-    sendJson(req, res, 200, {results: [], next: ''})
-    return true
-  }
-
-  if (pathname.startsWith('/api/quantzing/events')) {
-    sendJson(req, res, 200, {status: 200, ok: true, features: {}})
-    return true
-  }
-
-  if (pathname === '/api/quantzing/live-events/config') {
-    sendJson(req, res, 200, {feeds: []})
-    return true
-  }
-
-  if (pathname === '/api/quantzing/app-config/config') {
-    sendJson(req, res, 200, {liveNow: {allow: [], exceptions: []}})
-    return true
-  }
-
-  if (pathname === '/api/quantzing/quanty-mention' && method === 'POST') {
-    const body = await readJsonBody(req)
-    const text = String(body.text || '')
-    const parentText = String(body.parentText || '')
-    const authorHandle = String(body.authorHandle || 'member.quantzing.com')
-    ensureSovereignGenesis(db)
-    const replyText = synthesizeQuantyReplyText(
-      db,
-      text,
-      parentText,
-      authorHandle,
-    )
-    const replyRkey = generateTid()
-    const createdAt = new Date().toISOString()
-    const facets = buildFacetsForText(db, replyText)
-    const replyValue = {
-      $type: 'app.bsky.feed.post',
-      text: replyText,
-      createdAt,
-      langs: ['en'],
-      ...(facets ? {facets} : {}),
-      ...(body.postUri && body.postCid
-        ? {
-            reply: {
-              root:
-                body.rootUri && body.rootCid
-                  ? {uri: String(body.rootUri), cid: String(body.rootCid)}
-                  : {uri: String(body.postUri), cid: String(body.postCid)},
-              parent: {uri: String(body.postUri), cid: String(body.postCid)},
-            },
-          }
-        : {}),
-    }
-    const qCol = getCollectionMap(
-      db,
-      QUANTY_SYSTEM_DID,
-      'app.bsky.feed.post',
-      true,
-    )
-    const replyUri = `at://${QUANTY_SYSTEM_DID}/app.bsky.feed.post/${replyRkey}`
-    const replyCid = computeCid(replyValue, 'dag-cbor')
-    qCol[replyRkey] = {
-      uri: replyUri,
-      cid: replyCid,
-      rkey: replyRkey,
-      collection: 'app.bsky.feed.post',
-      repo: QUANTY_SYSTEM_DID,
-      value: replyValue,
-      indexedAt: createdAt,
-    }
-    saveDb(db)
-    sendJson(req, res, 200, {
-      ok: true,
-      author: QUANTY_SYSTEM_HANDLE,
-      did: QUANTY_SYSTEM_DID,
-      replyUri,
-      replyCid,
-      replyText,
-    })
-    return true
-  }
-
-  if (
-    pathname === '/api/quantzing/appeals' ||
-    pathname === '/api/quantzing/admin' ||
-    pathname.startsWith('/api/quantzing/admin/') ||
-    pathname === '/api/quantzing/ops' ||
-    pathname.startsWith('/api/quantzing/ops/')
-  ) {
-    return await handleQuantZingAdmin(req, res, {
-      db,
-      pathname,
-      searchParams,
-      method,
-      origin,
-      helpers: getAdminHelpers(),
-    })
-  }
-
-  if (pathname === '/.well-known/did.json') {
-    sendJson(req, res, 200, {
-      '@context': ['https://www.w3.org/ns/did/v1'],
-      id: QUANTZING_DID,
-      service: [
-        {
-          id: '#atproto_pds',
-          type: 'AtprotoPersonalDataServer',
-          serviceEndpoint: origin,
-        },
-      ],
-    })
-    return true
-  }
-
-  // -------------------------------------------------------------------------
-  // Sovereign Blob serving: GET /blob/:did/:cid or GET /blob/:cid
-  // -------------------------------------------------------------------------
-
-  if (pathname.startsWith('/blob/')) {
-    const segments = pathname.slice('/blob/'.length).split('/').filter(Boolean)
-    const cid = decodeURIComponent(segments[segments.length - 1] || '')
-    if (!cid || cid.includes('..') || cid.includes('/') || cid.includes('\\')) {
-      sendXrpcError(req, res, 400, 'InvalidRequest', 'Invalid blob CID')
+    if (pathname === '/api/quantzing/app-release' && method === 'GET') {
+      sendJson(req, res, 200, getAppReleasePayload())
       return true
     }
-    const blobFile = path.join(getBlobsDir(), cid)
-    if (!fs.existsSync(blobFile)) {
-      sendXrpcError(req, res, 404, 'BlobNotFound', 'Blob not found')
+
+    if (pathname === '/download/quantzing-ios.mobileconfig' && method === 'GET') {
+      const xml = buildIosMobileconfigXml()
+      const buf = Buffer.from(xml, 'utf8')
+      res.writeHead(
+        200,
+        corsHeaders(req, {
+          'content-type': 'application/x-apple-aspen-config; charset=utf-8',
+          'content-length': buf.length,
+          'content-disposition':
+            'attachment; filename="QuantZing-iOS.mobileconfig"',
+          'cache-control': 'no-cache',
+        }),
+      )
+      res.end(buf)
       return true
     }
-    const meta = db.blobs[cid]
-    const stat = fs.statSync(blobFile)
-    const total = stat.size
-    const contentType = meta?.mimeType || 'application/octet-stream'
-    const rangeHeader = String(req.headers.range || '')
 
-    if (rangeHeader.startsWith('bytes=')) {
-      const [startStr, endStr] = rangeHeader.slice(6).split('-')
-      const start = startStr ? Math.max(0, parseInt(startStr, 10) || 0) : 0
-      const end = endStr
-        ? Math.min(total - 1, parseInt(endStr, 10) || total - 1)
-        : total - 1
-      if (start >= total || end < start) {
-        res.writeHead(
-          416,
-          corsHeaders(req, {'content-range': `bytes */${total}`}),
-        )
-        res.end()
+    if (pathname === '/apple-touch-icon.png' && method === 'GET') {
+      const iconPath = findIosTouchIconPng()
+      if (!iconPath) {
+        sendXrpcError(req, res, 404, 'NotFound', 'apple-touch-icon not found')
         return true
       }
-      const chunkLen = end - start + 1
+      const stat = fs.statSync(iconPath)
       res.writeHead(
-        206,
+        200,
+        corsHeaders(req, {
+          'content-type': 'image/png',
+          'content-length': stat.size,
+          'cache-control': 'public, max-age=86400',
+        }),
+      )
+      const stream = fs.createReadStream(iconPath)
+      stream.on('error', () => {
+        if (!res.headersSent) res.writeHead(500)
+        if (!res.writableEnded) res.end()
+      })
+      stream.pipe(res)
+      return true
+    }
+
+    if (
+      pathname === '/mcp' ||
+      pathname.startsWith('/mcp/') ||
+      pathname.startsWith('/api/quantzing/quanty/')
+    ) {
+      const bridge = getQuantyBridgeInstance(store)
+      const handled = await bridge.handleQuantyHttpRequest(
+        req,
+        res,
+        parsedUrl,
+        origin,
+      )
+      if (handled) return true
+    }
+
+    // -----------------------------------------------------------------------
+    // Sovereign QuantZing Config, Geolocation, Link Meta, Quanty Mention & DID
+    // -----------------------------------------------------------------------
+
+    if (pathname === '/api/quantzing/config') {
+      sendJson(req, res, 200, {
+        ok: true,
+        app: 'QuantZing',
+        version: getPackageVersion(),
+        domain: 'quantzing.quantrinity.in',
+        primaryDomain: 'quantzing.com',
+        did: QUANTZING_DID,
+        pds: origin,
+        appView: origin,
+        mode: 'sovereign-pure',
+        storageEngine: 'sqlite-wal',
+        blueskyUpstream: false,
+        features: {
+          localPds: true,
+          sovereignAppView: true,
+          publicAppViewProxy: false,
+          blobStorage: true,
+          bookmarks: true,
+          quantyMentions: true,
+          quantyControlBridge: true,
+          directMessages: true,
+          articles: true,
+          zingSpaces: true,
+          creatorStudio: true,
+          interactivePolls: true,
+          quantzingPro: true,
+        },
+      })
+      return true
+    }
+
+    if (pathname === '/api/quantzing/geolocation') {
+      sendJson(req, res, 200, {
+        countryCode: 'IN',
+        regionCode: 'DL',
+        city: 'New Delhi',
+        isAgeRestrictedGeo: false,
+        isAgeBlockedGeo: false,
+      })
+      return true
+    }
+
+    if (pathname === '/api/quantzing/link-meta' && method === 'GET') {
+      const target = searchParams.get('url') || ''
+      const meta = await fetchLinkMetaSafe(target)
+      sendJson(req, res, 200, meta)
+      return true
+    }
+
+    if (pathname === '/api/quantzing/link-favicon' && method === 'GET') {
+      const svg = Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#16181C"/><circle cx="16" cy="16" r="9" fill="none" stroke="#1D9BF0" stroke-width="2"/><path d="M7 16h18M16 7a13 13 0 0 1 0 18M16 7a13 13 0 0 0 0 18" fill="none" stroke="#1D9BF0" stroke-width="1.5"/></svg>',
+        'utf8',
+      )
+      res.writeHead(
+        200,
+        corsHeaders(req, {
+          'content-type': 'image/svg+xml',
+          'content-length': svg.length,
+          'cache-control': 'public, max-age=86400',
+        }),
+      )
+      res.end(svg)
+      return true
+    }
+
+    if (pathname.startsWith('/api/quantzing/gifs')) {
+      sendJson(req, res, 200, {results: [], next: ''})
+      return true
+    }
+
+    if (pathname.startsWith('/api/quantzing/events')) {
+      sendJson(req, res, 200, {status: 200, ok: true, features: {}})
+      return true
+    }
+
+    if (pathname === '/api/quantzing/live-events/config') {
+      const liveSpaces = store
+        .listSpaces({status: 'live', limit: 10})
+        .map(s => hydrateSpaceView(store, s, origin))
+        .filter(Boolean)
+      sendJson(req, res, 200, {
+        ok: true,
+        feeds: liveSpaces.map(sp => ({
+          id: sp.id,
+          slug: sp.slug,
+          title: sp.title,
+          topic: sp.topic,
+          hostHandle: sp.hostHandle,
+          hostDisplayName: sp.hostDisplayName,
+          listenerCount: sp.listenerCount,
+          speakerCount: sp.speakerCount,
+          url: `/spaces/${sp.slug}`,
+        })),
+        liveSpaces,
+      })
+      return true
+    }
+
+    if (pathname === '/api/quantzing/app-config/config') {
+      const liveSpaces = store.listSpaces({status: 'live', limit: 20})
+      const liveHostDids = [...new Set(liveSpaces.map(s => s.hostDid))]
+      sendJson(req, res, 200, {
+        liveNow: {allow: liveHostDids, exceptions: []},
+      })
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // Secured POST /api/quantzing/quanty-mention (Auth + Rate Limit + Grounded Bridge)
+    // -----------------------------------------------------------------------
+
+    if (pathname === '/api/quantzing/quanty-mention' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          auth.message || 'Authentication required to mention @quanty',
+        )
+        return true
+      }
+      const enforcement = checkAccountEnforcement(store, auth.account)
+      if (!enforcement.allowed) {
+        sendXrpcError(
+          req,
+          res,
+          enforcement.status,
+          enforcement.error,
+          enforcement.message,
+        )
+        return true
+      }
+      if (
+        enforceRateLimit(req, res, {
+          bucketKey: `quanty-mention:${auth.did}`,
+          maxRequests:
+            Number(process.env.QUANTZING_RATE_LIMIT_QUANTY_MENTION_MAX) || 20,
+          windowMs: 60 * 1000,
+          auth,
+          sendJson,
+        })
+      ) {
+        return true
+      }
+
+      const body = await readJsonBody(req)
+      const text = String(body.text || '')
+      const parentText = String(body.parentText || '')
+      const authorHandle = String(
+        body.authorHandle || auth.account?.handle || 'member.quantzing.com',
+      )
+
+      const bridge = getQuantyBridgeInstance(store)
+      const built = await bridge.buildQuantyMentionReply({
+        prompt: text,
+        postContext: {
+          uri: body.postUri ? String(body.postUri) : undefined,
+          text: parentText || text,
+          authorHandle,
+        },
+        viewerDid: auth.did,
+        origin,
+      })
+      const replyText = String(built?.replyText || built?.text || '').slice(
+        0,
+        280,
+      )
+      const replyRkey = generateTid()
+      const createdAt = new Date().toISOString()
+      const facets = buildFacetsForText(store, replyText)
+      const replyValue = {
+        $type: 'app.bsky.feed.post',
+        text: replyText,
+        createdAt,
+        langs: ['en'],
+        ...(facets ? {facets} : {}),
+        ...(body.postUri && body.postCid
+          ? {
+              reply: {
+                root:
+                  body.rootUri && body.rootCid
+                    ? {uri: String(body.rootUri), cid: String(body.rootCid)}
+                    : {uri: String(body.postUri), cid: String(body.postCid)},
+                parent: {uri: String(body.postUri), cid: String(body.postCid)},
+              },
+            }
+          : {}),
+      }
+      const replyUri = `at://${QUANTY_SYSTEM_DID}/app.bsky.feed.post/${replyRkey}`
+      const replyCid = computeCid(replyValue, 'dag-cbor')
+      store.putRecord({
+        uri: replyUri,
+        cid: replyCid,
+        rkey: replyRkey,
+        collection: 'app.bsky.feed.post',
+        repo: QUANTY_SYSTEM_DID,
+        value: replyValue,
+        indexedAt: createdAt,
+      })
+
+      sendJson(req, res, 200, {
+        ok: true,
+        author: QUANTY_SYSTEM_HANDLE,
+        did: QUANTY_SYSTEM_DID,
+        replyUri,
+        replyCid,
+        replyText,
+        origin: built?.origin || 'live-network',
+        citations: built?.citations || [],
+      })
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // CONTRACT.md Section 2A: Real Sovereign Articles CRUD (/api/quantzing/articles*)
+    // -----------------------------------------------------------------------
+
+    if (pathname === '/api/quantzing/articles') {
+      if (method === 'GET') {
+        const actor = searchParams.get('actor') || ''
+        const status = searchParams.get('status') || 'all'
+        const limit = Math.min(
+          100,
+          Math.max(1, Number(searchParams.get('limit') || 50)),
+        )
+        const viewerDid = getOptionalViewerDid(req, store)
+        const actorAcc = actor ? store.findAccount(actor) : null
+        if (actor && !actorAcc) {
+          sendJson(req, res, 200, {ok: true, articles: []})
+          return true
+        }
+        const rows = store.listArticles({
+          actorDid: actorAcc?.did || null,
+          status,
+          viewerDid,
+          limit,
+        })
+        const articles = rows
+          .map(a => hydrateArticleView(store, a, origin))
+          .filter(Boolean)
+        sendJson(req, res, 200, {ok: true, articles})
+        return true
+      }
+
+      if (method === 'POST') {
+        const auth = getAuthedContext(req, store)
+        if (auth.error) {
+          sendXrpcError(
+            req,
+            res,
+            auth.status,
+            auth.error,
+            'Authentication required',
+          )
+          return true
+        }
+        const enforcement = checkAccountEnforcement(store, auth.account)
+        if (!enforcement.allowed) {
+          sendXrpcError(
+            req,
+            res,
+            enforcement.status,
+            enforcement.error,
+            enforcement.message,
+          )
+          return true
+        }
+        const body = await readJsonBody(req)
+        const title = String(body.title || '').trim()
+        const articleBody = String(body.body || '').trim()
+        if (!title || !articleBody) {
+          sendXrpcError(
+            req,
+            res,
+            400,
+            'InvalidRequest',
+            'Article title and body are required',
+          )
+          return true
+        }
+        if (body.id) {
+          const existing = store.getArticleById(String(body.id))
+          if (existing && existing.authorDid !== auth.did) {
+            sendXrpcError(
+              req,
+              res,
+              403,
+              'Forbidden',
+              'Only the article author can update this article',
+            )
+            return true
+          }
+        }
+        const rkey = body.id ? String(body.id) : generateTid()
+        const uri = `at://${auth.did}/com.quantzing.article/${rkey}`
+        const status = body.status === 'draft' ? 'draft' : 'published'
+        const recVal = {
+          $type: 'com.quantzing.article',
+          title,
+          subtitle: String(body.subtitle || ''),
+          body: articleBody,
+          tags: Array.isArray(body.tags) ? body.tags : [],
+          ...(body.coverUrl ? {coverUrl: String(body.coverUrl)} : {}),
+          status,
+          createdAt: new Date().toISOString(),
+        }
+        const cid = computeCid(recVal, 'dag-cbor')
+        store.putRecord({
+          uri,
+          cid,
+          rkey,
+          collection: 'com.quantzing.article',
+          repo: auth.did,
+          value: recVal,
+          indexedAt: recVal.createdAt,
+        })
+        const saved = store.upsertArticle({
+          id: rkey,
+          uri,
+          cid,
+          authorDid: auth.did,
+          title,
+          subtitle: String(body.subtitle || ''),
+          body: articleBody,
+          tags: Array.isArray(body.tags) ? body.tags : [],
+          coverUrl: body.coverUrl ? String(body.coverUrl) : null,
+          status,
+        })
+        let postUri
+        if (body.shareToFeed && status === 'published') {
+          const teaser = `Published a Sovereign Article: "${title}"${body.subtitle ? ` — ${body.subtitle}` : ''}`.slice(
+            0,
+            290,
+          )
+          const postEntry = putLocalRecord(
+            store,
+            auth.did,
+            'app.bsky.feed.post',
+            undefined,
+            {
+              $type: 'app.bsky.feed.post',
+              text: teaser,
+              createdAt: new Date().toISOString(),
+              langs: ['en'],
+            },
+          )
+          postUri = postEntry.uri
+        }
+        sendJson(req, res, 200, {
+          ok: true,
+          article: hydrateArticleView(store, saved, origin),
+          ...(postUri ? {postUri} : {}),
+        })
+        return true
+      }
+    }
+
+    const articleIdMatch = pathname.match(/^\/api\/quantzing\/articles\/([^/]+)$/)
+    if (articleIdMatch) {
+      const articleId = decodeURIComponent(articleIdMatch[1])
+      const existing = store.getArticleById(articleId)
+
+      if (method === 'GET') {
+        const viewerDid = getOptionalViewerDid(req, store)
+        if (
+          !existing ||
+          (existing.status === 'draft' && existing.authorDid !== viewerDid)
+        ) {
+          sendXrpcError(req, res, 404, 'NotFound', 'Article not found')
+          return true
+        }
+        sendJson(req, res, 200, {
+          ok: true,
+          article: hydrateArticleView(store, existing, origin),
+        })
+        return true
+      }
+
+      if (method === 'PUT' || method === 'PATCH') {
+        const auth = getAuthedContext(req, store)
+        if (auth.error) {
+          sendXrpcError(
+            req,
+            res,
+            auth.status,
+            auth.error,
+            'Authentication required',
+          )
+          return true
+        }
+        if (!existing) {
+          sendXrpcError(req, res, 404, 'NotFound', 'Article not found')
+          return true
+        }
+        if (existing.authorDid !== auth.did) {
+          sendXrpcError(
+            req,
+            res,
+            403,
+            'Forbidden',
+            'Only the article owner can edit this article',
+          )
+          return true
+        }
+        const body = await readJsonBody(req)
+        const updated = store.upsertArticle({
+          id: existing.id,
+          uri: existing.uri,
+          cid: existing.cid,
+          authorDid: auth.did,
+          title: body.title !== undefined ? body.title : existing.title,
+          subtitle:
+            body.subtitle !== undefined ? body.subtitle : existing.subtitle,
+          body: body.body !== undefined ? body.body : existing.body,
+          tags: Array.isArray(body.tags) ? body.tags : existing.tags,
+          coverUrl:
+            body.coverUrl !== undefined ? body.coverUrl : existing.coverUrl,
+          status: body.status || existing.status,
+        })
+        sendJson(req, res, 200, {
+          ok: true,
+          article: hydrateArticleView(store, updated, origin),
+        })
+        return true
+      }
+
+      if (method === 'DELETE') {
+        const auth = getAuthedContext(req, store)
+        if (auth.error) {
+          sendXrpcError(
+            req,
+            res,
+            auth.status,
+            auth.error,
+            'Authentication required',
+          )
+          return true
+        }
+        if (!existing) {
+          sendXrpcError(req, res, 404, 'NotFound', 'Article not found')
+          return true
+        }
+        if (existing.authorDid !== auth.did) {
+          sendXrpcError(
+            req,
+            res,
+            403,
+            'Forbidden',
+            'Only the article owner can delete this article',
+          )
+          return true
+        }
+        store.deleteArticle(existing.id, auth.did)
+        store.deleteRecord(auth.did, 'com.quantzing.article', existing.id)
+        sendJson(req, res, 200, {ok: true, deleted: true})
+        return true
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // CONTRACT.md Section 2B: Creator Studio Analytics & Monetization
+    // -----------------------------------------------------------------------
+
+    if (
+      pathname === '/api/quantzing/creator/analytics' &&
+      method === 'GET'
+    ) {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
+        return true
+      }
+      const windowDays = Math.min(
+        365,
+        Math.max(1, Number(searchParams.get('windowDays') || 30)),
+      )
+      const analytics = store.getCreatorAnalytics(auth.did, windowDays)
+      sendJson(req, res, 200, {
+        ok: true,
+        ...analytics,
+      })
+      return true
+    }
+
+    if (
+      pathname === '/api/quantzing/creator/monetization' &&
+      method === 'GET'
+    ) {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
+        return true
+      }
+      const mon = store.getCreatorMonetization(auth.did)
+      const analytics30d = store.getCreatorAnalytics(auth.did, 30)
+      const proSub = store.getProSubscription(auth.did)
+      const followersCount = Number(auth.account?.followersCount || 0)
+      const postsCount = Number(auth.account?.postsCount || 0)
+      const impressions30d = Number(analytics30d.totals.impressions || 0)
+      const isPro = proSub.status === 'active' || Boolean(auth.account?.verified)
+      const meetsCriteria =
+        followersCount >= 100 && postsCount >= 5 && impressions30d >= 500
+      const effectiveStatus = mon.enrolled
+        ? mon.status || 'active'
+        : meetsCriteria
+          ? 'eligible'
+          : 'not_enrolled'
+
+      sendJson(req, res, 200, {
+        ok: true,
+        enrolled: mon.enrolled,
+        status: effectiveStatus,
+        ...(mon.enrolledAt ? {enrolledAt: mon.enrolledAt} : {}),
+        ...(mon.payoutMethod ? {payoutMethod: mon.payoutMethod} : {}),
+        eligibility: {
+          followersCount,
+          followersRequired: 100,
+          postsCount,
+          postsRequired: 5,
+          impressions30d,
+          impressionsRequired: 500,
+          isPro,
+        },
+        wallet: {
+          online: false,
+          balanceCredits: 0,
+          currency: 'INR',
+        },
+      })
+      return true
+    }
+
+    if (
+      pathname === '/api/quantzing/creator/monetization/enroll' &&
+      method === 'POST'
+    ) {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
+        return true
+      }
+      const body = await readJsonBody(req)
+      const analytics30d = store.getCreatorAnalytics(auth.did, 30)
+      const followersCount = Number(auth.account?.followersCount || 0)
+      const postsCount = Number(auth.account?.postsCount || 0)
+      const impressions30d = Number(analytics30d.totals.impressions || 0)
+      const meetsCriteria =
+        followersCount >= 100 && postsCount >= 5 && impressions30d >= 500
+      const status = meetsCriteria ? 'active' : 'pending_eligibility'
+      const monetization = store.upsertCreatorMonetization(auth.did, {
+        enrolled: true,
+        status,
+        payoutMethod: String(body.payoutMethod || 'quantpay_wallet'),
+        enrolledAt: new Date().toISOString(),
+      })
+      sendJson(req, res, 200, {ok: true, monetization})
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // CONTRACT.md Section 2C: ZingSpaces & Real-Time SSE (/api/quantzing/spaces*)
+    // -----------------------------------------------------------------------
+
+    if (pathname === '/api/quantzing/spaces') {
+      if (method === 'GET') {
+        const status = searchParams.get('status') || 'all'
+        const limit = Math.min(
+          100,
+          Math.max(1, Number(searchParams.get('limit') || 50)),
+        )
+        const spaces = store
+          .listSpaces({status, limit})
+          .map(s => hydrateSpaceView(store, s, origin))
+          .filter(Boolean)
+        sendJson(req, res, 200, {ok: true, spaces})
+        return true
+      }
+
+      if (method === 'POST') {
+        const auth = getAuthedContext(req, store)
+        if (auth.error) {
+          sendXrpcError(
+            req,
+            res,
+            auth.status,
+            auth.error,
+            'Authentication required',
+          )
+          return true
+        }
+        const enforcement = checkAccountEnforcement(store, auth.account)
+        if (!enforcement.allowed) {
+          sendXrpcError(
+            req,
+            res,
+            enforcement.status,
+            enforcement.error,
+            enforcement.message,
+          )
+          return true
+        }
+        const body = await readJsonBody(req)
+        const title = String(body.title || '').trim()
+        if (!title) {
+          sendXrpcError(
+            req,
+            res,
+            400,
+            'InvalidRequest',
+            'Space title is required',
+          )
+          return true
+        }
+        const created = store.createSpace({
+          hostDid: auth.did,
+          title,
+          topic: String(body.topic || ''),
+          status:
+            body.status === 'scheduled' || body.scheduledFor
+              ? 'scheduled'
+              : 'live',
+          scheduledFor: body.scheduledFor ? String(body.scheduledFor) : null,
+          allowRecording: Boolean(body.allowRecording),
+          coHostEnabled: Boolean(body.coHostEnabled),
+        })
+        const space = hydrateSpaceView(store, created, origin)
+        broadcastSpaceUpdate(space.slug, space)
+        sendJson(req, res, 200, {ok: true, space})
+        return true
+      }
+    }
+
+    const spaceActionMatch = pathname.match(
+      /^\/api\/quantzing\/spaces\/([^/]+)(?:\/(join|leave|hand|react|events))?$/,
+    )
+    if (spaceActionMatch) {
+      const slug = decodeURIComponent(spaceActionMatch[1])
+      const subAction = spaceActionMatch[2] || null
+
+      if (!subAction) {
+        if (method === 'GET') {
+          const sp = store.getSpaceBySlug(slug)
+          if (!sp) {
+            sendXrpcError(req, res, 404, 'NotFound', 'ZingSpace not found')
+            return true
+          }
+          sendJson(req, res, 200, {
+            ok: true,
+            space: hydrateSpaceView(store, sp, origin),
+          })
+          return true
+        }
+
+        if (method === 'PATCH') {
+          const auth = getAuthedContext(req, store)
+          if (auth.error) {
+            sendXrpcError(
+              req,
+              res,
+              auth.status,
+              auth.error,
+              'Authentication required',
+            )
+            return true
+          }
+          const existing = store.getSpaceBySlug(slug)
+          if (!existing) {
+            sendXrpcError(req, res, 404, 'NotFound', 'ZingSpace not found')
+            return true
+          }
+          if (existing.hostDid !== auth.did) {
+            sendXrpcError(
+              req,
+              res,
+              403,
+              'Forbidden',
+              'Only the ZingSpace host can modify this room',
+            )
+            return true
+          }
+          const body = await readJsonBody(req)
+          const updated = store.updateSpace(slug, body)
+          const space = hydrateSpaceView(store, updated, origin)
+          broadcastSpaceUpdate(space.slug, space)
+          sendJson(req, res, 200, {ok: true, space})
+          return true
+        }
+
+        if (method === 'DELETE') {
+          const auth = getAuthedContext(req, store)
+          if (auth.error) {
+            sendXrpcError(
+              req,
+              res,
+              auth.status,
+              auth.error,
+              'Authentication required',
+            )
+            return true
+          }
+          const existing = store.getSpaceBySlug(slug)
+          if (!existing) {
+            sendXrpcError(req, res, 404, 'NotFound', 'ZingSpace not found')
+            return true
+          }
+          if (existing.hostDid !== auth.did) {
+            sendXrpcError(
+              req,
+              res,
+              403,
+              'Forbidden',
+              'Only the ZingSpace host can delete this room',
+            )
+            return true
+          }
+          store.deleteSpace(slug, auth.did)
+          sendJson(req, res, 200, {ok: true, deleted: true})
+          return true
+        }
+      }
+
+      if (subAction === 'join' && method === 'POST') {
+        const auth = getAuthedContext(req, store)
+        if (auth.error) {
+          sendXrpcError(
+            req,
+            res,
+            auth.status,
+            auth.error,
+            'Authentication required',
+          )
+          return true
+        }
+        const updated = store.joinSpace(slug, auth.did)
+        if (!updated) {
+          sendXrpcError(req, res, 404, 'NotFound', 'ZingSpace not found')
+          return true
+        }
+        const space = hydrateSpaceView(store, updated, origin)
+        broadcastSpaceUpdate(space.slug, space)
+        sendJson(req, res, 200, {ok: true, space})
+        return true
+      }
+
+      if (subAction === 'leave' && method === 'POST') {
+        const auth = getAuthedContext(req, store)
+        if (auth.error) {
+          sendXrpcError(
+            req,
+            res,
+            auth.status,
+            auth.error,
+            'Authentication required',
+          )
+          return true
+        }
+        const updated = store.leaveSpace(slug, auth.did)
+        if (!updated) {
+          sendXrpcError(req, res, 404, 'NotFound', 'ZingSpace not found')
+          return true
+        }
+        const space = hydrateSpaceView(store, updated, origin)
+        broadcastSpaceUpdate(space.slug, space)
+        sendJson(req, res, 200, {ok: true, space})
+        return true
+      }
+
+      if (subAction === 'hand' && method === 'POST') {
+        const auth = getAuthedContext(req, store)
+        if (auth.error) {
+          sendXrpcError(
+            req,
+            res,
+            auth.status,
+            auth.error,
+            'Authentication required',
+          )
+          return true
+        }
+        const body = await readJsonBody(req)
+        const updated = store.setSpaceHand(slug, auth.did, Boolean(body.raised))
+        if (!updated) {
+          sendXrpcError(req, res, 404, 'NotFound', 'ZingSpace not found')
+          return true
+        }
+        const space = hydrateSpaceView(store, updated, origin)
+        broadcastSpaceUpdate(space.slug, space)
+        sendJson(req, res, 200, {ok: true, space})
+        return true
+      }
+
+      if (subAction === 'react' && method === 'POST') {
+        const auth = getAuthedContext(req, store)
+        if (auth.error) {
+          sendXrpcError(
+            req,
+            res,
+            auth.status,
+            auth.error,
+            'Authentication required',
+          )
+          return true
+        }
+        const body = await readJsonBody(req)
+        const updated = store.addSpaceReaction(
+          slug,
+          auth.did,
+          String(body.kind || 'applause'),
+        )
+        if (!updated) {
+          sendXrpcError(req, res, 404, 'NotFound', 'ZingSpace not found')
+          return true
+        }
+        const space = hydrateSpaceView(store, updated, origin)
+        broadcastSpaceUpdate(space.slug, space)
+        sendJson(req, res, 200, {ok: true, space})
+        return true
+      }
+
+      if (subAction === 'events' && method === 'GET') {
+        const existing = store.getSpaceBySlug(slug)
+        if (!existing) {
+          sendXrpcError(req, res, 404, 'NotFound', 'ZingSpace not found')
+          return true
+        }
+        res.writeHead(
+          200,
+          corsHeaders(req, {
+            'content-type': 'text/event-stream; charset=utf-8',
+            'cache-control': 'no-cache, no-transform',
+            connection: 'keep-alive',
+          }),
+        )
+        const initialSpace = hydrateSpaceView(store, existing, origin)
+        res.write(
+          `event: space_update\ndata: ${JSON.stringify({type: 'space_update', space: initialSpace})}\n\n`,
+        )
+
+        let set = spaceSseClients.get(existing.slug)
+        if (!set) {
+          set = new Set()
+          spaceSseClients.set(existing.slug, set)
+        }
+        set.add(res)
+
+        const heartbeat = setInterval(() => {
+          try {
+            if (!res.writableEnded && !res.destroyed) {
+              res.write(': heartbeat\n\n')
+            }
+          } catch {}
+        }, 25_000)
+        if (typeof heartbeat.unref === 'function') heartbeat.unref()
+
+        req.on('close', () => {
+          clearInterval(heartbeat)
+          set.delete(res)
+        })
+        return true
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // CONTRACT.md Section 2D: QuantZing Pro Subscriptions (/api/quantzing/pro/*)
+    // -----------------------------------------------------------------------
+
+    if (pathname === '/api/quantzing/pro/plans' && method === 'GET') {
+      sendJson(req, res, 200, {ok: true, plans: PRO_PLANS})
+      return true
+    }
+
+    if (pathname === '/api/quantzing/pro/subscription' && method === 'GET') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
+        return true
+      }
+      const subscription = store.getProSubscription(auth.did)
+      sendJson(req, res, 200, {ok: true, subscription})
+      return true
+    }
+
+    if (pathname === '/api/quantzing/pro/checkout' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
+        return true
+      }
+      const body = await readJsonBody(req)
+      const planId = String(body.planId || 'pro_monthly')
+      const plan =
+        PRO_PLANS.find(p => p.id === planId) || PRO_PLANS[1]
+      const order = store.createProOrder({
+        did: auth.did,
+        planId: plan.id,
+        status: 'pending',
+        amountInr: plan.priceInr,
+        amountUsd: plan.priceUsd,
+        returnUrl: body.returnUrl ? String(body.returnUrl) : null,
+      })
+      store.upsertProSubscription(auth.did, {
+        ...store.getProSubscription(auth.did),
+        planId: plan.id,
+        status: 'pending',
+        billingCycle: plan.billingCycle,
+        orderId: order.id,
+      })
+      sendJson(req, res, 200, {
+        ok: true,
+        orderId: order.id,
+        planId: plan.id,
+        status: 'pending',
+        quantPayOnline: false,
+        message:
+          'Sovereign Pro order staged. Confirm checkout to activate your Verified Pro subscription.',
+      })
+      return true
+    }
+
+    if (pathname === '/api/quantzing/pro/confirm' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
+        return true
+      }
+      const body = await readJsonBody(req)
+      const orderId = String(body.orderId || '')
+      const order = orderId ? store.getProOrder(orderId) : null
+      if (order && order.did !== auth.did) {
+        sendXrpcError(
+          req,
+          res,
+          403,
+          'Forbidden',
+          'Order belongs to a different account',
+        )
+        return true
+      }
+      const planId = String(body.planId || order?.planId || 'pro_monthly')
+      const plan = PRO_PLANS.find(p => p.id === planId) || PRO_PLANS[1]
+      if (order) {
+        store.updateProOrderStatus(order.id, 'completed')
+      }
+      const now = new Date()
+      const days = plan.billingCycle === 'annual' ? 365 : 30
+      const expiresAt = new Date(now.getTime() + days * 86_400_000).toISOString()
+      const subscription = store.upsertProSubscription(auth.did, {
+        planId: plan.id,
+        status: 'active',
+        billingCycle: plan.billingCycle,
+        activatedAt: now.toISOString(),
+        expiresAt,
+        cancelAtPeriodEnd: false,
+        verifiedBadge: true,
+        orderId: order?.id || orderId || undefined,
+      })
+      store.setAccountVerified(auth.did, true)
+      sendJson(req, res, 200, {ok: true, subscription})
+      return true
+    }
+
+    if (pathname === '/api/quantzing/pro/cancel' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
+        return true
+      }
+      const existing = store.getProSubscription(auth.did)
+      const subscription = store.upsertProSubscription(auth.did, {
+        ...existing,
+        status: 'cancelled',
+        cancelAtPeriodEnd: true,
+      })
+      sendJson(req, res, 200, {ok: true, subscription})
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // CONTRACT.md Section 2E: Interactive Polls (/api/quantzing/polls*)
+    // -----------------------------------------------------------------------
+
+    if (pathname === '/api/quantzing/polls/vote' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
+        return true
+      }
+      const body = await readJsonBody(req)
+      const postUri = String(body.postUri || '').trim()
+      const optionId = String(body.optionId || '').trim()
+      if (!postUri || !optionId) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'postUri and optionId are required',
+        )
+        return true
+      }
+      const postRec = findLocalPostByUri(store, postUri)
+      const embed = postRec?.value?.embed
+      if (!postRec || embed?.$type !== 'com.quantzing.embed.poll') {
+        sendXrpcError(req, res, 404, 'NotFound', 'Poll post not found')
+        return true
+      }
+      const options = Array.isArray(embed.options) ? embed.options : []
+      if (!options.some((o, i) => (o?.id || `opt${i + 1}`) === optionId)) {
+        sendXrpcError(req, res, 400, 'InvalidRequest', 'Invalid poll optionId')
+        return true
+      }
+      const expMs = Date.parse(embed.expiresAt || '')
+      if (Number.isFinite(expMs) && expMs <= Date.now()) {
+        sendXrpcError(req, res, 400, 'PollExpired', 'This poll has expired')
+        return true
+      }
+      store.votePoll(postRec.uri, auth.did, optionId)
+      const poll = hydratePollEmbedView(
+        store,
+        postRec.uri,
+        postRec.value?.text || '',
+        embed,
+        auth.did,
+      )
+      sendJson(req, res, 200, {ok: true, poll})
+      return true
+    }
+
+    if (pathname === '/api/quantzing/polls' && method === 'GET') {
+      const postUri = searchParams.get('uri') || ''
+      const viewerDid = getOptionalViewerDid(req, store)
+      const postRec = findLocalPostByUri(store, postUri)
+      const embed = postRec?.value?.embed
+      if (!postRec || embed?.$type !== 'com.quantzing.embed.poll') {
+        sendXrpcError(req, res, 404, 'NotFound', 'Poll not found')
+        return true
+      }
+      const poll = hydratePollEmbedView(
+        store,
+        postRec.uri,
+        postRec.value?.text || '',
+        embed,
+        viewerDid,
+      )
+      sendJson(req, res, 200, {ok: true, poll})
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // CONTRACT.md Section 2F: Support Tickets & Real News Briefing
+    // -----------------------------------------------------------------------
+
+    if (pathname === '/api/quantzing/support/tickets') {
+      if (method === 'POST') {
+        const viewerDid = getOptionalViewerDid(req, store)
+        const viewerAcc = viewerDid ? store.getAccountByDid(viewerDid) : null
+        const body = await readJsonBody(req)
+        const subject = String(body.subject || '').trim()
+        const message = String(body.message || '').trim()
+        if (!subject || !message) {
+          sendXrpcError(
+            req,
+            res,
+            400,
+            'InvalidRequest',
+            'Support subject and message are required',
+          )
+          return true
+        }
+        const ticket = store.createSupportTicket({
+          did: viewerDid,
+          handle: viewerAcc?.handle || null,
+          email: body.email || viewerAcc?.email || null,
+          category: String(body.category || 'general'),
+          subject,
+          message,
+        })
+        sendJson(req, res, 200, {
+          ok: true,
+          ticket: {
+            id: ticket.id,
+            category: ticket.category,
+            subject: ticket.subject,
+            status: ticket.status,
+            createdAt: ticket.createdAt,
+          },
+        })
+        return true
+      }
+
+      if (method === 'GET') {
+        const auth = getAuthedContext(req, store)
+        if (auth.error) {
+          sendXrpcError(
+            req,
+            res,
+            auth.status,
+            auth.error,
+            'Authentication required',
+          )
+          return true
+        }
+        const includeAll = isStaffRole(auth.account?.role)
+        const tickets = store.listSupportTickets({
+          did: auth.did,
+          includeAll,
+          limit: 50,
+        })
+        sendJson(req, res, 200, {ok: true, tickets})
+        return true
+      }
+    }
+
+    if (pathname === '/api/quantzing/news/briefing' && method === 'GET') {
+      const limit = Math.min(
+        20,
+        Math.max(1, Number(searchParams.get('limit') || 8)),
+      )
+      const rawTrends = store.getTimeDecayedTrends({limit})
+      const topics = rawTrends.map((t, idx) => {
+        const samplePosts = (t.samplePosts || []).map(sp => {
+          const acc = store.getAccountByDid(sp.did)
+          return {
+            uri: sp.uri,
+            authorHandle: acc?.handle || sp.did,
+            text: sp.text,
+            viewCount: sp.viewCount,
+            likeCount: sp.likeCount,
+          }
+        })
+        const leadPost = samplePosts[0]
+        const summary = leadPost
+          ? `@${leadPost.authorHandle}: "${leadPost.text.slice(0, 140)}${leadPost.text.length > 140 ? '...' : ''}"`
+          : `${t.postCount} active Zings discussing ${t.displayName} on QuantZing.`
+        return {
+          id: `topic_${t.tag || idx}`,
+          topic: t.displayName || `#${t.topic}`,
+          summary,
+          postCount: t.postCount,
+          samplePosts,
+        }
+      })
+
+      sendJson(req, res, 200, {
+        ok: true,
+        generatedAt: new Date().toISOString(),
+        topics,
+      })
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // Employee Ops & Admin Portal (/api/quantzing/admin*, /ops*, /appeals)
+    // -----------------------------------------------------------------------
+
+    if (
+      pathname === '/api/quantzing/appeals' ||
+      pathname === '/api/quantzing/admin' ||
+      pathname.startsWith('/api/quantzing/admin/') ||
+      pathname === '/api/quantzing/ops' ||
+      pathname.startsWith('/api/quantzing/ops/')
+    ) {
+      const compatDb = store.createCompatibilityDbView({includeRecords: true})
+      return await handleQuantZingAdmin(req, res, {
+        db: compatDb,
+        pathname,
+        searchParams,
+        method,
+        origin,
+        helpers: getAdminHelpers(store),
+      })
+    }
+
+    if (pathname === '/.well-known/did.json') {
+      sendJson(req, res, 200, {
+        '@context': ['https://www.w3.org/ns/did/v1'],
+        id: QUANTZING_DID,
+        service: [
+          {
+            id: '#atproto_pds',
+            type: 'AtprotoPersonalDataServer',
+            serviceEndpoint: origin,
+          },
+        ],
+      })
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // Sovereign Blob serving: GET /blob/:did/:cid or GET /blob/:cid
+    // -----------------------------------------------------------------------
+
+    if (pathname.startsWith('/blob/')) {
+      const segments = pathname.slice('/blob/'.length).split('/').filter(Boolean)
+      const cid = decodeURIComponent(segments[segments.length - 1] || '')
+      if (!cid || cid.includes('..') || cid.includes('/') || cid.includes('\\')) {
+        sendXrpcError(req, res, 400, 'InvalidRequest', 'Invalid blob CID')
+        return true
+      }
+      const blobFile = store.resolveExistingBlobPath(cid)
+      if (!blobFile) {
+        sendXrpcError(req, res, 404, 'BlobNotFound', 'Blob not found')
+        return true
+      }
+      const meta = store.getBlobMeta(cid)
+      const stat = fs.statSync(blobFile)
+      const total = stat.size
+      const contentType = meta?.mimeType || 'application/octet-stream'
+      const rangeHeader = String(req.headers.range || '')
+
+      if (rangeHeader.startsWith('bytes=')) {
+        const [startStr, endStr] = rangeHeader.slice(6).split('-')
+        const start = startStr ? Math.max(0, parseInt(startStr, 10) || 0) : 0
+        const end = endStr
+          ? Math.min(total - 1, parseInt(endStr, 10) || total - 1)
+          : total - 1
+        if (start >= total || end < start) {
+          res.writeHead(
+            416,
+            corsHeaders(req, {'content-range': `bytes */${total}`}),
+          )
+          res.end()
+          return true
+        }
+        const chunkLen = end - start + 1
+        res.writeHead(
+          206,
+          corsHeaders(req, {
+            'content-type': contentType,
+            'content-length': chunkLen,
+            'content-range': `bytes ${start}-${end}/${total}`,
+            'accept-ranges': 'bytes',
+            'cache-control': 'public, max-age=31536000, immutable',
+          }),
+        )
+        const stream = fs.createReadStream(blobFile, {start, end})
+        stream.on('error', () => {
+          if (!res.writableEnded) res.end()
+        })
+        stream.pipe(res)
+        return true
+      }
+
+      res.writeHead(
+        200,
         corsHeaders(req, {
           'content-type': contentType,
-          'content-length': chunkLen,
-          'content-range': `bytes ${start}-${end}/${total}`,
+          'content-length': total,
           'accept-ranges': 'bytes',
           'cache-control': 'public, max-age=31536000, immutable',
         }),
       )
-      fs.createReadStream(blobFile, {start, end}).pipe(res)
+      const stream = fs.createReadStream(blobFile)
+      stream.on('error', () => {
+        if (!res.writableEnded) res.end()
+      })
+      stream.pipe(res)
       return true
     }
 
-    res.writeHead(
-      200,
-      corsHeaders(req, {
-        'content-type': contentType,
-        'content-length': total,
-        'accept-ranges': 'bytes',
-        'cache-control': 'public, max-age=31536000, immutable',
-      }),
-    )
-    fs.createReadStream(blobFile).pipe(res)
-    return true
-  }
+    // -----------------------------------------------------------------------
+    // Sovereign Real Post Views / Impressions: POST /api/quantzing/views/record
+    // -----------------------------------------------------------------------
 
-  // -------------------------------------------------------------------------
-  // Sovereign Real Post Views / Impressions: POST /api/quantzing/views/record
-  // -------------------------------------------------------------------------
-
-  if (pathname === '/api/quantzing/views/record' && method === 'POST') {
-    const viewerDid = getOptionalViewerDid(req, db)
-    const viewerKey = getViewerImpressionKey(req, viewerDid)
-    const body = await readJsonBody(req)
-    const uris = Array.isArray(body?.uris)
-      ? body.uris.slice(0, 50).map(u => String(u || ''))
-      : body?.uri
-        ? [String(body.uri)]
-        : []
-    if (recordPostViews(db, uris, viewerKey)) {
-      saveDb(db)
+    if (pathname === '/api/quantzing/views/record' && method === 'POST') {
+      const viewerDid = getOptionalViewerDid(req, store)
+      const viewerKey = getViewerImpressionKey(req, viewerDid)
+      const body = await readJsonBody(req)
+      const uris = Array.isArray(body?.uris)
+        ? body.uris.slice(0, 50).map(u => String(u || ''))
+        : body?.uri
+          ? [String(body.uri)]
+          : []
+      store.enqueuePostViews(uris, viewerKey)
+      store.flushPendingViews()
+      const counts = {}
+      for (const u of uris) {
+        const c = store.canonicalizeUri(u)
+        if (c) counts[c] = store.getPostViewCount(c)
+      }
+      sendJson(req, res, 200, {ok: true, counts})
+      return true
     }
-    const counts = {}
-    for (const u of uris) {
-      const c = canonicalizeUri(db, u)
-      if (c) counts[c] = getPostViewCount(db, c)
+
+    // -----------------------------------------------------------------------
+    // Sovereign XRPC Router (/xrpc/<nsid>)
+    // -----------------------------------------------------------------------
+
+    if (!pathname.startsWith('/xrpc/')) {
+      return false
     }
-    sendJson(req, res, 200, {ok: true, counts})
-    return true
-  }
 
-  // -------------------------------------------------------------------------
-  // Sovereign XRPC Router (/xrpc/<nsid>)
-  // -------------------------------------------------------------------------
+    const nsid = pathname.slice('/xrpc/'.length)
 
-  if (!pathname.startsWith('/xrpc/')) {
-    return false
-  }
-
-  const nsid = pathname.slice('/xrpc/'.length)
-
-  try {
     if (nsid === '_health' && method === 'GET') {
       sendJson(req, res, 200, {
-        version: '1.0.0',
+        version: getPackageVersion(),
         service: 'quant-zing',
         mode: 'sovereign-pure',
+        storage: 'sqlite-wal',
       })
       return true
     }
@@ -3032,7 +4867,7 @@ export async function handleQuantZingPds(req, res) {
 
     if (nsid === 'com.atproto.identity.resolveHandle' && method === 'GET') {
       const handle = searchParams.get('handle') || ''
-      const acc = findLocalAccount(db, handle)
+      const acc = store.findAccount(handle)
       if (!acc) {
         sendXrpcError(
           req,
@@ -3069,7 +4904,7 @@ export async function handleQuantZingPds(req, res) {
       method === 'GET'
     ) {
       const handle = normalizeHandle(searchParams.get('handle') || '')
-      const existing = findLocalAccount(db, handle)
+      const existing = store.findAccount(handle)
       if (!existing) {
         sendJson(req, res, 200, {
           handle,
@@ -3094,7 +4929,7 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'com.atproto.server.createAccount' && method === 'POST') {
-      const optAuth = getAuthedContext(req, db)
+      const optAuth = getAuthedContext(req, store)
       if (
         enforceRateLimit(req, res, {
           bucketKey: `signup:${getClientIp(req)}`,
@@ -3129,75 +4964,79 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
 
-      for (const acc of Object.values(db.accounts)) {
-        if (acc.handle.toLowerCase() === handle) {
-          sendXrpcError(
-            req,
-            res,
-            400,
-            'HandleNotAvailable',
-            'That handle is already taken on QuantZing',
-          )
-          return true
-        }
-        if (email && acc.email && acc.email.toLowerCase() === email) {
-          sendXrpcError(
-            req,
-            res,
-            400,
-            'InvalidRequest',
-            'An account with that email already exists',
-          )
-          return true
-        }
+      if (store.findAccount(handle)) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'HandleNotAvailable',
+          'That handle is already taken on QuantZing',
+        )
+        return true
+      }
+      if (email && store.findAccountByEmail(email)) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'An account with that email already exists',
+        )
+        return true
       }
 
       const did = createPlcDid()
-      const {salt, hash} = hashPassword(password)
+      const {salt, hash} = await hashPasswordAsync(password)
       const createdAt = new Date().toISOString()
       const displayName = handle.split('.')[0]
 
-      const account = {
-        did,
-        handle,
-        email,
-        passwordSalt: salt,
-        passwordHash: hash,
-        createdAt,
-        active: true,
-        role: isConfiguredAdminHandle(handle) ? 'super_admin' : 'user',
-        department: isConfiguredAdminHandle(handle) ? 'Leadership' : '',
-        tokenVersion: 1,
-        offboardedAt: null,
-        lastOpsLoginAt: null,
-        status: 'active',
-        statusReason: '',
-        suspendedUntil: null,
-        warnings: [],
-        verified: false,
-        emailConfirmed: true,
-        emailAuthFactor: false,
-        profile: {
+      const account = store.inTransaction(() => {
+        if (store.findAccount(handle)) {
+          throw new Error('HandleNotAvailable')
+        }
+        if (email && store.findAccountByEmail(email)) {
+          throw new Error('EmailAlreadyExists')
+        }
+        const created = store.upsertAccount({
+          did,
+          handle,
+          email,
+          passwordSalt: salt,
+          passwordHash: hash,
+          createdAt,
+          active: true,
+          role: isConfiguredAdminHandle(handle) ? 'super_admin' : 'user',
+          department: isConfiguredAdminHandle(handle) ? 'Leadership' : '',
+          tokenVersion: 1,
+          offboardedAt: null,
+          lastOpsLoginAt: null,
+          status: 'active',
+          statusReason: '',
+          suspendedUntil: null,
+          warnings: [],
+          verified: false,
+          emailConfirmed: true,
+          emailAuthFactor: false,
+          profile: {
+            displayName,
+            description: '',
+            avatar: null,
+            banner: null,
+            createdAt,
+          },
+          preferences: createDefaultPreferences(),
+          notificationPreferences: createDefaultNotificationPreferences(),
+        })
+        putLocalRecord(store, did, 'app.bsky.actor.profile', 'self', {
+          $type: 'app.bsky.actor.profile',
           displayName,
           description: '',
-          avatar: null,
-          banner: null,
           createdAt,
-        },
-        preferences: createDefaultPreferences(),
-        notificationPreferences: createDefaultNotificationPreferences(),
-      }
-
-      db.accounts[did] = account
-      putLocalRecord(db, did, 'app.bsky.actor.profile', 'self', {
-        $type: 'app.bsky.actor.profile',
-        displayName,
-        description: '',
-        createdAt,
+        })
+        return created
       })
 
-      const tokens = mintTokens(db, did)
-      saveDb(db)
+      const tokens = mintTokens(store, did)
 
       sendJson(req, res, 200, {
         ...tokens,
@@ -3210,7 +5049,7 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'com.atproto.server.createSession' && method === 'POST') {
-      const optAuth = getAuthedContext(req, db)
+      const optAuth = getAuthedContext(req, store)
       if (
         enforceRateLimit(req, res, {
           bucketKey: `login:${getClientIp(req)}`,
@@ -3238,11 +5077,15 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
 
-      const account = findLocalAccount(db, identifier)
-      if (
-        !account ||
-        !verifyPassword(password, account.passwordSalt, account.passwordHash)
-      ) {
+      const account = store.findAccount(identifier)
+      const validPassword = account
+        ? await verifyPasswordAsync(
+            password,
+            account.passwordSalt,
+            account.passwordHash,
+          )
+        : false
+      if (!account || !validPassword) {
         sendXrpcError(
           req,
           res,
@@ -3253,7 +5096,9 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
 
-      const enforcement = checkAccountEnforcement(db, account, {saveDb})
+      const enforcement = checkAccountEnforcement(store, account, {
+        saveDb: () => store.upsertAccount(account),
+      })
       if (!enforcement.allowed) {
         sendXrpcError(
           req,
@@ -3265,22 +5110,22 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
 
-      const tokens = mintTokens(db, account.did)
+      const tokens = mintTokens(store, account.did)
       sendJson(req, res, 200, {
         ...tokens,
         handle: account.handle,
         did: account.did,
         didDoc: buildDidDoc(account, origin),
         email: account.email,
-        emailConfirmed: true,
-        emailAuthFactor: false,
-        active: true,
+        emailConfirmed: account.emailConfirmed !== false,
+        emailAuthFactor: Boolean(account.emailAuthFactor),
+        active: account.active !== false,
       })
       return true
     }
 
     if (nsid === 'com.atproto.server.getSession' && method === 'GET') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
           req,
@@ -3297,15 +5142,15 @@ export async function handleQuantZingPds(req, res) {
         did: account.did,
         didDoc: buildDidDoc(account, origin),
         email: account.email,
-        emailConfirmed: true,
-        emailAuthFactor: false,
-        active: true,
+        emailConfirmed: account.emailConfirmed !== false,
+        emailAuthFactor: Boolean(account.emailAuthFactor),
+        active: account.active !== false,
       })
       return true
     }
 
     if (nsid === 'com.atproto.server.refreshSession' && method === 'POST') {
-      const auth = getAuthedContext(req, db, {
+      const auth = getAuthedContext(req, store, {
         expectedScope: 'com.atproto.refresh',
       })
       if (auth.error) {
@@ -3319,7 +5164,9 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
       const {account} = auth
-      const enforcement = checkAccountEnforcement(db, account, {saveDb})
+      const enforcement = checkAccountEnforcement(store, account, {
+        saveDb: () => store.upsertAccount(account),
+      })
       if (!enforcement.allowed) {
         sendXrpcError(
           req,
@@ -3330,19 +5177,19 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
-      const tokens = mintTokens(db, account.did)
+      const tokens = mintTokens(store, account.did)
       sendJson(req, res, 200, {
         ...tokens,
         handle: account.handle,
         did: account.did,
         didDoc: buildDidDoc(account, origin),
-        active: true,
+        active: account.active !== false,
       })
       return true
     }
 
     if (nsid === 'com.atproto.server.deleteSession' && method === 'POST') {
-      const auth = getAuthedContext(req, db, {
+      const auth = getAuthedContext(req, store, {
         allowedScopes: [
           'com.atproto.access',
           'com.atproto.refresh',
@@ -3350,18 +5197,14 @@ export async function handleQuantZingPds(req, res) {
         ],
       })
       if (auth.payload?.jti) {
-        db.revokedTokens.push(auth.payload.jti)
-        if (db.revokedTokens.length > 500) {
-          db.revokedTokens = db.revokedTokens.slice(-500)
-        }
-        saveDb(db)
+        store.revokeToken(auth.payload.jti, auth.payload.exp)
       }
       sendEmpty(req, res, 200)
       return true
     }
 
     if (nsid === 'com.atproto.server.checkAccountStatus' && method === 'GET') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
           req,
@@ -3378,10 +5221,7 @@ export async function handleQuantZingPds(req, res) {
         repoCommit: computeCid({did: auth.did}, 'dag-cbor'),
         repoRev: generateTid(),
         repoBlocks: 1,
-        indexedRecords: Object.values(db.records[auth.did] || {}).reduce(
-          (sum, c) => sum + Object.keys(c || {}).length,
-          0,
-        ),
+        indexedRecords: store.getRecordCountForRepo(auth.did),
         privateStateValues: 0,
         expectedBlobs: 0,
         importedBlobs: 0,
@@ -3390,7 +5230,7 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'com.atproto.server.getServiceAuth' && method === 'GET') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
           req,
@@ -3407,7 +5247,7 @@ export async function handleQuantZingPds(req, res) {
         Number.isFinite(requestedExp) && requestedExp > nowSec
           ? Math.max(60, Math.min(1800, Math.floor(requestedExp - nowSec)))
           : 300
-      const token = signJwt(db, {
+      const token = signJwt(store, {
         did: auth.did,
         scope: 'com.atproto.serviceAuth',
         ttlSeconds,
@@ -3422,7 +5262,7 @@ export async function handleQuantZingPds(req, res) {
     // -----------------------------------------------------------------------
 
     if (nsid === 'com.atproto.repo.createRecord' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
           req,
@@ -3433,7 +5273,7 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
-      const enforcement = checkAccountEnforcement(db, auth.account, {saveDb})
+      const enforcement = checkAccountEnforcement(store, auth.account)
       if (!enforcement.allowed) {
         sendXrpcError(
           req,
@@ -3468,13 +5308,12 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
       const entry = putLocalRecord(
-        db,
+        store,
         auth.did,
         collection,
         body.rkey ? String(body.rkey) : undefined,
         body.record,
       )
-      saveDb(db)
       sendJson(req, res, 200, {
         uri: entry.uri,
         cid: entry.cid,
@@ -3485,7 +5324,7 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'com.atproto.repo.putRecord' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
           req,
@@ -3496,7 +5335,7 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
-      const enforcement = checkAccountEnforcement(db, auth.account, {saveDb})
+      const enforcement = checkAccountEnforcement(store, auth.account)
       if (!enforcement.allowed) {
         sendXrpcError(
           req,
@@ -3505,6 +5344,17 @@ export async function handleQuantZingPds(req, res) {
           enforcement.error,
           enforcement.message,
         )
+        return true
+      }
+      if (
+        enforceRateLimit(req, res, {
+          bucketKey: `write:${auth.did}`,
+          maxRequests: Number(process.env.QUANTZING_RATE_LIMIT_WRITE_MAX) || 60,
+          windowMs: 60 * 1000,
+          auth,
+          sendJson,
+        })
+      ) {
         return true
       }
       const body = await readJsonBody(req)
@@ -3525,8 +5375,13 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
-      const entry = putLocalRecord(db, auth.did, collection, rkey, body.record)
-      saveDb(db)
+      const entry = putLocalRecord(
+        store,
+        auth.did,
+        collection,
+        rkey,
+        body.record,
+      )
       sendJson(req, res, 200, {
         uri: entry.uri,
         cid: entry.cid,
@@ -3537,7 +5392,7 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'com.atproto.repo.deleteRecord' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
           req,
@@ -3545,6 +5400,17 @@ export async function handleQuantZingPds(req, res) {
           auth.status,
           auth.error,
           'Authentication required',
+        )
+        return true
+      }
+      const enforcement = checkAccountEnforcement(store, auth.account)
+      if (!enforcement.allowed) {
+        sendXrpcError(
+          req,
+          res,
+          enforcement.status,
+          enforcement.error,
+          enforcement.message,
         )
         return true
       }
@@ -3561,8 +5427,7 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
-      deleteLocalRecord(db, auth.did, collection, rkey)
-      saveDb(db)
+      deleteLocalRecord(store, auth.did, collection, rkey)
       const rev = generateTid()
       sendJson(req, res, 200, {
         commit: {
@@ -3577,7 +5442,7 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'com.atproto.repo.applyWrites' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
           req,
@@ -3588,7 +5453,7 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
-      const enforcement = checkAccountEnforcement(db, auth.account, {saveDb})
+      const enforcement = checkAccountEnforcement(store, auth.account)
       if (!enforcement.allowed) {
         sendXrpcError(
           req,
@@ -3615,50 +5480,56 @@ export async function handleQuantZingPds(req, res) {
       const results = []
       let lastCid = computeCid({did: auth.did, ts: Date.now()}, 'dag-cbor')
 
-      for (const write of writes) {
-        const type = write?.$type
-        const collection = String(write?.collection || '')
-        if (!collection) continue
+      store.inTransaction(() => {
+        for (const write of writes) {
+          const type = write?.$type
+          const collection = String(write?.collection || '')
+          if (!collection) continue
 
-        if (type === 'com.atproto.repo.applyWrites#create') {
-          const entry = putLocalRecord(
-            db,
-            auth.did,
-            collection,
-            write.rkey ? String(write.rkey) : undefined,
-            write.value || {},
-          )
-          lastCid = entry.cid
-          results.push({
-            $type: 'com.atproto.repo.applyWrites#createResult',
-            uri: entry.uri,
-            cid: entry.cid,
-            validationStatus: 'valid',
-          })
-        } else if (type === 'com.atproto.repo.applyWrites#update') {
-          const entry = putLocalRecord(
-            db,
-            auth.did,
-            collection,
-            String(write.rkey || generateTid()),
-            write.value || {},
-          )
-          lastCid = entry.cid
-          results.push({
-            $type: 'com.atproto.repo.applyWrites#updateResult',
-            uri: entry.uri,
-            cid: entry.cid,
-            validationStatus: 'valid',
-          })
-        } else if (type === 'com.atproto.repo.applyWrites#delete') {
-          deleteLocalRecord(db, auth.did, collection, String(write.rkey || ''))
-          results.push({
-            $type: 'com.atproto.repo.applyWrites#deleteResult',
-          })
+          if (type === 'com.atproto.repo.applyWrites#create') {
+            const entry = putLocalRecord(
+              store,
+              auth.did,
+              collection,
+              write.rkey ? String(write.rkey) : undefined,
+              write.value || {},
+            )
+            lastCid = entry.cid
+            results.push({
+              $type: 'com.atproto.repo.applyWrites#createResult',
+              uri: entry.uri,
+              cid: entry.cid,
+              validationStatus: 'valid',
+            })
+          } else if (type === 'com.atproto.repo.applyWrites#update') {
+            const entry = putLocalRecord(
+              store,
+              auth.did,
+              collection,
+              String(write.rkey || generateTid()),
+              write.value || {},
+            )
+            lastCid = entry.cid
+            results.push({
+              $type: 'com.atproto.repo.applyWrites#updateResult',
+              uri: entry.uri,
+              cid: entry.cid,
+              validationStatus: 'valid',
+            })
+          } else if (type === 'com.atproto.repo.applyWrites#delete') {
+            deleteLocalRecord(
+              store,
+              auth.did,
+              collection,
+              String(write.rkey || ''),
+            )
+            results.push({
+              $type: 'com.atproto.repo.applyWrites#deleteResult',
+            })
+          }
         }
-      }
+      })
 
-      saveDb(db)
       sendJson(req, res, 200, {
         commit: {cid: lastCid, rev: generateTid()},
         results,
@@ -3670,7 +5541,7 @@ export async function handleQuantZingPds(req, res) {
       const repo = searchParams.get('repo') || ''
       const collection = searchParams.get('collection') || ''
       const rkey = searchParams.get('rkey') || ''
-      const localAcc = findLocalAccount(db, repo)
+      const localAcc = store.findAccount(repo)
       if (!localAcc) {
         sendXrpcError(
           req,
@@ -3681,21 +5552,19 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
-      const rec = db.records?.[localAcc.did]?.[collection]?.[rkey]
+      const rec = store.getRecord(localAcc.did, collection, rkey)
       if (!rec) {
+        // Return default virtual declarations with ZERO disk writes on GET!
         if (collection === 'chat.bsky.actor.declaration' && rkey === 'self') {
-          const decl = putLocalRecord(
-            db,
-            localAcc.did,
-            'chat.bsky.actor.declaration',
-            'self',
-            {allowIncoming: 'all'},
-          )
-          saveDb(db)
+          const val = {
+            $type: 'chat.bsky.actor.declaration',
+            allowIncoming: 'all',
+          }
+          const uri = `at://${localAcc.did}/chat.bsky.actor.declaration/self`
           sendJson(req, res, 200, {
-            uri: decl.uri,
-            cid: decl.cid,
-            value: decl.value,
+            uri,
+            cid: computeCid(val, 'dag-cbor'),
+            value: val,
           })
           return true
         }
@@ -3703,18 +5572,15 @@ export async function handleQuantZingPds(req, res) {
           collection === 'app.bsky.notification.declaration' &&
           rkey === 'self'
         ) {
-          const decl = putLocalRecord(
-            db,
-            localAcc.did,
-            'app.bsky.notification.declaration',
-            'self',
-            {allowSubscriptions: 'followers'},
-          )
-          saveDb(db)
+          const val = {
+            $type: 'app.bsky.notification.declaration',
+            allowSubscriptions: 'followers',
+          }
+          const uri = `at://${localAcc.did}/app.bsky.notification.declaration/self`
           sendJson(req, res, 200, {
-            uri: decl.uri,
-            cid: decl.cid,
-            value: decl.value,
+            uri,
+            cid: computeCid(val, 'dag-cbor'),
+            value: val,
           })
           return true
         }
@@ -3722,18 +5588,12 @@ export async function handleQuantZingPds(req, res) {
           collection === 'app.bsky.actor.contentVisibilityDeclaration' &&
           rkey === 'self'
         ) {
-          const decl = putLocalRecord(
-            db,
-            localAcc.did,
-            'app.bsky.actor.contentVisibilityDeclaration',
-            'self',
-            {},
-          )
-          saveDb(db)
+          const val = {$type: 'app.bsky.actor.contentVisibilityDeclaration'}
+          const uri = `at://${localAcc.did}/app.bsky.actor.contentVisibilityDeclaration/self`
           sendJson(req, res, 200, {
-            uri: decl.uri,
-            cid: decl.cid,
-            value: decl.value,
+            uri,
+            cid: computeCid(val, 'dag-cbor'),
+            value: val,
           })
           return true
         }
@@ -3762,27 +5622,31 @@ export async function handleQuantZingPds(req, res) {
         Math.max(1, Number(searchParams.get('limit') || 50)),
       )
       const reverse = searchParams.get('reverse') === 'true'
-      const localAcc = findLocalAccount(db, repo)
+      const cursor = searchParams.get('cursor')
+      const localAcc = store.findAccount(repo)
       if (!localAcc) {
         sendJson(req, res, 200, {records: []})
         return true
       }
-      const col = getCollectionMap(db, localAcc.did, collection)
-      const records = Object.values(col)
-        .sort((a, b) =>
-          reverse
-            ? a.rkey.localeCompare(b.rkey)
-            : b.rkey.localeCompare(a.rkey),
-        )
-        .slice(0, limit)
-        .map(r => ({uri: r.uri, cid: r.cid, value: r.value}))
-      sendJson(req, res, 200, {records})
+      const page = store.listRecordsForRepo(localAcc.did, collection, {
+        limit,
+        reverse,
+        cursor,
+      })
+      sendJson(req, res, 200, {
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        records: page.records.map(r => ({
+          uri: r.uri,
+          cid: r.cid,
+          value: r.value,
+        })),
+      })
       return true
     }
 
     if (nsid === 'com.atproto.repo.describeRepo' && method === 'GET') {
       const repo = searchParams.get('repo') || ''
-      const localAcc = findLocalAccount(db, repo)
+      const localAcc = store.findAccount(repo)
       if (!localAcc) {
         sendXrpcError(
           req,
@@ -3797,14 +5661,14 @@ export async function handleQuantZingPds(req, res) {
         handle: localAcc.handle,
         did: localAcc.did,
         didDoc: buildDidDoc(localAcc, origin),
-        collections: Object.keys(db.records[localAcc.did] || {}),
+        collections: store.getCollectionsForRepo(localAcc.did),
         handleIsCorrect: true,
       })
       return true
     }
 
     if (nsid === 'com.atproto.repo.uploadBlob' && method === 'POST') {
-      const auth = getAuthedContext(req, db, {
+      const auth = getAuthedContext(req, store, {
         allowedScopes: VIDEO_AUTH_SCOPES,
       })
       if (auth.error) {
@@ -3817,7 +5681,7 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
-      const enforcement = checkAccountEnforcement(db, auth.account, {saveDb})
+      const enforcement = checkAccountEnforcement(store, auth.account)
       if (!enforcement.allowed) {
         sendXrpcError(
           req,
@@ -3845,8 +5709,7 @@ export async function handleQuantZingPds(req, res) {
       )
         .split(';')[0]
         .trim()
-      const blob = storeLocalBlob(db, auth.did, data, mimeType)
-      saveDb(db)
+      const blob = storeLocalBlob(store, auth.did, data, mimeType)
       sendJson(req, res, 200, {blob})
       return true
     }
@@ -3854,23 +5717,33 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'com.atproto.sync.getBlob' && method === 'GET') {
       const cid = searchParams.get('cid') || ''
       if (cid && !cid.includes('..') && !cid.includes('/')) {
-        const blobFile = path.join(getBlobsDir(), cid)
-        if (fs.existsSync(blobFile)) {
-          const meta = db.blobs[cid]
-          const data = fs.readFileSync(blobFile)
+        const blobFile = store.resolveExistingBlobPath(cid)
+        if (blobFile) {
+          const meta = store.getBlobMeta(cid)
+          const stat = fs.statSync(blobFile)
           res.writeHead(
             200,
             corsHeaders(req, {
               'content-type': meta?.mimeType || 'application/octet-stream',
-              'content-length': data.length,
+              'content-length': stat.size,
               'cache-control': 'public, max-age=31536000, immutable',
             }),
           )
-          res.end(data)
+          const stream = fs.createReadStream(blobFile)
+          stream.on('error', () => {
+            if (!res.writableEnded) res.end()
+          })
+          stream.pipe(res)
           return true
         }
       }
-      sendXrpcError(req, res, 404, 'BlobNotFound', 'Blob not found on QuantZing')
+      sendXrpcError(
+        req,
+        res,
+        404,
+        'BlobNotFound',
+        'Blob not found on QuantZing',
+      )
       return true
     }
 
@@ -3879,7 +5752,7 @@ export async function handleQuantZingPds(req, res) {
     // -----------------------------------------------------------------------
 
     if (nsid === 'app.bsky.actor.getPreferences' && method === 'GET') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
           req,
@@ -3890,29 +5763,31 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
+      // Return preferences with ZERO disk writes on GET!
+      let prefs =
+        Array.isArray(auth.account.preferences) &&
+        auth.account.preferences.length > 0
+          ? [...auth.account.preferences]
+          : createDefaultPreferences()
       if (
-        !Array.isArray(auth.account.preferences) ||
-        auth.account.preferences.length === 0
-      ) {
-        auth.account.preferences = createDefaultPreferences()
-        saveDb(db)
-      } else if (
-        !auth.account.preferences.some(
+        !prefs.some(
           p => p?.$type === 'app.bsky.actor.defs#personalDetailsPref',
         )
       ) {
-        auth.account.preferences.push({
-          $type: 'app.bsky.actor.defs#personalDetailsPref',
-          birthDate: '1998-01-01T00:00:00.000Z',
-        })
-        saveDb(db)
+        prefs = [
+          ...prefs,
+          {
+            $type: 'app.bsky.actor.defs#personalDetailsPref',
+            birthDate: '1998-01-01T00:00:00.000Z',
+          },
+        ]
       }
-      sendJson(req, res, 200, {preferences: auth.account.preferences})
+      sendJson(req, res, 200, {preferences: prefs})
       return true
     }
 
     if (nsid === 'app.bsky.actor.putPreferences' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
           req,
@@ -3934,16 +5809,15 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
-      auth.account.preferences = body.preferences
-      saveDb(db)
+      store.updateAccountPreferences(auth.did, body.preferences)
       sendEmpty(req, res, 200)
       return true
     }
 
     if (nsid === 'app.bsky.actor.getProfile' && method === 'GET') {
       const actor = searchParams.get('actor') || ''
-      const viewerDid = getOptionalViewerDid(req, db)
-      const localAcc = findLocalAccount(db, actor)
+      const viewerDid = getOptionalViewerDid(req, store)
+      const localAcc = store.findAccount(actor)
       if (!localAcc) {
         sendXrpcError(
           req,
@@ -3958,20 +5832,20 @@ export async function handleQuantZingPds(req, res) {
         req,
         res,
         200,
-        buildLocalProfileView(db, localAcc, viewerDid, origin, true),
+        buildLocalProfileView(store, localAcc, viewerDid, origin, true),
       )
       return true
     }
 
     if (nsid === 'app.bsky.actor.getProfiles' && method === 'GET') {
       const actors = searchParams.getAll('actors')
-      const viewerDid = getOptionalViewerDid(req, db)
+      const viewerDid = getOptionalViewerDid(req, store)
       const profiles = []
       for (const actor of actors) {
-        const localAcc = findLocalAccount(db, actor)
+        const localAcc = store.findAccount(actor)
         if (localAcc) {
           profiles.push(
-            buildLocalProfileView(db, localAcc, viewerDid, origin, true),
+            buildLocalProfileView(store, localAcc, viewerDid, origin, true),
           )
         }
       }
@@ -3984,35 +5858,34 @@ export async function handleQuantZingPds(req, res) {
         nsid === 'app.bsky.actor.searchActorsTypeahead') &&
       method === 'GET'
     ) {
-      const q = (searchParams.get('q') || searchParams.get('term') || '')
+      const query = (searchParams.get('q') || searchParams.get('term') || '')
         .trim()
-        .toLowerCase()
-        .replace(/^@/, '')
-      const limit = Math.min(50, Math.max(1, Number(searchParams.get('limit') || 25)))
-      const viewerDid = getOptionalViewerDid(req, db)
-      const matches = []
-      for (const acc of Object.values(db.accounts)) {
-        if (isAccountSuspendedOrBanned(acc)) continue
-        const dn = String(acc.profile?.displayName || '').toLowerCase()
-        const desc = String(acc.profile?.description || '').toLowerCase()
-        if (
-          !q ||
-          acc.handle.toLowerCase().includes(q) ||
-          dn.includes(q) ||
-          desc.includes(q)
-        ) {
-          matches.push(buildLocalProfileView(db, acc, viewerDid, origin, false))
-        }
-      }
-      sendJson(req, res, 200, {actors: matches.slice(0, limit)})
+      const limit = Math.min(
+        50,
+        Math.max(1, Number(searchParams.get('limit') || 25)),
+      )
+      const cursor = searchParams.get('cursor')
+      const viewerDid = getOptionalViewerDid(req, store)
+      const page = store.searchActors({query, viewerDid, limit, cursor})
+      const actors = page.accounts
+        .map(acc => buildLocalProfileView(store, acc, viewerDid, origin, false))
+        .filter(Boolean)
+      sendJson(req, res, 200, {
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        actors,
+      })
       return true
     }
 
     if (nsid === 'app.bsky.actor.getSuggestions' && method === 'GET') {
       const limit = Number(searchParams.get('limit') || 20)
-      const viewerDid = getOptionalViewerDid(req, db)
+      const cursor = searchParams.get('cursor')
+      const viewerDid = getOptionalViewerDid(req, store)
+      const all = getSuggestedQuantZingActors(store, viewerDid, origin, 50)
+      const page = paginateItems(all, cursor, limit)
       sendJson(req, res, 200, {
-        actors: getSuggestedQuantZingActors(db, viewerDid, origin, limit),
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        actors: page.items,
         recIdStr: 'quantzing-suggestions-v1',
       })
       return true
@@ -4024,9 +5897,9 @@ export async function handleQuantZingPds(req, res) {
 
     if (nsid === 'app.bsky.unspecced.getTrends' && method === 'GET') {
       const limit = Number(searchParams.get('limit') || 10)
-      const viewerDid = getOptionalViewerDid(req, db)
+      const viewerDid = getOptionalViewerDid(req, store)
       sendJson(req, res, 200, {
-        trends: computeSovereignTrends(db, viewerDid, origin, limit),
+        trends: computeSovereignTrends(store, viewerDid, origin, limit),
         recIdStr: 'quantzing-trends-v1',
       })
       return true
@@ -4034,8 +5907,8 @@ export async function handleQuantZingPds(req, res) {
 
     if (nsid === 'app.bsky.unspecced.getTrendingTopics' && method === 'GET') {
       const limit = Number(searchParams.get('limit') || 10)
-      const viewerDid = getOptionalViewerDid(req, db)
-      const trends = computeSovereignTrends(db, viewerDid, origin, limit)
+      const viewerDid = getOptionalViewerDid(req, store)
+      const trends = computeSovereignTrends(store, viewerDid, origin, limit)
       const topics = trends.map(t => ({
         topic: t.topic,
         displayName: t.displayName,
@@ -4055,9 +5928,9 @@ export async function handleQuantZingPds(req, res) {
       method === 'GET'
     ) {
       const limit = Number(searchParams.get('limit') || 10)
-      const viewerDid = getOptionalViewerDid(req, db)
+      const viewerDid = getOptionalViewerDid(req, store)
       sendJson(req, res, 200, {
-        actors: getSuggestedQuantZingActors(db, viewerDid, origin, limit),
+        actors: getSuggestedQuantZingActors(store, viewerDid, origin, limit),
         recIdStr: 'quantzing-discover-v1',
       })
       return true
@@ -4069,14 +5942,14 @@ export async function handleQuantZingPds(req, res) {
         nsid === 'app.bsky.feed.getSuggestedFeeds') &&
       method === 'GET'
     ) {
-      const viewerDid = getOptionalViewerDid(req, db)
+      const viewerDid = getOptionalViewerDid(req, store)
       const query = (searchParams.get('query') || '').trim().toLowerCase()
       const feeds = SOVEREIGN_FEED_GENERATORS.filter(
         f =>
           !query ||
           f.displayName.toLowerCase().includes(query) ||
           f.description.toLowerCase().includes(query),
-      ).map(f => buildFeedGeneratorView(db, f, viewerDid, origin))
+      ).map(f => buildFeedGeneratorView(store, f, viewerDid, origin))
       sendJson(req, res, 200, {feeds})
       return true
     }
@@ -4091,18 +5964,35 @@ export async function handleQuantZingPds(req, res) {
     }
 
     // -----------------------------------------------------------------------
-    // 5. Feeds, Posts & Threads (app.bsky.feed.*, getPostThreadV2)
+    // 5. Feeds, Posts & Recursive Multi-Depth Threads (app.bsky.feed.*)
     // -----------------------------------------------------------------------
 
     if (nsid === 'app.bsky.feed.getFeedGenerator' && method === 'GET') {
       const feedUri = searchParams.get('feed') || DISCOVER_FEED_URI
       const parsed = parseAtUri(feedUri)
-      const spec =
-        SOVEREIGN_FEED_GENERATORS.find(f => f.rkey === parsed?.rkey) ||
-        SOVEREIGN_FEED_GENERATORS[0]
-      const viewerDid = getOptionalViewerDid(req, db)
+      let spec = SOVEREIGN_FEED_GENERATORS.find(f => f.rkey === parsed?.rkey)
+      if (!spec && parsed) {
+        const customRec = store.getRecord(
+          parsed.repo,
+          'app.bsky.feed.generator',
+          parsed.rkey,
+        )
+        if (customRec) {
+          spec = {
+            rkey: customRec.rkey,
+            uri: customRec.uri,
+            cid: customRec.cid,
+            creatorDid: customRec.repo,
+            displayName: customRec.value?.displayName || customRec.rkey,
+            description: customRec.value?.description || '',
+            indexedAt: customRec.indexedAt,
+          }
+        }
+      }
+      if (!spec) spec = SOVEREIGN_FEED_GENERATORS[0]
+      const viewerDid = getOptionalViewerDid(req, store)
       sendJson(req, res, 200, {
-        view: buildFeedGeneratorView(db, spec, viewerDid, origin),
+        view: buildFeedGeneratorView(store, spec, viewerDid, origin),
         isOnline: true,
         isValid: true,
       })
@@ -4111,7 +6001,7 @@ export async function handleQuantZingPds(req, res) {
 
     if (nsid === 'app.bsky.feed.getFeedGenerators' && method === 'GET') {
       const uris = searchParams.getAll('feeds')
-      const viewerDid = getOptionalViewerDid(req, db)
+      const viewerDid = getOptionalViewerDid(req, store)
       const feeds = []
       const seen = new Set()
       for (const uri of uris) {
@@ -4123,7 +6013,7 @@ export async function handleQuantZingPds(req, res) {
             : null)
         if (spec && !seen.has(spec.rkey)) {
           seen.add(spec.rkey)
-          feeds.push(buildFeedGeneratorView(db, spec, viewerDid, origin))
+          feeds.push(buildFeedGeneratorView(store, spec, viewerDid, origin))
         }
       }
       sendJson(req, res, 200, {feeds})
@@ -4132,63 +6022,79 @@ export async function handleQuantZingPds(req, res) {
 
     if (nsid === 'app.bsky.feed.getActorFeeds' && method === 'GET') {
       const actor = searchParams.get('actor') || ''
-      const viewerDid = getOptionalViewerDid(req, db)
-      const acc = findLocalAccount(db, actor)
+      const viewerDid = getOptionalViewerDid(req, store)
+      const acc = store.findAccount(actor)
+      if (!acc) {
+        sendJson(req, res, 200, {feeds: []})
+        return true
+      }
       const feeds =
-        acc?.did === QUANTZING_OFFICIAL_DID
+        acc.did === QUANTZING_OFFICIAL_DID
           ? SOVEREIGN_FEED_GENERATORS.map(f =>
-              buildFeedGeneratorView(db, f, viewerDid, origin),
+              buildFeedGeneratorView(store, f, viewerDid, origin),
             )
-          : []
+          : store
+              .listRecordsForRepo(acc.did, 'app.bsky.feed.generator', {
+                limit: 50,
+              })
+              .records.map(r =>
+                buildFeedGeneratorView(
+                  store,
+                  {
+                    rkey: r.rkey,
+                    uri: r.uri,
+                    cid: r.cid,
+                    creatorDid: r.repo,
+                    displayName: r.value?.displayName || r.rkey,
+                    description: r.value?.description || '',
+                    indexedAt: r.indexedAt,
+                  },
+                  viewerDid,
+                  origin,
+                ),
+              )
       sendJson(req, res, 200, {feeds})
       return true
     }
 
     if (nsid === 'app.bsky.feed.getTimeline' && method === 'GET') {
-      const viewerDid = getOptionalViewerDid(req, db)
+      const viewerDid = getOptionalViewerDid(req, store)
       const cursor = searchParams.get('cursor')
-      const limit = searchParams.get('limit') || '30'
+      const limit = Number(searchParams.get('limit') || 30)
 
-      const allItems = getLocalFeedItems(db, viewerDid, origin, {
+      let authorDids = null
+      if (viewerDid) {
+        const followed = store.getFollowedDids(viewerDid)
+        if (followed.length > 0) {
+          authorDids = [...new Set([viewerDid, ...followed])]
+        }
+      }
+
+      let items = getLocalFeedItems(store, viewerDid, origin, {
+        authorDids,
         includeReplies: false,
         includeReposts: true,
+        limit: Math.max(limit * 2, 60),
       })
-
-      // If viewer follows specific accounts, surface followed accounts + own posts & rezings first,
-      // falling back to full QuantZing network feed if timeline would otherwise be empty.
-      let items = allItems
-      if (viewerDid) {
-        const followedDids = new Set(
-          Object.values(
-            getCollectionMap(db, viewerDid, 'app.bsky.graph.follow'),
-          )
-            .map(r => r?.value?.subject)
-            .filter(Boolean),
-        )
-        followedDids.add(viewerDid)
-        if (followedDids.size > 1) {
-          const followingOnly = allItems.filter(it =>
-            followedDids.has(it.reason?.by?.did || it.post?.author?.did),
-          )
-          if (followingOnly.length > 0) {
-            items = followingOnly
-          }
-        }
+      if (items.length === 0 && authorDids) {
+        items = getLocalFeedItems(store, viewerDid, origin, {
+          includeReplies: false,
+          includeReposts: true,
+          limit: Math.max(limit * 2, 60),
+        })
       }
 
       const page = paginateItems(items, cursor, limit)
       const impressionKey = getViewerImpressionKey(req, viewerDid)
-      if (
-        recordPostViews(
-          db,
-          page.items.map(it => it.post?.uri).filter(Boolean),
-          impressionKey,
-        )
-      ) {
-        saveDb(db)
-      }
+      // Batched RAM view enqueue — ZERO synchronous disk writes on GET!
+      store.enqueuePostViews(
+        page.items.map(it => it.post?.uri).filter(Boolean),
+        impressionKey,
+      )
       for (const it of page.items) {
-        if (it.post?.uri) it.post.viewCount = getPostViewCount(db, it.post.uri)
+        if (it.post?.uri) {
+          it.post.viewCount = store.getPostViewCount(it.post.uri)
+        }
       }
       sendJson(req, res, 200, {
         ...(page.cursor ? {cursor: page.cursor} : {}),
@@ -4198,36 +6104,36 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'app.bsky.feed.getFeed' && method === 'GET') {
-      const viewerDid = getOptionalViewerDid(req, db)
+      const viewerDid = getOptionalViewerDid(req, store)
       const feedUri = searchParams.get('feed') || ''
       const cursor = searchParams.get('cursor')
-      const limit = searchParams.get('limit') || '30'
+      const limit = Number(searchParams.get('limit') || 30)
       const parsed = parseAtUri(feedUri)
       const spec = SOVEREIGN_FEED_GENERATORS.find(f => f.rkey === parsed?.rkey)
 
-      let items = getLocalFeedItems(db, viewerDid, origin, {
+      let items = getLocalFeedItems(store, viewerDid, origin, {
         includeReplies: false,
         filterTags: spec?.tags?.length ? spec.tags : null,
         onlyVideo: spec?.rkey === 'thevids',
+        limit: Math.max(limit * 2, 60),
       })
-      // If a topical feed has 0 matches yet, return sovereign network feed so tab is never dead
       if (items.length === 0 && spec?.rkey !== 'thevids') {
-        items = getLocalFeedItems(db, viewerDid, origin, {includeReplies: false})
+        items = getLocalFeedItems(store, viewerDid, origin, {
+          includeReplies: false,
+          limit: Math.max(limit * 2, 60),
+        })
       }
 
       const page = paginateItems(items, cursor, limit)
       const impressionKey = getViewerImpressionKey(req, viewerDid)
-      if (
-        recordPostViews(
-          db,
-          page.items.map(it => it.post?.uri).filter(Boolean),
-          impressionKey,
-        )
-      ) {
-        saveDb(db)
-      }
+      store.enqueuePostViews(
+        page.items.map(it => it.post?.uri).filter(Boolean),
+        impressionKey,
+      )
       for (const it of page.items) {
-        if (it.post?.uri) it.post.viewCount = getPostViewCount(db, it.post.uri)
+        if (it.post?.uri) {
+          it.post.viewCount = store.getPostViewCount(it.post.uri)
+        }
       }
       sendJson(req, res, 200, {
         ...(page.cursor ? {cursor: page.cursor} : {}),
@@ -4240,97 +6146,47 @@ export async function handleQuantZingPds(req, res) {
       const actor = searchParams.get('actor') || ''
       const filter = searchParams.get('filter') || 'posts_with_replies'
       const cursor = searchParams.get('cursor')
-      const limit = searchParams.get('limit') || '30'
-      const viewerDid = getOptionalViewerDid(req, db)
-      const localAcc = findLocalAccount(db, actor)
+      const limit = Number(searchParams.get('limit') || 30)
+      const viewerDid = getOptionalViewerDid(req, store)
+      const localAcc = store.findAccount(actor)
 
       if (!localAcc || isAccountSuspendedOrBanned(localAcc)) {
         sendJson(req, res, 200, {feed: []})
         return true
       }
 
-      const posts = Object.values(
-        getCollectionMap(db, localAcc.did, 'app.bsky.feed.post'),
-      )
-      const feedEntries = []
-
-      for (const postRec of posts) {
-        if (isPostHiddenForViewer(db, postRec, viewerDid, getCollectionMap)) {
-          continue
-        }
-        if (filter === 'posts_no_replies' && postRec.value?.reply) continue
-        if (filter === 'posts_with_media' && !postRec.value?.embed) continue
-        if (
-          filter === 'posts_with_video' &&
-          !isVideoEmbed(postRec.value?.embed)
-        ) {
-          continue
-        }
-        const postView = buildLocalPostView(db, postRec, viewerDid, origin)
-        if (!postView) continue
-        feedEntries.push({
-          post: postView,
-          _sortTime:
-            Date.parse(postRec.value?.createdAt || postRec.indexedAt || 0) || 0,
-        })
-      }
-
-      if (filter !== 'posts_with_media' && filter !== 'posts_with_video') {
-        const reposts = Object.values(
-          getCollectionMap(db, localAcc.did, 'app.bsky.feed.repost'),
-        )
-        const repostUris = reposts
-          .map(r => r?.value?.subject?.uri)
-          .filter(Boolean)
-        if (repostUris.length > 0) {
-          const hydrated = hydrateLocalPosts(db, repostUris, viewerDid, origin)
-          const byUri = new Map(hydrated.map(p => [p.uri, p]))
-          const reposterBasic = buildLocalProfileView(
-            db,
-            localAcc,
-            viewerDid,
-            origin,
-            false,
-          )
-          for (const rep of reposts) {
-            const target = byUri.get(rep?.value?.subject?.uri)
-            if (!target) continue
-            feedEntries.push({
-              post: target,
-              reason: {
-                $type: 'app.bsky.feed.defs#reasonRepost',
-                by: reposterBasic,
-                uri: rep.uri,
-                cid: rep.cid,
-                indexedAt: rep.indexedAt,
-              },
-              _sortTime:
-                Date.parse(rep.value?.createdAt || rep.indexedAt || 0) || 0,
-            })
-          }
-        }
-      }
-
-      feedEntries.sort((a, b) => b._sortTime - a._sortTime)
-
-      // Hoist pinned post to top when includePins=true
-      const includePins = searchParams.get('includePins') === 'true'
-      const pinnedUri = localAcc.profile?.pinnedPost?.uri
-      let finalEntries = feedEntries.map(({_sortTime, ...rest}) => rest)
-      if (
-        includePins &&
-        pinnedUri &&
-        !cursor &&
+      const includeReplies =
+        filter !== 'posts_no_replies' &&
         filter !== 'posts_with_media' &&
         filter !== 'posts_with_video'
-      ) {
-        const pinnedRec = findLocalPostByUri(db, pinnedUri)
+      const onlyMedia = filter === 'posts_with_media'
+      const onlyVideo = filter === 'posts_with_video'
+      const includeReposts = !onlyMedia && !onlyVideo
+
+      let finalEntries = getLocalFeedItems(store, viewerDid, origin, {
+        authorDids: [localAcc.did],
+        includeReplies,
+        includeReposts,
+        onlyMedia,
+        onlyVideo,
+        limit: Math.max(limit * 2, 80),
+      })
+
+      const includePins = searchParams.get('includePins') === 'true'
+      const pinnedUri = localAcc.profile?.pinnedPost?.uri
+      if (includePins && pinnedUri && !cursor && !onlyMedia && !onlyVideo) {
+        const pinnedRec = findLocalPostByUri(store, pinnedUri)
         if (
           pinnedRec &&
           pinnedRec.repo === localAcc.did &&
-          !isPostHiddenForViewer(db, pinnedRec, viewerDid, getCollectionMap)
+          !isRecordHiddenForViewer(store, pinnedRec, viewerDid)
         ) {
-          const pinnedView = buildLocalPostView(db, pinnedRec, viewerDid, origin)
+          const pinnedView = buildLocalPostView(
+            store,
+            pinnedRec,
+            viewerDid,
+            origin,
+          )
           if (pinnedView) {
             finalEntries = [
               {
@@ -4347,17 +6203,14 @@ export async function handleQuantZingPds(req, res) {
 
       const page = paginateItems(finalEntries, cursor, limit)
       const impressionKey = getViewerImpressionKey(req, viewerDid)
-      if (
-        recordPostViews(
-          db,
-          page.items.map(it => it.post?.uri).filter(Boolean),
-          impressionKey,
-        )
-      ) {
-        saveDb(db)
-      }
+      store.enqueuePostViews(
+        page.items.map(it => it.post?.uri).filter(Boolean),
+        impressionKey,
+      )
       for (const it of page.items) {
-        if (it.post?.uri) it.post.viewCount = getPostViewCount(db, it.post.uri)
+        if (it.post?.uri) {
+          it.post.viewCount = store.getPostViewCount(it.post.uri)
+        }
       }
       sendJson(req, res, 200, {
         ...(page.cursor ? {cursor: page.cursor} : {}),
@@ -4368,54 +6221,43 @@ export async function handleQuantZingPds(req, res) {
 
     if (nsid === 'app.bsky.feed.getActorLikes' && method === 'GET') {
       const actor = searchParams.get('actor') || ''
-      const viewerDid = getOptionalViewerDid(req, db)
-      const localAcc = findLocalAccount(db, actor)
+      const limit = Number(searchParams.get('limit') || 50)
+      const cursor = searchParams.get('cursor')
+      const viewerDid = getOptionalViewerDid(req, store)
+      const localAcc = store.findAccount(actor)
       if (!localAcc) {
         sendJson(req, res, 200, {feed: []})
         return true
       }
-      const likes = Object.values(
-        getCollectionMap(db, localAcc.did, 'app.bsky.feed.like'),
-      ).sort((a, b) =>
-        String(b.indexedAt || '').localeCompare(String(a.indexedAt || '')),
-      )
-      const uris = likes.map(l => l?.value?.subject?.uri).filter(Boolean)
-      const posts = hydrateLocalPosts(db, uris, viewerDid, origin)
-      sendJson(req, res, 200, {feed: posts.map(post => ({post}))})
+      const page = store.getActorLikes(localAcc.did, {limit, cursor})
+      const posts = hydrateLocalPosts(store, page.uris, viewerDid, origin)
+      sendJson(req, res, 200, {
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        feed: posts.map(post => ({post})),
+      })
       return true
     }
 
     if (nsid === 'app.bsky.feed.getPosts' && method === 'GET') {
       const uris = searchParams.getAll('uris')
-      const viewerDid = getOptionalViewerDid(req, db)
-      const posts = hydrateLocalPosts(db, uris, viewerDid, origin)
+      const viewerDid = getOptionalViewerDid(req, store)
+      const posts = hydrateLocalPosts(store, uris, viewerDid, origin)
       sendJson(req, res, 200, {posts})
       return true
     }
 
     if (nsid === 'app.bsky.feed.getPostThread' && method === 'GET') {
       const uri = searchParams.get('uri') || ''
-      const viewerDid = getOptionalViewerDid(req, db)
-      const resolved = resolveAtUri(db, uri)
-      const canonicalUri = resolved?.canonicalUri || uri
-
-      const localReplies = getAllLocalRecords(db, 'app.bsky.feed.post')
-        .filter(
-          r =>
-            (r?.value?.reply?.parent?.uri === canonicalUri ||
-              r?.value?.reply?.parent?.uri === uri) &&
-            !isPostHiddenForViewer(db, r, viewerDid, getCollectionMap),
-        )
-        .sort((a, b) =>
-          String(a.indexedAt || '').localeCompare(String(b.indexedAt || '')),
-        )
-        .map(r => buildLocalPostView(db, r, viewerDid, origin))
-        .filter(Boolean)
-        .map(post => ({
-          $type: 'app.bsky.feed.defs#threadViewPost',
-          post,
-          replies: [],
-        }))
+      const maxDepth = Math.min(
+        12,
+        Math.max(0, Number(searchParams.get('depth') ?? 6)),
+      )
+      const parentHeight = Math.min(
+        80,
+        Math.max(0, Number(searchParams.get('parentHeight') ?? 80)),
+      )
+      const viewerDid = getOptionalViewerDid(req, store)
+      const resolved = store.resolveAtUri(uri)
 
       if (!resolved) {
         sendJson(req, res, 200, {
@@ -4428,12 +6270,12 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
 
-      const postRec =
-        db.records?.[resolved.did]?.[resolved.collection]?.[resolved.rkey]
-      if (
-        !postRec ||
-        isPostHiddenForViewer(db, postRec, viewerDid, getCollectionMap)
-      ) {
+      const postRec = store.getRecord(
+        resolved.did,
+        resolved.collection,
+        resolved.rkey,
+      )
+      if (!postRec || isRecordHiddenForViewer(store, postRec, viewerDid)) {
         sendJson(req, res, 200, {
           thread: {
             $type: 'app.bsky.feed.defs#notFoundPost',
@@ -4443,33 +6285,66 @@ export async function handleQuantZingPds(req, res) {
         })
         return true
       }
-      if (
-        recordPostViews(
-          db,
-          [postRec.uri, ...localReplies.map(r => r.post?.uri).filter(Boolean)],
-          getViewerImpressionKey(req, viewerDid),
-        )
-      ) {
-        saveDb(db)
-      }
-      const postView = buildLocalPostView(db, postRec, viewerDid, origin)
-      let parentNode
-      const parentUri = postRec.value?.reply?.parent?.uri
-      if (parentUri) {
-        const [parentPost] = hydrateLocalPosts(db, [parentUri], viewerDid, origin)
-        if (parentPost) {
-          parentNode = {
+
+      const viewedUris = [postRec.uri]
+
+      const buildRepliesTree = (parentUri, currentDepth) => {
+        if (currentDepth >= maxDepth) return []
+        const direct = store.getDirectReplies(parentUri, 100)
+        const nodes = []
+        for (const r of direct) {
+          if (isRecordHiddenForViewer(store, r, viewerDid)) continue
+          const pv = buildLocalPostView(store, r, viewerDid, origin)
+          if (!pv) continue
+          viewedUris.push(pv.uri)
+          nodes.push({
             $type: 'app.bsky.feed.defs#threadViewPost',
-            post: parentPost,
+            post: pv,
+            replies: buildRepliesTree(pv.uri, currentDepth + 1),
+          })
+        }
+        return nodes
+      }
+
+      const buildParentChain = (rec, remainingHeight) => {
+        if (remainingHeight <= 0) return undefined
+        const pUri = rec?.value?.reply?.parent?.uri
+        if (!pUri) return undefined
+        const pRec = findLocalPostByUri(store, pUri)
+        if (!pRec || isRecordHiddenForViewer(store, pRec, viewerDid)) {
+          return {
+            $type: 'app.bsky.feed.defs#notFoundPost',
+            uri: pUri,
+            notFound: true,
           }
         }
+        const pView = buildLocalPostView(store, pRec, viewerDid, origin)
+        if (!pView) return undefined
+        viewedUris.push(pView.uri)
+        const grandParent = buildParentChain(pRec, remainingHeight - 1)
+        return {
+          $type: 'app.bsky.feed.defs#threadViewPost',
+          post: pView,
+          ...(grandParent ? {parent: grandParent} : {}),
+        }
       }
+
+      const replies = buildRepliesTree(postRec.uri, 0)
+      const parentNode = buildParentChain(postRec, parentHeight)
+
+      // Enqueue impressions in RAM (zero disk write on GET!)
+      store.enqueuePostViews(
+        viewedUris,
+        getViewerImpressionKey(req, viewerDid),
+      )
+
+      const postView = buildLocalPostView(store, postRec, viewerDid, origin)
       sendJson(req, res, 200, {
         thread: {
           $type: 'app.bsky.feed.defs#threadViewPost',
           post: postView,
           ...(parentNode ? {parent: parentNode} : {}),
-          replies: localReplies,
+          replies,
         },
       })
       return true
@@ -4477,31 +6352,18 @@ export async function handleQuantZingPds(req, res) {
 
     if (nsid === 'app.bsky.unspecced.getPostThreadV2' && method === 'GET') {
       const anchor = searchParams.get('anchor') || ''
-      const viewerDid = getOptionalViewerDid(req, db)
-      const resolved = resolveAtUri(db, anchor)
-      const canonicalAnchor = resolved?.canonicalUri || anchor
-
-      const localReplies = getAllLocalRecords(db, 'app.bsky.feed.post')
-        .filter(
-          r =>
-            (r?.value?.reply?.parent?.uri === canonicalAnchor ||
-              r?.value?.reply?.parent?.uri === anchor) &&
-            !isPostHiddenForViewer(db, r, viewerDid, getCollectionMap),
-        )
-        .sort((a, b) =>
-          String(a.indexedAt || '').localeCompare(String(b.indexedAt || '')),
-        )
-        .map(r => buildLocalPostView(db, r, viewerDid, origin))
-        .filter(Boolean)
-
+      const below = Math.min(
+        10,
+        Math.max(1, Number(searchParams.get('below') ?? 6)),
+      )
+      const above = searchParams.get('above') !== 'false'
+      const viewerDid = getOptionalViewerDid(req, store)
+      const resolved = store.resolveAtUri(anchor)
       const postRec = resolved
-        ? db.records?.[resolved.did]?.[resolved.collection]?.[resolved.rkey]
+        ? store.getRecord(resolved.did, resolved.collection, resolved.rkey)
         : null
 
-      if (
-        !postRec ||
-        isPostHiddenForViewer(db, postRec, viewerDid, getCollectionMap)
-      ) {
+      if (!postRec || isRecordHiddenForViewer(store, postRec, viewerDid)) {
         sendJson(req, res, 200, {
           thread: [
             {
@@ -4515,64 +6377,96 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
 
-      if (
-        recordPostViews(
-          db,
-          [postRec.uri, ...localReplies.map(r => r?.uri).filter(Boolean)],
-          getViewerImpressionKey(req, viewerDid),
-        )
-      ) {
-        saveDb(db)
-      }
-      const postView = buildLocalPostView(db, postRec, viewerDid, origin)
-      const items = []
-      const parentUri = postRec.value?.reply?.parent?.uri
-      if (parentUri) {
-        const [parentPost] = hydrateLocalPosts(db, [parentUri], viewerDid, origin)
-        if (parentPost) {
-          items.push({
-            uri: parentPost.uri,
-            depth: -1,
+      const viewedUris = [postRec.uri]
+      const postView = buildLocalPostView(store, postRec, viewerDid, origin)
+      const rootUri = postRec.value?.reply?.root?.uri || postRec.uri
+      const mutedByViewer = viewerDid
+        ? store.isThreadMuted(viewerDid, rootUri)
+        : false
+
+      // Walk parents upwards
+      const parentChain = []
+      if (above) {
+        let cur = postRec
+        let depthCursor = -1
+        while (cur?.value?.reply?.parent?.uri && depthCursor >= -20) {
+          const pUri = cur.value.reply.parent.uri
+          const pRec = findLocalPostByUri(store, pUri)
+          if (!pRec || isRecordHiddenForViewer(store, pRec, viewerDid)) break
+          const pView = buildLocalPostView(store, pRec, viewerDid, origin)
+          if (!pView) break
+          viewedUris.push(pView.uri)
+          parentChain.unshift({
+            uri: pView.uri,
+            depth: depthCursor,
             value: {
               $type: 'app.bsky.unspecced.defs#threadItemPost',
-              post: parentPost,
-              moreParents: false,
+              post: pView,
+              moreParents:
+                depthCursor === -20 && Boolean(pRec.value?.reply?.parent?.uri),
               moreReplies: 0,
-              opThread: false,
+              opThread: pView.author.did === postView.author.did,
               hiddenByThreadgate: false,
-              mutedByViewer: false,
+              mutedByViewer,
             },
           })
+          cur = pRec
+          depthCursor--
         }
       }
-      items.push({
-        uri: postView.uri,
-        depth: 0,
-        value: {
-          $type: 'app.bsky.unspecced.defs#threadItemPost',
-          post: postView,
-          moreParents: false,
-          moreReplies: 0,
-          opThread: true,
-          hiddenByThreadgate: false,
-          mutedByViewer: false,
-        },
-      })
-      for (const replyPost of localReplies) {
-        items.push({
-          uri: replyPost.uri,
-          depth: 1,
+
+      const items = [
+        ...parentChain,
+        {
+          uri: postView.uri,
+          depth: 0,
           value: {
             $type: 'app.bsky.unspecced.defs#threadItemPost',
-            post: replyPost,
+            post: postView,
             moreParents: false,
             moreReplies: 0,
-            opThread: replyPost.author.did === postView.author.did,
+            opThread: true,
             hiddenByThreadgate: false,
-            mutedByViewer: false,
+            mutedByViewer,
           },
-        })
+        },
+      ]
+
+      const flattenRepliesV2 = (parentUri, currentDepth) => {
+        if (currentDepth > below) return
+        const direct = store.getDirectReplies(parentUri, 100)
+        for (const r of direct) {
+          if (isRecordHiddenForViewer(store, r, viewerDid)) continue
+          const pv = buildLocalPostView(store, r, viewerDid, origin)
+          if (!pv) continue
+          viewedUris.push(pv.uri)
+          const childReplies = store.getDirectReplies(pv.uri, 10)
+          items.push({
+            uri: pv.uri,
+            depth: currentDepth,
+            value: {
+              $type: 'app.bsky.unspecced.defs#threadItemPost',
+              post: pv,
+              moreParents: false,
+              moreReplies:
+                currentDepth === below ? childReplies.length : 0,
+              opThread: pv.author.did === postView.author.did,
+              hiddenByThreadgate: false,
+              mutedByViewer,
+            },
+          })
+          if (currentDepth < below) {
+            flattenRepliesV2(pv.uri, currentDepth + 1)
+          }
+        }
       }
+
+      flattenRepliesV2(postView.uri, 1)
+      store.enqueuePostViews(
+        viewedUris,
+        getViewerImpressionKey(req, viewerDid),
+      )
+
       sendJson(req, res, 200, {thread: items, hasOtherReplies: false})
       return true
     }
@@ -4587,127 +6481,119 @@ export async function handleQuantZingPds(req, res) {
 
     if (nsid === 'app.bsky.feed.getLikes' && method === 'GET') {
       const rawUri = searchParams.get('uri') || ''
-      const uri = canonicalizeUri(db, rawUri)
-      const viewerDid = getOptionalViewerDid(req, db)
+      const uri = store.canonicalizeUri(rawUri)
+      const limit = Number(searchParams.get('limit') || 50)
+      const cursor = searchParams.get('cursor')
+      const viewerDid = getOptionalViewerDid(req, store)
+      const page = store.getLikesForPost(uri, {limit, cursor})
       const seenDids = new Set()
-      const likes = getAllLocalRecords(db, 'app.bsky.feed.like')
-        .filter(r => canonicalizeUri(db, r?.value?.subject?.uri) === uri)
-        .sort((a, b) =>
-          String(b.indexedAt || '').localeCompare(String(a.indexedAt || '')),
-        )
-        .map(r => {
-          const acc = db.accounts[r.repo]
-          if (!acc || isAccountSuspendedOrBanned(acc) || seenDids.has(acc.did)) {
-            return null
-          }
-          seenDids.add(acc.did)
-          return {
-            actor: buildLocalProfileView(db, acc, viewerDid, origin, false),
-            createdAt: r.value?.createdAt || r.indexedAt,
-            indexedAt: r.indexedAt,
-          }
+      const likes = []
+      for (const r of page.items) {
+        const acc = store.getAccountByDid(r.repo)
+        if (!acc || isAccountSuspendedOrBanned(acc) || seenDids.has(acc.did)) {
+          continue
+        }
+        seenDids.add(acc.did)
+        likes.push({
+          actor: buildLocalProfileView(store, acc, viewerDid, origin, false),
+          createdAt: r.value?.createdAt || r.indexedAt,
+          indexedAt: r.indexedAt,
         })
-        .filter(Boolean)
-      sendJson(req, res, 200, {uri, likes})
+      }
+      sendJson(req, res, 200, {
+        uri,
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        likes,
+      })
       return true
     }
 
     if (nsid === 'app.bsky.feed.getRepostedBy' && method === 'GET') {
       const rawUri = searchParams.get('uri') || ''
-      const uri = canonicalizeUri(db, rawUri)
-      const viewerDid = getOptionalViewerDid(req, db)
+      const uri = store.canonicalizeUri(rawUri)
+      const limit = Number(searchParams.get('limit') || 50)
+      const cursor = searchParams.get('cursor')
+      const viewerDid = getOptionalViewerDid(req, store)
+      const page = store.getRepostsForPost(uri, {limit, cursor})
       const seenDids = new Set()
-      const repostedBy = getAllLocalRecords(db, 'app.bsky.feed.repost')
-        .filter(r => canonicalizeUri(db, r?.value?.subject?.uri) === uri)
-        .sort((a, b) =>
-          String(b.indexedAt || '').localeCompare(String(a.indexedAt || '')),
+      const repostedBy = []
+      for (const r of page.items) {
+        const acc = store.getAccountByDid(r.repo)
+        if (!acc || isAccountSuspendedOrBanned(acc) || seenDids.has(acc.did)) {
+          continue
+        }
+        seenDids.add(acc.did)
+        repostedBy.push(
+          buildLocalProfileView(store, acc, viewerDid, origin, false),
         )
-        .map(r => {
-          const acc = db.accounts[r.repo]
-          if (!acc || isAccountSuspendedOrBanned(acc) || seenDids.has(acc.did)) {
-            return null
-          }
-          seenDids.add(acc.did)
-          return buildLocalProfileView(db, acc, viewerDid, origin, false)
-        })
-        .filter(Boolean)
-      sendJson(req, res, 200, {uri, repostedBy})
+      }
+      sendJson(req, res, 200, {
+        uri,
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        repostedBy,
+      })
       return true
     }
 
     if (nsid === 'app.bsky.feed.getQuotes' && method === 'GET') {
       const rawUri = searchParams.get('uri') || ''
-      const uri = resolveAtUri(db, rawUri)?.canonicalUri || rawUri
-      const viewerDid = getOptionalViewerDid(req, db)
-      const posts = getAllLocalRecords(db, 'app.bsky.feed.post')
-        .filter(
-          r =>
-            (r?.value?.embed?.record?.uri === uri ||
-              r?.value?.embed?.record?.uri === rawUri ||
-              r?.value?.embed?.record?.record?.uri === uri ||
-              r?.value?.embed?.record?.record?.uri === rawUri) &&
-            !isPostHiddenForViewer(db, r, viewerDid, getCollectionMap),
-        )
-        .map(r => buildLocalPostView(db, r, viewerDid, origin))
+      const uri = store.canonicalizeUri(rawUri)
+      const limit = Number(searchParams.get('limit') || 50)
+      const cursor = searchParams.get('cursor')
+      const viewerDid = getOptionalViewerDid(req, store)
+      const page = store.getQuotesForPost(uri, {limit, cursor})
+      const posts = page.items
+        .filter(r => !isRecordHiddenForViewer(store, r, viewerDid))
+        .map(r => buildLocalPostView(store, r, viewerDid, origin))
         .filter(Boolean)
-      sendJson(req, res, 200, {uri, posts})
+      sendJson(req, res, 200, {
+        uri,
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        posts,
+      })
       return true
     }
 
     if (nsid === 'app.bsky.feed.searchPosts' && method === 'GET') {
-      const q = (searchParams.get('q') || '').trim().toLowerCase()
+      const query = (searchParams.get('q') || '').trim()
+      const sort = searchParams.get('sort') || 'latest'
+      const since = searchParams.get('since')
+      const until = searchParams.get('until')
+      const lang = searchParams.get('lang')
       const authorFilter = (searchParams.get('author') || '').trim()
-      const authorAcc = authorFilter ? findLocalAccount(db, authorFilter) : null
+      const authorAcc = authorFilter ? store.findAccount(authorFilter) : null
+      if (authorFilter && !authorAcc) {
+        sendJson(req, res, 200, {posts: []})
+        return true
+      }
       const tagFilters = searchParams
         .getAll('tag')
         .map(t => String(t || '').trim().toLowerCase().replace(/^#/, ''))
         .filter(Boolean)
       const limit = Math.min(Number(searchParams.get('limit') || 25) || 25, 50)
-      const viewerDid = getOptionalViewerDid(req, db)
-      const matches = []
-      const terms = q.split(/\s+/).filter(Boolean)
-      for (const rec of getAllLocalRecords(db, 'app.bsky.feed.post')) {
-        if (isPostHiddenForViewer(db, rec, viewerDid, getCollectionMap)) {
-          continue
-        }
-        if (authorFilter && (!authorAcc || rec.repo !== authorAcc.did)) {
-          continue
-        }
-        const txt = String(rec?.value?.text || '').toLowerCase()
-        if (
-          tagFilters.length > 0 &&
-          !tagFilters.every(
-            tag => txt.includes(`#${tag}`) || txt.includes(tag),
-          )
-        ) {
-          continue
-        }
-        const acc = db.accounts[rec.repo]
-        const handle = String(acc?.handle || '').toLowerCase()
-        const displayName = String(acc?.profile?.displayName || '').toLowerCase()
-        const hit =
-          terms.length === 0 ||
-          terms.every(t => {
-            if (t.startsWith('from:')) {
-              return handle.includes(t.slice(5).replace(/^@/, ''))
-            }
-            const bare = t.replace(/^#/, '')
-            return (
-              txt.includes(t) ||
-              txt.includes(bare) ||
-              handle.includes(bare) ||
-              displayName.includes(bare)
-            )
-          })
-        if (hit) {
-          const view = buildLocalPostView(db, rec, viewerDid, origin)
-          if (view) matches.push(view)
-        }
-      }
-      matches.sort((a, b) =>
-        String(b.indexedAt || '').localeCompare(String(a.indexedAt || '')),
-      )
-      sendJson(req, res, 200, {posts: matches.slice(0, limit)})
+      const cursor = searchParams.get('cursor')
+      const viewerDid = getOptionalViewerDid(req, store)
+
+      const page = store.searchPosts({
+        query,
+        authorDid: authorAcc?.did || null,
+        tags: tagFilters,
+        sort,
+        since,
+        until,
+        lang,
+        limit,
+        cursor,
+      })
+      const posts = page.records
+        .filter(r => !isRecordHiddenForViewer(store, r, viewerDid))
+        .map(r => buildLocalPostView(store, r, viewerDid, origin))
+        .filter(Boolean)
+
+      sendJson(req, res, 200, {
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        posts,
+      })
       return true
     }
 
@@ -4717,11 +6603,11 @@ export async function handleQuantZingPds(req, res) {
     }
 
     // -----------------------------------------------------------------------
-    // 6. Bookmarks (app.bsky.bookmark.*)
+    // 6. Bookmarks (app.bsky.bookmark.* — Canonical AT-URI + Cursor Pagination)
     // -----------------------------------------------------------------------
 
     if (nsid === 'app.bsky.bookmark.createBookmark' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
           req,
@@ -4743,21 +6629,13 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
-      const list = db.bookmarks[auth.did] || []
-      const filtered = list.filter(b => b.uri !== body.uri)
-      filtered.unshift({
-        uri: String(body.uri),
-        cid: String(body.cid),
-        createdAt: new Date().toISOString(),
-      })
-      db.bookmarks[auth.did] = filtered
-      saveDb(db)
+      store.createBookmark(auth.did, String(body.uri), String(body.cid))
       sendEmpty(req, res, 200)
       return true
     }
 
     if (nsid === 'app.bsky.bookmark.deleteBookmark' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
           req,
@@ -4773,15 +6651,13 @@ export async function handleQuantZingPds(req, res) {
         sendXrpcError(req, res, 400, 'InvalidRequest', 'uri is required')
         return true
       }
-      const list = db.bookmarks[auth.did] || []
-      db.bookmarks[auth.did] = list.filter(b => b.uri !== body.uri)
-      saveDb(db)
+      store.deleteBookmark(auth.did, String(body.uri))
       sendEmpty(req, res, 200)
       return true
     }
 
     if (nsid === 'app.bsky.bookmark.getBookmarks' && method === 'GET') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
           req,
@@ -4792,23 +6668,31 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
-      const list = db.bookmarks[auth.did] || []
-      const uris = list.map(b => b.uri)
-      const hydrated = hydrateLocalPosts(db, uris, auth.did, origin)
-      const byUri = new Map(hydrated.map(p => [p.uri, p]))
-      const bookmarks = list.map(b => {
-        const post = byUri.get(b.uri)
+      const limit = Number(searchParams.get('limit') || 50)
+      const cursor = searchParams.get('cursor')
+      const page = store.getBookmarks(auth.did, {limit, cursor})
+      const uris = page.items.map(b => b.uri)
+      const hydrated = hydrateLocalPosts(store, uris, auth.did, origin)
+      const byUri = new Map(
+        hydrated.map(p => [store.canonicalizeUri(p.uri), p]),
+      )
+      const bookmarks = page.items.map(b => {
+        const canonical = store.canonicalizeUri(b.uri)
+        const post = byUri.get(canonical)
         return {
-          subject: {uri: b.uri, cid: b.cid},
+          subject: {uri: canonical, cid: b.cid},
           createdAt: b.createdAt,
           item: post || {
             $type: 'app.bsky.feed.defs#notFoundPost',
-            uri: b.uri,
+            uri: canonical,
             notFound: true,
           },
         }
       })
-      sendJson(req, res, 200, {bookmarks})
+      sendJson(req, res, 200, {
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        bookmarks,
+      })
       return true
     }
 
@@ -4818,74 +6702,90 @@ export async function handleQuantZingPds(req, res) {
 
     if (nsid === 'app.bsky.graph.getFollows' && method === 'GET') {
       const actor = searchParams.get('actor') || ''
-      const viewerDid = getOptionalViewerDid(req, db)
-      const localAcc = findLocalAccount(db, actor)
+      const limit = Number(searchParams.get('limit') || 50)
+      const cursor = searchParams.get('cursor')
+      const viewerDid = getOptionalViewerDid(req, store)
+      const localAcc = store.findAccount(actor)
       if (!localAcc) {
         sendJson(req, res, 200, {follows: []})
         return true
       }
       const subject = buildLocalProfileView(
-        db,
+        store,
         localAcc,
         viewerDid,
         origin,
         false,
       )
-      const followRecs = Object.values(
-        getCollectionMap(db, localAcc.did, 'app.bsky.graph.follow'),
+      const page = store.getFollowsForActor(localAcc.did, {limit, cursor})
+      const follows = page.accounts.map(acc =>
+        buildLocalProfileView(store, acc, viewerDid, origin, false),
       )
-      const follows = followRecs
-        .map(r => db.accounts[r?.value?.subject])
-        .filter(Boolean)
-        .map(acc => buildLocalProfileView(db, acc, viewerDid, origin, false))
-      sendJson(req, res, 200, {subject, follows})
+      sendJson(req, res, 200, {
+        subject,
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        follows,
+      })
       return true
     }
 
     if (nsid === 'app.bsky.graph.getFollowers' && method === 'GET') {
       const actor = searchParams.get('actor') || ''
-      const viewerDid = getOptionalViewerDid(req, db)
-      const localAcc = findLocalAccount(db, actor)
+      const limit = Number(searchParams.get('limit') || 50)
+      const cursor = searchParams.get('cursor')
+      const viewerDid = getOptionalViewerDid(req, store)
+      const localAcc = store.findAccount(actor)
       if (!localAcc) {
         sendJson(req, res, 200, {followers: []})
         return true
       }
       const subject = buildLocalProfileView(
-        db,
+        store,
         localAcc,
         viewerDid,
         origin,
         false,
       )
-      const followers = getAllLocalRecords(db, 'app.bsky.graph.follow')
-        .filter(r => r?.value?.subject === localAcc.did)
-        .map(r => {
-          const acc = db.accounts[r.repo]
-          return acc
-            ? buildLocalProfileView(db, acc, viewerDid, origin, false)
-            : null
-        })
-        .filter(Boolean)
-      sendJson(req, res, 200, {subject, followers})
+      const page = store.getFollowersForActor(localAcc.did, {limit, cursor})
+      const followers = page.accounts.map(acc =>
+        buildLocalProfileView(store, acc, viewerDid, origin, false),
+      )
+      sendJson(req, res, 200, {
+        subject,
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        followers,
+      })
       return true
     }
 
     if (nsid === 'app.bsky.graph.getKnownFollowers' && method === 'GET') {
       const actor = searchParams.get('actor') || ''
-      const viewerDid = getOptionalViewerDid(req, db)
-      const localAcc = findLocalAccount(db, actor)
+      const limit = Number(searchParams.get('limit') || 50)
+      const cursor = searchParams.get('cursor')
+      const viewerDid = getOptionalViewerDid(req, store)
+      const localAcc = store.findAccount(actor)
       if (!localAcc) {
         sendJson(req, res, 200, {followers: []})
         return true
       }
       const subject = buildLocalProfileView(
-        db,
+        store,
         localAcc,
         viewerDid,
         origin,
         false,
       )
-      sendJson(req, res, 200, {subject, followers: []})
+      const page = viewerDid
+        ? store.getKnownFollowers(viewerDid, localAcc.did, {limit, cursor})
+        : {accounts: [], cursor: undefined}
+      const followers = page.accounts.map(acc =>
+        buildLocalProfileView(store, acc, viewerDid, origin, false),
+      )
+      sendJson(req, res, 200, {
+        subject,
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        followers,
+      })
       return true
     }
 
@@ -4893,8 +6793,16 @@ export async function handleQuantZingPds(req, res) {
       nsid === 'app.bsky.graph.getSuggestedFollowsByActor' &&
       method === 'GET'
     ) {
-      const viewerDid = getOptionalViewerDid(req, db)
-      const suggestions = getSuggestedQuantZingActors(db, viewerDid, origin, 10)
+      const actor = searchParams.get('actor') || ''
+      const targetAcc = actor ? store.findAccount(actor) : null
+      const viewerDid = getOptionalViewerDid(req, store)
+      const suggestions = getSuggestedQuantZingActors(
+        store,
+        viewerDid,
+        origin,
+        10,
+        targetAcc?.did || null,
+      )
       sendJson(req, res, 200, {suggestions, isFallback: false})
       return true
     }
@@ -4902,19 +6810,19 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'app.bsky.graph.getRelationships' && method === 'GET') {
       const actor = searchParams.get('actor') || ''
       const others = searchParams.getAll('others')
-      const localAcc = findLocalAccount(db, actor)
+      const localAcc = store.findAccount(actor)
       const relationships = others.map(otherDid => {
         const following = localAcc
-          ? findViewerFollowUri(db, localAcc.did, otherDid)
+          ? store.findUserFollowUri(localAcc.did, otherDid)
           : undefined
         const followedBy = localAcc
-          ? findViewerFollowUri(db, otherDid, localAcc.did)
+          ? store.findUserFollowUri(otherDid, localAcc.did)
           : undefined
         const blocking = localAcc
-          ? findViewerBlockUri(db, localAcc.did, otherDid, getCollectionMap)
+          ? store.findBlockUri(localAcc.did, otherDid)
           : undefined
         const blockedBy = localAcc
-          ? findViewerBlockUri(db, otherDid, localAcc.did, getCollectionMap)
+          ? store.findBlockUri(otherDid, localAcc.did)
           : undefined
         return {
           $type: 'app.bsky.graph.defs#relationship',
@@ -4934,105 +6842,142 @@ export async function handleQuantZingPds(req, res) {
 
     const buildListView = (listRec, viewerDid) => {
       if (!listRec) return null
-      const creatorAcc = db.accounts[listRec.repo]
+      const creatorAcc = store.getAccountByDid(listRec.repo)
       if (!creatorAcc) return null
-      const itemsMap = getCollectionMap(
-        db,
-        listRec.repo,
-        'app.bsky.graph.listitem',
-      )
-      const listItemCount = Object.values(itemsMap).filter(
-        it => it?.value?.list === listRec.uri,
-      ).length
+      const listItemCount = store.getListItemCount(listRec.uri)
       const avatar = blobUrl(origin, listRec.repo, listRec.value?.avatar)
+      const muted = viewerDid ? store.isListMuted(viewerDid, listRec.uri) : false
+      const blockedRec = viewerDid
+        ? store.findUserReactionUri(
+            viewerDid,
+            'app.bsky.graph.listblock',
+            listRec.uri,
+          )
+        : undefined
       return {
         $type: 'app.bsky.graph.defs#listView',
         uri: listRec.uri,
         cid: listRec.cid,
-        creator: buildLocalProfileView(db, creatorAcc, viewerDid, origin, false),
+        creator: buildLocalProfileView(
+          store,
+          creatorAcc,
+          viewerDid,
+          origin,
+          false,
+        ),
         name: String(listRec.value?.name || 'Untitled List'),
         purpose:
           listRec.value?.purpose || 'app.bsky.graph.defs#curatelist',
         description: String(listRec.value?.description || ''),
         ...(avatar ? {avatar} : {}),
         listItemCount,
-        labels: [],
-        viewer: {muted: false},
+        labels: store.getLabels(listRec.uri),
+        viewer: {
+          muted,
+          ...(blockedRec ? {blocked: blockedRec} : {}),
+        },
         indexedAt: listRec.indexedAt,
       }
     }
 
     if (nsid === 'app.bsky.graph.getLists' && method === 'GET') {
       const actor = searchParams.get('actor') || ''
-      const viewerDid = getOptionalViewerDid(req, db)
-      const localAcc = findLocalAccount(db, actor)
+      const limit = Number(searchParams.get('limit') || 50)
+      const cursor = searchParams.get('cursor')
+      const viewerDid = getOptionalViewerDid(req, store)
+      const localAcc = store.findAccount(actor)
       if (!localAcc) {
         sendJson(req, res, 200, {lists: []})
         return true
       }
-      const listRecs = Object.values(
-        getCollectionMap(db, localAcc.did, 'app.bsky.graph.list'),
-      ).sort((a, b) =>
-        String(b.indexedAt || '').localeCompare(String(a.indexedAt || '')),
+      const page = store.listRecordsForRepo(
+        localAcc.did,
+        'app.bsky.graph.list',
+        {limit, cursor},
       )
-      const lists = listRecs
+      const lists = page.records
         .map(r => buildListView(r, viewerDid))
         .filter(Boolean)
-      sendJson(req, res, 200, {lists})
+      sendJson(req, res, 200, {
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        lists,
+      })
       return true
     }
 
     if (nsid === 'app.bsky.graph.getList' && method === 'GET') {
       const listUri = searchParams.get('list') || ''
-      const viewerDid = getOptionalViewerDid(req, db)
-      const resolved = resolveAtUri(db, listUri)
+      const limit = Number(searchParams.get('limit') || 50)
+      const cursor = searchParams.get('cursor')
+      const viewerDid = getOptionalViewerDid(req, store)
+      const resolved = store.resolveAtUri(listUri)
       const listRec = resolved
-        ? db.records?.[resolved.did]?.[resolved.collection]?.[resolved.rkey]
+        ? store.getRecord(resolved.did, resolved.collection, resolved.rkey)
         : null
       if (!listRec) {
         sendXrpcError(req, res, 404, 'NotFound', 'List not found')
         return true
       }
       const listView = buildListView(listRec, viewerDid)
-      const itemRecs = Object.values(
-        getCollectionMap(db, listRec.repo, 'app.bsky.graph.listitem'),
-      ).filter(it => it?.value?.list === listRec.uri)
-      const items = itemRecs
+      const page = store.getListItems(listRec.uri, {limit, cursor})
+      const items = page.items
         .map(it => {
-          const subAcc = findLocalAccount(db, it?.value?.subject)
+          const subAcc = store.findAccount(it?.value?.subject)
           if (!subAcc) return null
           return {
             uri: it.uri,
-            subject: buildLocalProfileView(db, subAcc, viewerDid, origin, false),
+            subject: buildLocalProfileView(
+              store,
+              subAcc,
+              viewerDid,
+              origin,
+              false,
+            ),
           }
         })
         .filter(Boolean)
-      sendJson(req, res, 200, {list: listView, items})
+      sendJson(req, res, 200, {
+        list: listView,
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        items,
+      })
       return true
     }
 
     if (nsid === 'app.bsky.graph.getListsWithMembership' && method === 'GET') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const targetActor = searchParams.get('actor') || ''
-      const targetAcc = findLocalAccount(db, targetActor)
-      const listRecs = Object.values(
-        getCollectionMap(db, auth.did, 'app.bsky.graph.list'),
+      const limit = Number(searchParams.get('limit') || 50)
+      const cursor = searchParams.get('cursor')
+      const targetAcc = store.findAccount(targetActor)
+      const page = store.listRecordsForRepo(
+        auth.did,
+        'app.bsky.graph.list',
+        {limit, cursor},
       )
-      const itemRecs = Object.values(
-        getCollectionMap(db, auth.did, 'app.bsky.graph.listitem'),
-      )
-      const listsWithMembership = listRecs
+      const itemRecs = store.listRecordsForRepo(
+        auth.did,
+        'app.bsky.graph.listitem',
+        {limit: 100},
+      ).records
+      const listsWithMembership = page.records
         .map(lr => {
           const list = buildListView(lr, auth.did)
           if (!list) return null
           const matchItem = targetAcc
             ? itemRecs.find(
                 it =>
-                  it?.value?.list === lr.uri &&
+                  store.canonicalizeUri(it?.value?.list) === lr.uri &&
                   it?.value?.subject === targetAcc.did,
               )
             : null
@@ -5043,7 +6988,7 @@ export async function handleQuantZingPds(req, res) {
                   listItem: {
                     uri: matchItem.uri,
                     subject: buildLocalProfileView(
-                      db,
+                      store,
                       targetAcc,
                       auth.did,
                       origin,
@@ -5055,34 +7000,35 @@ export async function handleQuantZingPds(req, res) {
           }
         })
         .filter(Boolean)
-      sendJson(req, res, 200, {listsWithMembership})
+      sendJson(req, res, 200, {
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        listsWithMembership,
+      })
       return true
     }
 
     if (nsid === 'app.bsky.feed.getListFeed' && method === 'GET') {
       const listUri = searchParams.get('list') || ''
       const cursor = searchParams.get('cursor')
-      const limit = searchParams.get('limit') || '30'
-      const viewerDid = getOptionalViewerDid(req, db)
-      const resolved = resolveAtUri(db, listUri)
+      const limit = Number(searchParams.get('limit') || 30)
+      const viewerDid = getOptionalViewerDid(req, store)
+      const resolved = store.resolveAtUri(listUri)
       const listRec = resolved
-        ? db.records?.[resolved.did]?.[resolved.collection]?.[resolved.rkey]
+        ? store.getRecord(resolved.did, resolved.collection, resolved.rkey)
         : null
       if (!listRec) {
         sendJson(req, res, 200, {feed: []})
         return true
       }
-      const memberDids = new Set(
-        Object.values(
-          getCollectionMap(db, listRec.repo, 'app.bsky.graph.listitem'),
-        )
-          .filter(it => it?.value?.list === listRec.uri)
-          .map(it => it?.value?.subject)
-          .filter(Boolean),
-      )
-      const items = getLocalFeedItems(db, viewerDid, origin, {
-        includeReplies: false,
-      }).filter(it => memberDids.has(it.post?.author?.did))
+      const memberDids = store.getListMemberDids(listRec.uri)
+      const items =
+        memberDids.length > 0
+          ? getLocalFeedItems(store, viewerDid, origin, {
+              authorDids: memberDids,
+              includeReplies: false,
+              limit: Math.max(limit * 2, 60),
+            })
+          : []
       const page = paginateItems(items, cursor, limit)
       sendJson(req, res, 200, {
         ...(page.cursor ? {cursor: page.cursor} : {}),
@@ -5091,12 +7037,57 @@ export async function handleQuantZingPds(req, res) {
       return true
     }
 
-    if (
-      (nsid === 'app.bsky.graph.getMutedLists' ||
-        nsid === 'app.bsky.graph.getListBlocks') &&
-      method === 'GET'
-    ) {
-      sendJson(req, res, 200, {lists: []})
+    if (nsid === 'app.bsky.graph.getMutedLists' && method === 'GET') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
+        return true
+      }
+      const limit = Number(searchParams.get('limit') || 50)
+      const cursor = searchParams.get('cursor')
+      const page = store.getMutedListUris(auth.did, {limit, cursor})
+      const lists = page.uris
+        .map(u => store.getRecordByUri(u))
+        .filter(Boolean)
+        .map(r => buildListView(r, auth.did))
+        .filter(Boolean)
+      sendJson(req, res, 200, {
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        lists,
+      })
+      return true
+    }
+
+    if (nsid === 'app.bsky.graph.getListBlocks' && method === 'GET') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
+        return true
+      }
+      const limit = Number(searchParams.get('limit') || 50)
+      const cursor = searchParams.get('cursor')
+      const page = store.getListBlockRecords(auth.did, {limit, cursor})
+      const lists = page.records
+        .map(r => store.getRecordByUri(r.value?.subject))
+        .filter(Boolean)
+        .map(r => buildListView(r, auth.did))
+        .filter(Boolean)
+      sendJson(req, res, 200, {
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        lists,
+      })
       return true
     }
 
@@ -5105,94 +7096,100 @@ export async function handleQuantZingPds(req, res) {
     // -----------------------------------------------------------------------
 
     if (nsid === 'app.bsky.draft.getDrafts' && method === 'GET') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
-      const rawDrafts = Array.isArray(db.drafts?.[auth.did])
-        ? db.drafts[auth.did]
-        : []
-      const drafts = [...rawDrafts]
-        .sort((a, b) =>
-          String(b.updatedAt || b.createdAt || '').localeCompare(
-            String(a.updatedAt || a.createdAt || ''),
-          ),
-        )
-        .map(d => ({
-          $type: 'app.bsky.draft.defs#draftView',
-          id: d.id,
-          draft: d.draft,
-          createdAt: d.createdAt,
-          updatedAt: d.updatedAt,
-        }))
+      const drafts = store.getDrafts(auth.did).map(d => ({
+        $type: 'app.bsky.draft.defs#draftView',
+        id: d.id,
+        draft: d.draft,
+        createdAt: d.createdAt,
+        updatedAt: d.updatedAt,
+      }))
       sendJson(req, res, 200, {drafts})
       return true
     }
 
     if (nsid === 'app.bsky.draft.createDraft' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const body = await readJsonBody(req)
-      db.drafts = db.drafts && typeof db.drafts === 'object' ? db.drafts : {}
-      db.drafts[auth.did] = Array.isArray(db.drafts[auth.did])
-        ? db.drafts[auth.did]
-        : []
-      if (db.drafts[auth.did].length >= 100) {
-        sendXrpcError(req, res, 400, 'DraftLimitReached', 'Maximum of 100 drafts reached')
+      if (store.countDrafts(auth.did) >= 100) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'DraftLimitReached',
+          'Maximum of 100 drafts reached',
+        )
         return true
       }
       const id = generateTid()
-      const now = new Date().toISOString()
-      db.drafts[auth.did].unshift({
-        id,
-        draft: body.draft || {posts: []},
-        createdAt: now,
-        updatedAt: now,
-      })
-      saveDb(db)
+      store.createDraft(auth.did, id, body.draft || {posts: []})
       sendJson(req, res, 200, {id})
       return true
     }
 
     if (nsid === 'app.bsky.draft.updateDraft' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const body = await readJsonBody(req)
       const draftWithId = body.draft || {}
       const id = String(draftWithId.id || '')
-      db.drafts = db.drafts && typeof db.drafts === 'object' ? db.drafts : {}
-      const list = Array.isArray(db.drafts[auth.did]) ? db.drafts[auth.did] : []
-      const existing = list.find(d => d.id === id)
-      if (!existing) {
+      const updated = store.updateDraft(
+        auth.did,
+        id,
+        draftWithId.draft || {posts: []},
+      )
+      if (!updated) {
         sendXrpcError(req, res, 404, 'NotFound', 'Draft not found')
         return true
       }
-      existing.draft = draftWithId.draft || existing.draft
-      existing.updatedAt = new Date().toISOString()
-      saveDb(db)
       sendEmpty(req, res, 200)
       return true
     }
 
     if (nsid === 'app.bsky.draft.deleteDraft' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const body = await readJsonBody(req)
       const id = String(body.id || '')
-      if (Array.isArray(db.drafts?.[auth.did])) {
-        db.drafts[auth.did] = db.drafts[auth.did].filter(d => d.id !== id)
-        saveDb(db)
-      }
+      store.deleteDraft(auth.did, id)
       sendEmpty(req, res, 200)
       return true
     }
@@ -5208,7 +7205,7 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'app.bsky.graph.getMutes' && method === 'GET') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
           req,
@@ -5220,24 +7217,21 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
       const cursor = searchParams.get('cursor')
-      const limit = searchParams.get('limit') || '50'
-      const mutedDids = Array.isArray(db.mutes?.[auth.did])
-        ? db.mutes[auth.did]
-        : []
-      const profiles = mutedDids
-        .map(did => db.accounts[did])
+      const limit = Number(searchParams.get('limit') || 50)
+      const page = store.getMutedDids(auth.did, {limit, cursor})
+      const mutes = page.dids
+        .map(did => store.getAccountByDid(did))
         .filter(Boolean)
-        .map(acc => buildLocalProfileView(db, acc, auth.did, origin, false))
-      const page = paginateItems(profiles, cursor, limit)
+        .map(acc => buildLocalProfileView(store, acc, auth.did, origin, false))
       sendJson(req, res, 200, {
         ...(page.cursor ? {cursor: page.cursor} : {}),
-        mutes: page.items,
+        mutes,
       })
       return true
     }
 
     if (nsid === 'app.bsky.graph.getBlocks' && method === 'GET') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
           req,
@@ -5249,33 +7243,21 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
       const cursor = searchParams.get('cursor')
-      const limit = searchParams.get('limit') || '50'
-      const blockRecs = Object.values(
-        getCollectionMap(db, auth.did, 'app.bsky.graph.block'),
-      ).sort((a, b) =>
-        String(b.indexedAt || '').localeCompare(String(a.indexedAt || '')),
-      )
-      const seen = new Set()
-      const profiles = []
-      for (const rec of blockRecs) {
-        const subjectDid = rec?.value?.subject
-        if (!subjectDid || seen.has(subjectDid)) continue
-        seen.add(subjectDid)
-        const acc = db.accounts[subjectDid]
-        if (acc) {
-          profiles.push(buildLocalProfileView(db, acc, auth.did, origin, false))
-        }
-      }
-      const page = paginateItems(profiles, cursor, limit)
+      const limit = Number(searchParams.get('limit') || 50)
+      const page = store.getBlockedDids(auth.did, {limit, cursor})
+      const blocks = page.dids
+        .map(did => store.getAccountByDid(did))
+        .filter(Boolean)
+        .map(acc => buildLocalProfileView(store, acc, auth.did, origin, false))
       sendJson(req, res, 200, {
         ...(page.cursor ? {cursor: page.cursor} : {}),
-        blocks: page.items,
+        blocks,
       })
       return true
     }
 
     if (nsid === 'app.bsky.graph.muteActor' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
           req,
@@ -5288,7 +7270,7 @@ export async function handleQuantZingPds(req, res) {
       }
       const body = await readJsonBody(req)
       const rawActor = String(body.actor || '').trim()
-      const targetAcc = findLocalAccount(db, rawActor)
+      const targetAcc = store.findAccount(rawActor)
       const targetDid =
         targetAcc?.did || (rawActor.startsWith('did:') ? rawActor : null)
       if (!targetDid) {
@@ -5301,19 +7283,13 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
-      db.mutes = db.mutes || {}
-      const list = Array.isArray(db.mutes[auth.did]) ? db.mutes[auth.did] : []
-      if (!list.includes(targetDid)) {
-        list.push(targetDid)
-        db.mutes[auth.did] = list
-        saveDb(db)
-      }
+      store.muteActor(auth.did, targetDid)
       sendEmpty(req, res, 200)
       return true
     }
 
     if (nsid === 'app.bsky.graph.unmuteActor' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
           req,
@@ -5326,7 +7302,7 @@ export async function handleQuantZingPds(req, res) {
       }
       const body = await readJsonBody(req)
       const rawActor = String(body.actor || '').trim()
-      const targetAcc = findLocalAccount(db, rawActor)
+      const targetAcc = store.findAccount(rawActor)
       const targetDid =
         targetAcc?.did || (rawActor.startsWith('did:') ? rawActor : null)
       if (!targetDid) {
@@ -5339,20 +7315,101 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
-      db.mutes = db.mutes || {}
-      if (Array.isArray(db.mutes[auth.did])) {
-        const next = db.mutes[auth.did].filter(d => d !== targetDid)
-        if (next.length !== db.mutes[auth.did].length) {
-          db.mutes[auth.did] = next
-          saveDb(db)
-        }
+      store.unmuteActor(auth.did, targetDid)
+      sendEmpty(req, res, 200)
+      return true
+    }
+
+    if (nsid === 'app.bsky.graph.muteThread' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
+        return true
       }
+      const body = await readJsonBody(req)
+      if (!body.root) {
+        sendXrpcError(req, res, 400, 'InvalidRequest', 'root URI is required')
+        return true
+      }
+      store.muteThread(auth.did, String(body.root))
+      sendEmpty(req, res, 200)
+      return true
+    }
+
+    if (nsid === 'app.bsky.graph.unmuteThread' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
+        return true
+      }
+      const body = await readJsonBody(req)
+      if (!body.root) {
+        sendXrpcError(req, res, 400, 'InvalidRequest', 'root URI is required')
+        return true
+      }
+      store.unmuteThread(auth.did, String(body.root))
+      sendEmpty(req, res, 200)
+      return true
+    }
+
+    if (nsid === 'app.bsky.graph.muteActorList' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
+        return true
+      }
+      const body = await readJsonBody(req)
+      if (!body.list) {
+        sendXrpcError(req, res, 400, 'InvalidRequest', 'list URI is required')
+        return true
+      }
+      store.muteList(auth.did, String(body.list))
+      sendEmpty(req, res, 200)
+      return true
+    }
+
+    if (nsid === 'app.bsky.graph.unmuteActorList' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
+        return true
+      }
+      const body = await readJsonBody(req)
+      if (!body.list) {
+        sendXrpcError(req, res, 400, 'InvalidRequest', 'list URI is required')
+        return true
+      }
+      store.unmuteList(auth.did, String(body.list))
       sendEmpty(req, res, 200)
       return true
     }
 
     if (nsid === 'com.atproto.moderation.createReport' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
           req,
@@ -5406,11 +7463,11 @@ export async function handleQuantZingPds(req, res) {
 
       if (rawSubject.uri) {
         subjectType = 'post'
-        const resolvedSub = resolveAtUri(db, String(rawSubject.uri))
+        const resolvedSub = store.resolveAtUri(String(rawSubject.uri))
         subjectUri = resolvedSub?.canonicalUri || String(rawSubject.uri)
         subjectCid = rawSubject.cid
           ? String(rawSubject.cid)
-          : findLocalPostByUri(db, subjectUri)?.cid || null
+          : findLocalPostByUri(store, subjectUri)?.cid || null
         subjectDid =
           resolvedSub?.did ||
           parseAtUri(subjectUri)?.repo ||
@@ -5429,11 +7486,7 @@ export async function handleQuantZingPds(req, res) {
         }
       }
 
-      db.reports = Array.isArray(db.reports) ? db.reports : []
-      const id =
-        db.reports.reduce((max, r) => Math.max(max, Number(r.id) || 0), 0) + 1
-      db.reports.push({
-        id,
+      const createdReport = store.createReport({
         createdAt,
         reporterDid: auth.did,
         reasonType,
@@ -5447,10 +7500,9 @@ export async function handleQuantZingPds(req, res) {
         claimedByHandle: null,
         claimedAt: null,
       })
-      saveDb(db)
 
       sendJson(req, res, 200, {
-        id,
+        id: createdReport.id,
         reasonType,
         reason,
         subject: responseSubject,
@@ -5467,8 +7519,8 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'app.bsky.labeler.getServices' && method === 'GET') {
       const dids = searchParams.getAll('dids')
       const detailed = searchParams.get('detailed') === 'true'
-      const creatorAcc = db.accounts[QUANTZING_OFFICIAL_DID]
-      const viewerDid = getOptionalViewerDid(req, db)
+      const creatorAcc = store.getAccountByDid(QUANTZING_OFFICIAL_DID)
+      const viewerDid = getOptionalViewerDid(req, store)
       const views = (dids.length > 0 ? dids : [QUANTZING_OFFICIAL_DID]).map(
         did => ({
           $type: detailed
@@ -5477,7 +7529,13 @@ export async function handleQuantZingPds(req, res) {
           uri: `at://${did}/app.bsky.labeler.service/self`,
           cid: computeCid({labeler: did}, 'dag-cbor'),
           creator: creatorAcc
-            ? buildLocalProfileView(db, creatorAcc, viewerDid, origin, false)
+            ? buildLocalProfileView(
+                store,
+                creatorAcc,
+                viewerDid,
+                origin,
+                false,
+              )
             : {
                 did: QUANTZING_OFFICIAL_DID,
                 handle: 'quantzing.quantzing.com',
@@ -5505,15 +7563,25 @@ export async function handleQuantZingPds(req, res) {
     // -----------------------------------------------------------------------
 
     if (nsid === 'app.bsky.notification.listNotifications' && method === 'GET') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendJson(req, res, 200, {notifications: [], priority: false})
         return true
       }
       const limit = Math.min(50, Number(searchParams.get('limit') || 30))
-      const notifications = buildLocalNotifications(db, auth.did, origin, limit)
+      const cursor = searchParams.get('cursor')
+      const reasons = searchParams.getAll('reasons')
+      const page = buildLocalNotifications(
+        store,
+        auth.did,
+        origin,
+        limit,
+        cursor,
+        reasons.length > 0 ? reasons : null,
+      )
       sendJson(req, res, 200, {
-        notifications,
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        notifications: page.notifications,
         priority: false,
         seenAt: auth.account.notificationsSeenAt || new Date().toISOString(),
       })
@@ -5524,7 +7592,7 @@ export async function handleQuantZingPds(req, res) {
       nsid === 'app.bsky.notification.getGroupedNotifications' &&
       method === 'GET'
     ) {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendJson(req, res, 200, {
           groups: [],
@@ -5534,43 +7602,56 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
       const feed = searchParams.get('feed') || 'all'
-      const limit = Math.min(50, Math.max(1, Number(searchParams.get('limit') || 30)))
-      const payload = buildGroupedNotifications(db, auth.did, origin, feed, limit)
+      const limit = Math.min(
+        50,
+        Math.max(1, Number(searchParams.get('limit') || 30)),
+      )
+      const payload = buildGroupedNotifications(
+        store,
+        auth.did,
+        origin,
+        feed,
+        limit,
+      )
       sendJson(req, res, 200, payload)
       return true
     }
 
     if (nsid === 'app.bsky.notification.getUnreadCount' && method === 'GET') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendJson(req, res, 200, {count: 0})
         return true
       }
-      const notifications = buildLocalNotifications(db, auth.did, origin, 50)
-      const count = notifications.filter(n => !n.isRead).length
+      const count = store.getUnreadNotificationCount(
+        auth.did,
+        auth.account.notificationsSeenAt,
+      )
       sendJson(req, res, 200, {count})
       return true
     }
 
     if (nsid === 'app.bsky.notification.updateSeen' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.account) {
         const body = await readJsonBody(req)
         const nowFloor = new Date(Date.now() + 500).toISOString()
-        const reqSeen = typeof body.seenAt === 'string' ? body.seenAt : nowFloor
-        auth.account.notificationsSeenAt =
-          reqSeen > nowFloor ? reqSeen : nowFloor
-        saveDb(db)
+        const reqSeen =
+          typeof body.seenAt === 'string' ? body.seenAt : nowFloor
+        const seenAt = reqSeen > nowFloor ? reqSeen : nowFloor
+        store.updateNotificationsSeenAt(auth.did, seenAt)
       }
       sendEmpty(req, res, 200)
       return true
     }
 
     if (nsid === 'app.bsky.notification.getPreferences' && method === 'GET') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       const prefs =
-        auth.account?.notificationPreferences ||
-        createDefaultNotificationPreferences()
+        auth.account?.notificationPreferences &&
+        Object.keys(auth.account.notificationPreferences).length > 0
+          ? auth.account.notificationPreferences
+          : createDefaultNotificationPreferences()
       sendJson(req, res, 200, {preferences: prefs})
       return true
     }
@@ -5580,22 +7661,19 @@ export async function handleQuantZingPds(req, res) {
         nsid === 'app.bsky.notification.putPreferencesV2') &&
       method === 'POST'
     ) {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       const body = await readJsonBody(req)
+      let merged = createDefaultNotificationPreferences()
       if (auth.account) {
-        auth.account.notificationPreferences = {
+        merged = {
           ...(auth.account.notificationPreferences ||
             createDefaultNotificationPreferences()),
           ...body,
         }
-        saveDb(db)
+        store.updateAccountNotificationPreferences(auth.did, merged)
       }
       if (nsid === 'app.bsky.notification.putPreferencesV2') {
-        sendJson(req, res, 200, {
-          preferences:
-            auth.account?.notificationPreferences ||
-            createDefaultNotificationPreferences(),
-        })
+        sendJson(req, res, 200, {preferences: merged})
       } else {
         sendEmpty(req, res, 200)
       }
@@ -5624,8 +7702,8 @@ export async function handleQuantZingPds(req, res) {
     // -----------------------------------------------------------------------
 
     if (nsid === 'app.bsky.ageassurance.getState' && method === 'GET') {
-      const viewerDid = getOptionalViewerDid(req, db)
-      const acc = viewerDid ? db.accounts[viewerDid] : null
+      const viewerDid = getOptionalViewerDid(req, store)
+      const acc = viewerDid ? store.getAccountByDid(viewerDid) : null
       sendJson(req, res, 200, {
         state: {
           status: 'assured',
@@ -5660,102 +7738,126 @@ export async function handleQuantZingPds(req, res) {
     }
 
     // -----------------------------------------------------------------------
-    // 11. Sovereign Direct Messages (chat.bsky.convo.*)
+    // 11. Sovereign Direct Messages (chat.bsky.convo.* — Strict Authz & Membership!)
     // -----------------------------------------------------------------------
 
     if (nsid.startsWith('chat.bsky.')) {
-      const auth = getAuthedContext(req, db)
-      const viewerDid = auth.did || null
-      db.convos = db.convos || {}
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          auth.message || 'Authentication required',
+        )
+        return true
+      }
+      const viewerDid = auth.did
+
+      const assertConvoMember = convoId => {
+        const convo = store.getConvoById(convoId)
+        if (!convo) {
+          sendXrpcError(req, res, 404, 'NotFound', 'Conversation not found')
+          return null
+        }
+        if (!convo.members.includes(viewerDid)) {
+          sendXrpcError(
+            req,
+            res,
+            403,
+            'Forbidden',
+            'You are not a member of this conversation',
+          )
+          return null
+        }
+        return convo
+      }
 
       if (nsid === 'chat.bsky.convo.listConvos' && method === 'GET') {
         const statusFilter = searchParams.get('status')
-        const convos =
-          viewerDid && statusFilter !== 'request'
-            ? Object.values(db.convos)
-                .filter(c => c.members?.includes(viewerDid))
-                .map(c => buildConvoView(db, c, viewerDid, origin))
-            : []
-        sendJson(req, res, 200, {convos})
+        const limit = Number(searchParams.get('limit') || 30)
+        const cursor = searchParams.get('cursor')
+        const page = store.listConvosForMember(viewerDid, {
+          status: statusFilter,
+          limit,
+          cursor,
+        })
+        const convos = page.convos.map(c =>
+          buildConvoView(store, c, viewerDid, origin),
+        )
+        sendJson(req, res, 200, {
+          ...(page.cursor ? {cursor: page.cursor} : {}),
+          convos,
+        })
         return true
       }
 
       if (nsid === 'chat.bsky.convo.getConvoForMembers' && method === 'GET') {
         const rawMembers = searchParams.getAll('members')
-        const members = [
-          ...new Set([viewerDid, ...rawMembers].filter(Boolean)),
-        ].sort()
+        const resolvedMemberDids = [viewerDid]
+        for (const m of rawMembers) {
+          const acc = store.findAccount(m)
+          if (acc) resolvedMemberDids.push(acc.did)
+          else if (String(m).startsWith('did:')) resolvedMemberDids.push(String(m))
+        }
+        const members = [...new Set(resolvedMemberDids.filter(Boolean))].sort()
         const key = members.join('|')
-        let convo = Object.values(db.convos).find(
-          c => [...(c.members || [])].sort().join('|') === key,
-        )
+        let convo = store.getConvoByMemberKey(key)
         if (!convo) {
-          const id = generateTid()
-          convo = {
-            id,
-            rev: generateTid(),
+          convo = store.createConvo({
+            id: generateTid(),
             members,
-            messages: [],
-            readBy: {},
-            mutedBy: {},
-          }
-          db.convos[id] = convo
-          saveDb(db)
+            rev: generateTid(),
+          })
         }
         sendJson(req, res, 200, {
-          convo: buildConvoView(db, convo, viewerDid, origin),
+          convo: buildConvoView(store, convo, viewerDid, origin),
         })
         return true
       }
 
       if (nsid === 'chat.bsky.convo.getConvo' && method === 'GET') {
         const convoId = searchParams.get('convoId') || ''
-        const convo = db.convos[convoId]
-        if (!convo) {
-          sendXrpcError(req, res, 404, 'NotFound', 'Conversation not found')
-          return true
-        }
+        const convo = assertConvoMember(convoId)
+        if (!convo) return true
         sendJson(req, res, 200, {
-          convo: buildConvoView(db, convo, viewerDid, origin),
+          convo: buildConvoView(store, convo, viewerDid, origin),
         })
         return true
       }
 
       if (nsid === 'chat.bsky.convo.getConvoMembers' && method === 'GET') {
         const convoId = searchParams.get('convoId') || ''
-        const convo = db.convos[convoId]
-        if (!convo) {
-          sendJson(req, res, 200, {members: []})
-          return true
-        }
+        const convo = assertConvoMember(convoId)
+        if (!convo) return true
         const members = (convo.members || [])
-          .map(did => db.accounts[did])
+          .map(did => store.getAccountByDid(did))
           .filter(Boolean)
-          .map(acc => buildLocalProfileView(db, acc, viewerDid, origin, false))
+          .map(acc => buildLocalProfileView(store, acc, viewerDid, origin, false))
         sendJson(req, res, 200, {members})
         return true
       }
 
       if (nsid === 'chat.bsky.convo.getMessages' && method === 'GET') {
         const convoId = searchParams.get('convoId') || ''
-        const convo = db.convos[convoId]
-        const messages = convo ? [...(convo.messages || [])].reverse() : []
-        sendJson(req, res, 200, {messages})
+        const convo = assertConvoMember(convoId)
+        if (!convo) return true
+        const limit = Number(searchParams.get('limit') || 50)
+        const cursor = searchParams.get('cursor')
+        const page = store.getConvoMessages(convo.id, viewerDid, {
+          limit,
+          cursor,
+        })
+        sendJson(req, res, 200, {
+          ...(page.cursor ? {cursor: page.cursor} : {}),
+          messages: page.messages,
+        })
         return true
       }
 
       if (nsid === 'chat.bsky.convo.sendMessage' && method === 'POST') {
-        if (auth.error) {
-          sendXrpcError(
-            req,
-            res,
-            auth.status,
-            auth.error,
-            'Authentication required',
-          )
-          return true
-        }
-        const enforcement = checkAccountEnforcement(db, auth.account, {saveDb})
+        const enforcement = checkAccountEnforcement(store, auth.account)
         if (!enforcement.allowed) {
           sendXrpcError(
             req,
@@ -5767,69 +7869,221 @@ export async function handleQuantZingPds(req, res) {
           return true
         }
         const body = await readJsonBody(req)
-        const convo = db.convos[body.convoId]
-        if (!convo) {
-          sendXrpcError(req, res, 404, 'NotFound', 'Conversation not found')
+        const convo = assertConvoMember(body.convoId)
+        if (!convo) return true
+
+        // Check block edges between members
+        for (const memberDid of convo.members) {
+          if (memberDid !== viewerDid) {
+            if (
+              store.findBlockUri(viewerDid, memberDid) ||
+              store.findBlockUri(memberDid, viewerDid)
+            ) {
+              sendXrpcError(
+                req,
+                res,
+                403,
+                'Blocked',
+                'Cannot send message due to a block between participants',
+              )
+              return true
+            }
+          }
+        }
+
+        const text = String(body.message?.text || '')
+        const facets =
+          Array.isArray(body.message?.facets) && body.message.facets.length > 0
+            ? body.message.facets
+            : buildFacetsForText(store, text)
+        const embed = body.message?.embed || null
+        const msg = store.sendConvoMessage({
+          convoId: convo.id,
+          messageId: generateTid(),
+          rev: generateTid(),
+          senderDid: viewerDid,
+          text,
+          facets,
+          embed,
+        })
+        sendJson(req, res, 200, msg)
+        return true
+      }
+
+      if (nsid === 'chat.bsky.convo.sendMessageBatch' && method === 'POST') {
+        const enforcement = checkAccountEnforcement(store, auth.account)
+        if (!enforcement.allowed) {
+          sendXrpcError(
+            req,
+            res,
+            enforcement.status,
+            enforcement.error,
+            enforcement.message,
+          )
           return true
         }
-        const rev = generateTid()
-        const msg = {
-          $type: 'chat.bsky.convo.defs#messageView',
-          id: generateTid(),
-          rev,
-          text: String(body.message?.text || ''),
-          sender: {did: auth.did},
-          sentAt: new Date().toISOString(),
+        const body = await readJsonBody(req)
+        const items = Array.isArray(body.items) ? body.items : []
+        const sentItems = []
+        for (const item of items) {
+          const convo = store.getConvoById(item?.convoId)
+          if (!convo || !convo.members.includes(viewerDid)) {
+            sendXrpcError(
+              req,
+              res,
+              403,
+              'Forbidden',
+              'You are not a member of one or more target conversations',
+            )
+            return true
+          }
+          const text = String(item.message?.text || '')
+          const msg = store.sendConvoMessage({
+            convoId: convo.id,
+            messageId: generateTid(),
+            rev: generateTid(),
+            senderDid: viewerDid,
+            text,
+            facets:
+              item.message?.facets || buildFacetsForText(store, text),
+            embed: item.message?.embed || null,
+          })
+          sentItems.push(msg)
         }
-        convo.messages = convo.messages || []
-        convo.messages.push(msg)
-        convo.rev = rev
-        convo.readBy = convo.readBy || {}
-        convo.readBy[auth.did] = rev
-        saveDb(db)
-        sendJson(req, res, 200, msg)
+        sendJson(req, res, 200, {items: sentItems})
         return true
       }
 
       if (nsid === 'chat.bsky.convo.updateRead' && method === 'POST') {
         const body = await readJsonBody(req)
-        const convo = db.convos[body.convoId]
-        if (convo && viewerDid) {
-          convo.readBy = convo.readBy || {}
-          convo.readBy[viewerDid] = convo.rev || generateTid()
-          saveDb(db)
-          sendJson(req, res, 200, {
-            convo: buildConvoView(db, convo, viewerDid, origin),
-          })
-          return true
-        }
-        sendJson(req, res, 200, {})
-        return true
-      }
-
-      if (nsid === 'chat.bsky.convo.getUnreadCounts' && method === 'GET') {
-        let unreadAcceptedConvos = 0
-        if (viewerDid) {
-          for (const c of Object.values(db.convos)) {
-            if (!c.members?.includes(viewerDid)) continue
-            const v = buildConvoView(db, c, viewerDid, origin)
-            if (v.unreadCount > 0) unreadAcceptedConvos++
-          }
-        }
+        const convo = assertConvoMember(body.convoId)
+        if (!convo) return true
+        const updated = store.updateConvoRead(
+          convo.id,
+          viewerDid,
+          body.messageId ? convo.rev : convo.rev || generateTid(),
+        )
         sendJson(req, res, 200, {
-          unreadRequestConvos: 0,
-          unreadAcceptedConvos,
+          convo: buildConvoView(store, updated, viewerDid, origin),
         })
         return true
       }
 
+      if (nsid === 'chat.bsky.convo.updateAllRead' && method === 'POST') {
+        const updatedCount = store.updateAllConvosRead(viewerDid)
+        sendJson(req, res, 200, {updatedCount})
+        return true
+      }
+
+      if (
+        (nsid === 'chat.bsky.convo.muteConvo' ||
+          nsid === 'chat.bsky.convo.unmuteConvo') &&
+        method === 'POST'
+      ) {
+        const body = await readJsonBody(req)
+        const convo = assertConvoMember(body.convoId)
+        if (!convo) return true
+        const muted = nsid === 'chat.bsky.convo.muteConvo'
+        const updated = store.setConvoMuted(
+          convo.id,
+          viewerDid,
+          muted,
+          generateTid(),
+        )
+        sendJson(req, res, 200, {
+          convo: buildConvoView(store, updated, viewerDid, origin),
+        })
+        return true
+      }
+
+      if (nsid === 'chat.bsky.convo.acceptConvo' && method === 'POST') {
+        const body = await readJsonBody(req)
+        const convo = assertConvoMember(body.convoId)
+        if (!convo) return true
+        const rev = generateTid()
+        store.acceptConvo(convo.id, viewerDid, rev)
+        sendJson(req, res, 200, {rev})
+        return true
+      }
+
+      if (nsid === 'chat.bsky.convo.leaveConvo' && method === 'POST') {
+        const body = await readJsonBody(req)
+        const convo = assertConvoMember(body.convoId)
+        if (!convo) return true
+        const resLeave = store.leaveConvo(convo.id, viewerDid, generateTid())
+        sendJson(req, res, 200, resLeave)
+        return true
+      }
+
+      if (
+        nsid === 'chat.bsky.convo.deleteMessageForSelf' &&
+        method === 'POST'
+      ) {
+        const body = await readJsonBody(req)
+        const convo = assertConvoMember(body.convoId)
+        if (!convo) return true
+        const deletedView = store.deleteConvoMessageForSelf(
+          convo.id,
+          body.messageId,
+          viewerDid,
+          generateTid(),
+        )
+        if (!deletedView) {
+          sendXrpcError(req, res, 404, 'NotFound', 'Message not found')
+          return true
+        }
+        sendJson(req, res, 200, deletedView)
+        return true
+      }
+
+      if (
+        (nsid === 'chat.bsky.convo.addReaction' ||
+          nsid === 'chat.bsky.convo.removeReaction') &&
+        method === 'POST'
+      ) {
+        const body = await readJsonBody(req)
+        const convo = assertConvoMember(body.convoId)
+        if (!convo) return true
+        const message = store.mutateConvoReaction(
+          convo.id,
+          body.messageId,
+          viewerDid,
+          body.value,
+          nsid === 'chat.bsky.convo.addReaction',
+        )
+        if (!message) {
+          sendXrpcError(req, res, 404, 'NotFound', 'Message not found')
+          return true
+        }
+        sendJson(req, res, 200, {message})
+        return true
+      }
+
+      if (nsid === 'chat.bsky.convo.getUnreadCounts' && method === 'GET') {
+        const counts = store.getUnreadConvoCounts(viewerDid)
+        sendJson(req, res, 200, counts)
+        return true
+      }
+
       if (nsid === 'chat.bsky.convo.getLog' && method === 'GET') {
-        sendJson(req, res, 200, {logs: []})
+        const cursor = searchParams.get('cursor')
+        const page = store.getConvoLogsForMember(viewerDid, {cursor})
+        sendJson(req, res, 200, {
+          ...(page.cursor ? {cursor: page.cursor} : {}),
+          logs: page.logs,
+        })
         return true
       }
 
       if (nsid === 'chat.bsky.convo.listConvoRequests' && method === 'GET') {
-        sendJson(req, res, 200, {requests: []})
+        const page = store.listConvosForMember(viewerDid, {
+          status: 'request',
+        })
+        sendJson(req, res, 200, {
+          requests: page.convos.map(c =>
+            buildConvoView(store, c, viewerDid, origin),
+          ),
+        })
         return true
       }
 
@@ -5838,16 +8092,24 @@ export async function handleQuantZingPds(req, res) {
         method === 'GET'
       ) {
         const rawMembers = searchParams.getAll('members')
-        const canChat = rawMembers.every(m => Boolean(findLocalAccount(db, m)))
-        let existingConvo
-        if (canChat && viewerDid) {
-          const allMembers = [...new Set([viewerDid, ...rawMembers])].sort()
-          const key = allMembers.join('|')
-          const found = Object.values(db.convos).find(
-            c => [...(c.members || [])].sort().join('|') === key,
+        const memberAccounts = rawMembers
+          .map(m => store.findAccount(m))
+          .filter(Boolean)
+        const canChat =
+          memberAccounts.length === rawMembers.length &&
+          memberAccounts.every(
+            acc =>
+              !store.findBlockUri(viewerDid, acc.did) &&
+              !store.findBlockUri(acc.did, viewerDid),
           )
+        let existingConvo
+        if (canChat) {
+          const allMembers = [
+            ...new Set([viewerDid, ...memberAccounts.map(a => a.did)]),
+          ].sort()
+          const found = store.getConvoByMemberKey(allMembers.join('|'))
           if (found) {
-            existingConvo = buildConvoView(db, found, viewerDid, origin)
+            existingConvo = buildConvoView(store, found, viewerDid, origin)
           }
         }
         sendJson(req, res, 200, {
@@ -5857,14 +8119,26 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
 
-      sendJson(req, res, 200, {convos: [], messages: []})
+      sendXrpcError(
+        req,
+        res,
+        501,
+        'MethodNotImplemented',
+        `Chat endpoint ${nsid} not implemented`,
+      )
       return true
     }
 
     if (nsid === 'com.atproto.identity.updateHandle' && method === 'POST') {
-      const auth = getAuthedContext(req, db)
+      const auth = getAuthedContext(req, store)
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const body = await readJsonBody(req)
@@ -5873,15 +8147,18 @@ export async function handleQuantZingPds(req, res) {
         sendXrpcError(req, res, 400, 'InvalidHandle', 'Invalid handle format')
         return true
       }
-      const taken = Object.values(db.accounts).find(
-        a => a.did !== auth.did && a.handle.toLowerCase() === nextHandle,
-      )
-      if (taken) {
-        sendXrpcError(req, res, 400, 'HandleNotAvailable', 'That handle is already taken')
+      const taken = store.findAccount(nextHandle)
+      if (taken && taken.did !== auth.did) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'HandleNotAvailable',
+          'That handle is already taken',
+        )
         return true
       }
-      auth.account.handle = nextHandle
-      saveDb(db)
+      store.updateAccountHandle(auth.did, nextHandle)
       sendEmpty(req, res, 200)
       return true
     }
@@ -5899,15 +8176,73 @@ export async function handleQuantZingPds(req, res) {
       return true
     }
 
-    if (nsid === 'app.bsky.video.startUpload' && method === 'POST') {
-      const auth = getAuthedContext(req, db, {
+    if (nsid === 'app.bsky.video.uploadVideo' && method === 'POST') {
+      const auth = getAuthedContext(req, store, {
         allowedScopes: VIDEO_AUTH_SCOPES,
       })
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
-      const enforcement = checkAccountEnforcement(db, auth.account, {saveDb})
+      const enforcement = checkAccountEnforcement(store, auth.account)
+      if (!enforcement.allowed) {
+        sendXrpcError(
+          req,
+          res,
+          enforcement.status,
+          enforcement.error,
+          enforcement.message,
+        )
+        return true
+      }
+      const data = await readRawBody(req, MAX_VIDEO_TOTAL_BYTES)
+      const mimeType = String(req.headers['content-type'] || 'video/mp4')
+        .split(';')[0]
+        .trim()
+      const blob = storeLocalBlob(store, auth.did, data, mimeType)
+      const jobId = `qzvid_${generateTid()}`
+      const jobStatus = {
+        jobId,
+        did: auth.did,
+        state: 'JOB_STATE_COMPLETED',
+        progress: 100,
+        blob,
+      }
+      activeVideoUploads.set(jobId, {
+        jobId,
+        did: auth.did,
+        sizeBytes: data.length,
+        mimeType,
+        expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+        state: 'completed',
+        parts: new Map(),
+        jobStatus,
+      })
+      sendJson(req, res, 200, {jobStatus})
+      return true
+    }
+
+    if (nsid === 'app.bsky.video.startUpload' && method === 'POST') {
+      const auth = getAuthedContext(req, store, {
+        allowedScopes: VIDEO_AUTH_SCOPES,
+      })
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
+        return true
+      }
+      const enforcement = checkAccountEnforcement(store, auth.account)
       if (!enforcement.allowed) {
         sendXrpcError(
           req,
@@ -5958,6 +8293,7 @@ export async function handleQuantZingPds(req, res) {
         expiresAt,
         state: 'created',
         parts: new Map(),
+        totalUploadedBytes: 0,
         jobStatus: null,
       })
       sendJson(req, res, 200, {jobId, partSizeBytes, partCount, expiresAt})
@@ -5965,39 +8301,83 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'app.bsky.video.uploadPart' && method === 'POST') {
-      const auth = getAuthedContext(req, db, {
+      const auth = getAuthedContext(req, store, {
         allowedScopes: VIDEO_AUTH_SCOPES,
       })
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const jobId = searchParams.get('jobId') || ''
-      const partNumber = Math.max(1, Number(searchParams.get('partNumber') || 1))
+      const partNumber = Math.max(
+        1,
+        Number(searchParams.get('partNumber') || 1),
+      )
       const job = activeVideoUploads.get(jobId)
-      if (!job || job.did !== auth.did) {
-        sendXrpcError(req, res, 404, 'NotFound', 'Video upload session not found')
+      if (!job || job.did !== auth.did || job.state !== 'created') {
+        sendXrpcError(
+          req,
+          res,
+          404,
+          'NotFound',
+          'Video upload session not found',
+        )
+        return true
+      }
+      if (partNumber > job.partCount + 1) {
+        sendXrpcError(req, res, 400, 'InvalidRequest', 'Invalid partNumber')
         return true
       }
       const chunk = await readRawBody(req, MAX_BLOB_BODY_BYTES)
+      const prevLen = job.parts.get(partNumber)?.length || 0
+      const nextTotal = (job.totalUploadedBytes || 0) - prevLen + chunk.length
+      if (nextTotal > MAX_VIDEO_TOTAL_BYTES) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'VideoTooLarge',
+          'Cumulative video parts exceed 300 MB limit',
+        )
+        return true
+      }
+      job.totalUploadedBytes = nextTotal
       job.parts.set(partNumber, chunk)
       sendJson(req, res, 200, {partNumber, sizeBytes: chunk.length})
       return true
     }
 
     if (nsid === 'app.bsky.video.finishUpload' && method === 'POST') {
-      const auth = getAuthedContext(req, db, {
+      const auth = getAuthedContext(req, store, {
         allowedScopes: VIDEO_AUTH_SCOPES,
       })
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const body = await readJsonBody(req)
       const jobId = String(body.jobId || '')
       const job = activeVideoUploads.get(jobId)
       if (!job || job.did !== auth.did) {
-        sendXrpcError(req, res, 404, 'NotFound', 'Video upload session not found')
+        sendXrpcError(
+          req,
+          res,
+          404,
+          'NotFound',
+          'Video upload session not found',
+        )
         return true
       }
       if (job.state === 'completed' && job.jobStatus) {
@@ -6007,15 +8387,18 @@ export async function handleQuantZingPds(req, res) {
         })
         return true
       }
+      job.state = 'finishing'
       const ordered = [...job.parts.entries()]
         .sort((a, b) => a[0] - b[0])
         .map(([, buf]) => buf)
       const fullBuf = Buffer.concat(ordered)
       if (fullBuf.length === 0) {
+        job.state = 'created'
         sendXrpcError(req, res, 400, 'InvalidRequest', 'No video data received')
         return true
       }
       if (fullBuf.length > MAX_VIDEO_TOTAL_BYTES) {
+        job.parts.clear()
         sendXrpcError(
           req,
           res,
@@ -6025,8 +8408,7 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
-      const blob = storeLocalBlob(db, auth.did, fullBuf, job.mimeType)
-      saveDb(db)
+      const blob = storeLocalBlob(store, auth.did, fullBuf, job.mimeType)
       job.parts.clear()
       job.state = 'completed'
       job.jobStatus = {
@@ -6044,17 +8426,29 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'app.bsky.video.getUploadStatus' && method === 'GET') {
-      const auth = getAuthedContext(req, db, {
+      const auth = getAuthedContext(req, store, {
         allowedScopes: VIDEO_AUTH_SCOPES,
       })
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const jobId = searchParams.get('jobId') || ''
       const job = activeVideoUploads.get(jobId)
       if (!job || job.did !== auth.did) {
-        sendXrpcError(req, res, 404, 'NotFound', 'Video upload session not found')
+        sendXrpcError(
+          req,
+          res,
+          404,
+          'NotFound',
+          'Video upload session not found',
+        )
         return true
       }
       sendJson(req, res, 200, {
@@ -6083,11 +8477,17 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (nsid === 'app.bsky.video.abortUpload' && method === 'POST') {
-      const auth = getAuthedContext(req, db, {
+      const auth = getAuthedContext(req, store, {
         allowedScopes: VIDEO_AUTH_SCOPES,
       })
       if (auth.error) {
-        sendXrpcError(req, res, auth.status, auth.error, 'Authentication required')
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          'Authentication required',
+        )
         return true
       }
       const body = await readJsonBody(req)
@@ -6123,15 +8523,6 @@ export async function handleQuantZingPds(req, res) {
       return true
     }
 
-    if (
-      method === 'POST' &&
-      (nsid.startsWith('app.bsky.graph.mute') ||
-        nsid.startsWith('app.bsky.graph.unmute'))
-    ) {
-      sendEmpty(req, res, 200)
-      return true
-    }
-
     sendXrpcError(
       req,
       res,
@@ -6141,6 +8532,26 @@ export async function handleQuantZingPds(req, res) {
     )
     return true
   } catch (err) {
+    if (err?.message === 'HandleNotAvailable') {
+      sendXrpcError(
+        req,
+        res,
+        400,
+        'HandleNotAvailable',
+        'That handle is already taken on QuantZing',
+      )
+      return true
+    }
+    if (err?.message === 'EmailAlreadyExists') {
+      sendXrpcError(
+        req,
+        res,
+        400,
+        'InvalidRequest',
+        'An account with that email already exists',
+      )
+      return true
+    }
     if (err?.message === 'PayloadTooLarge') {
       sendXrpcError(
         req,

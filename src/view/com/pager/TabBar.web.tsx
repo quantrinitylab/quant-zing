@@ -3,7 +3,7 @@ import {type ScrollView, StyleSheet, View} from 'react-native'
 import {type SharedValue} from 'react-native-reanimated'
 import {useLingui} from '@lingui/react/macro'
 
-import {atoms as a, useBreakpoints, useTheme, web} from '#/alf'
+import {atoms as a, useBreakpoints, useTheme} from '#/alf'
 import {Text} from '#/components/Typography'
 import {PressableWithHover} from '../util/PressableWithHover'
 import {DraggableScrollView} from './DraggableScrollView'
@@ -140,44 +140,49 @@ export function TabBar({
               accessibilityHint=""
               accessibilityRole="tab">
               <View style={styles.itemInner}>
-                <View
-                  style={unread?.[i] !== undefined && {paddingHorizontal: 12}}>
-                  <Text
-                    emoji
-                    testID={testID ? `${testID}-${item}` : undefined}
+                <View style={[a.relative, a.align_center, {minWidth: 56}]}>
+                  <View
                     style={[
-                      styles.itemText,
-                      selected
-                        ? [t.atoms.text, a.font_bold]
-                        : [t.atoms.text_contrast_low, a.font_medium],
-                      a.text_md,
-                      {lineHeight: 20},
+                      a.relative,
+                      unread?.[i] !== undefined && {paddingHorizontal: 12},
                     ]}>
-                    {item}
-                    <View
+                    <Text
+                      emoji
+                      testID={testID ? `${testID}-${item}` : undefined}
                       style={[
-                        styles.itemIndicator,
-                        selected && {
+                        styles.itemText,
+                        selected
+                          ? [t.atoms.text, a.font_bold]
+                          : [t.atoms.text_contrast_low, a.font_medium],
+                        a.text_md,
+                        {lineHeight: 20},
+                      ]}>
+                      {item}
+                    </Text>
+                    {unread?.[i] && (
+                      <View
+                        aria-hidden
+                        testID={testID ? `${testID}-unread-${i}` : undefined}
+                        style={{
+                          position: 'absolute',
+                          top: 2,
+                          right: 0,
+                          width: 8,
+                          height: 8,
+                          borderRadius: 4,
                           backgroundColor: t.palette.primary_500,
-                        },
-                      ]}
-                    />
-                  </Text>
-                  {unread?.[i] && (
-                    <View
-                      aria-hidden
-                      testID={testID ? `${testID}-unread-${i}` : undefined}
-                      style={{
-                        position: 'absolute',
-                        top: 2,
-                        right: 0,
-                        width: 8,
-                        height: 8,
-                        borderRadius: 4,
+                        }}
+                      />
+                    )}
+                  </View>
+                  <View
+                    style={[
+                      styles.itemIndicator,
+                      selected && {
                         backgroundColor: t.palette.primary_500,
-                      }}
-                    />
-                  )}
+                      },
+                    ]}
+                  />
                 </View>
               </View>
             </PressableWithHover>
@@ -208,7 +213,6 @@ const desktopStyles = StyleSheet.create({
   },
   itemInner: {
     alignItems: 'center',
-    ...web({overflowX: 'hidden'}),
   },
   itemText: {
     textAlign: 'center',
@@ -217,12 +221,10 @@ const desktopStyles = StyleSheet.create({
   itemIndicator: {
     position: 'absolute',
     bottom: 0,
+    left: 0,
+    right: 0,
     height: 4,
     borderRadius: 9999,
-    left: '50%',
-    transform: 'translateX(-50%)',
-    minWidth: 56,
-    width: '100%',
   },
   outerBottomBorder: {
     position: 'absolute',
@@ -252,7 +254,6 @@ const mobileStyles = StyleSheet.create({
   itemInner: {
     flexGrow: 1,
     alignItems: 'center',
-    ...web({overflowX: 'hidden'}),
   },
   itemText: {
     textAlign: 'center',
@@ -261,12 +262,10 @@ const mobileStyles = StyleSheet.create({
   itemIndicator: {
     position: 'absolute',
     bottom: 0,
+    left: 0,
+    right: 0,
     height: 4,
     borderRadius: 9999,
-    left: '50%',
-    transform: 'translateX(-50%)',
-    minWidth: 56,
-    width: '100%',
   },
   outerBottomBorder: {
     position: 'absolute',

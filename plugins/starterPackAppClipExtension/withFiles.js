@@ -4,12 +4,12 @@ const fs = require('fs')
 
 const FILES = ['AppDelegate.swift', 'ViewController.swift']
 
-const withFiles = (config, {targetName}) => {
+const withFiles = (config, {targetName, sourceDir}) => {
   return withXcodeProject(config, config => {
     const basePath = path.join(
       config.modRequest.projectRoot,
       'modules',
-      targetName,
+      sourceDir || targetName,
     )
 
     for (const file of FILES) {

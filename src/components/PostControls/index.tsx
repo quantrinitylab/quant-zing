@@ -19,7 +19,7 @@ import {
   ProgressGuideAction,
   useProgressGuideControls,
 } from '#/state/shell/progress-guide'
-import {atoms as a, useBreakpoints} from '#/alf'
+import {atoms as a, useBreakpoints, useTheme} from '#/alf'
 import {Eye_Stroke2_Corner0_Rounded as EyeIcon} from '#/components/icons/Eye'
 import {Reply_Stroke2_Corner0_Rounded as Bubble} from '#/components/icons/Reply'
 import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
@@ -69,6 +69,7 @@ let PostControls = ({
   forceGoogleTranslate?: boolean
 }): React.ReactNode => {
   const ax = useAnalytics()
+  const t = useTheme()
   const {t: l} = useLingui()
   const navigation = useNavigation<NavigationProp>()
   const {openComposer} = useOpenComposer()
@@ -178,7 +179,7 @@ let PostControls = ({
   }
 
   const onAskQuanty = () => {
-    const richContext = extractRichWaveContext(post, record)
+    const richContext = extractRichZingContext(post, record)
     navigation.navigate('Quanty', {
       postUri: post.uri,
       postText: richContext,
@@ -315,7 +316,7 @@ let PostControls = ({
             <EyeIcon
               aria-hidden={true}
               width={big ? 20 : 17}
-              style={{color: '#71767B'}}
+              style={{color: t.palette.contrast_500}}
             />
             {viewCount > 0 && (
               <Text
@@ -324,7 +325,7 @@ let PostControls = ({
                   a.user_select_none,
                   big ? a.text_md : a.text_sm,
                   {
-                    color: '#71767B',
+                    color: t.palette.contrast_500,
                     includeFontPadding: false,
                     textAlignVertical: 'center',
                   },
@@ -589,7 +590,7 @@ function collectParsedEmbedLines(
   }
 }
 
-function extractRichWaveContext(
+function extractRichZingContext(
   post: Shadow<app.bsky.feed.defs.PostView>,
   record: app.bsky.feed.post.Main,
 ): string {
@@ -605,7 +606,7 @@ function extractRichWaveContext(
   }
 
   if (lines.length === 0) {
-    return `Wave by @${post.author.handle}`
+    return `Zing by @${post.author.handle}`
   }
 
   return lines.join('\n').slice(0, 1400)

@@ -6,7 +6,8 @@ const {withExtensionInfoPlist} = require('./withExtensionInfoPlist')
 const {withExtensionViewController} = require('./withExtensionViewController')
 const {withSounds} = require('./withSounds')
 
-const EXTENSION_NAME = 'BlueskyNSE'
+const EXTENSION_SOURCE_DIR = 'BlueskyNSE'
+const EXTENSION_NAME = 'QuantZingNSE'
 const EXTENSION_CONTROLLER_NAME = 'NotificationService'
 
 const withNotificationsExtension = config => {
@@ -25,12 +26,14 @@ const withNotificationsExtension = config => {
       withExtensionInfoPlist,
       {
         extensionName: EXTENSION_NAME,
+        sourceDir: EXTENSION_SOURCE_DIR,
       },
     ],
     [
       withExtensionViewController,
       {
         extensionName: EXTENSION_NAME,
+        sourceDir: EXTENSION_SOURCE_DIR,
         controllerName: EXTENSION_CONTROLLER_NAME,
       },
     ],

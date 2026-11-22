@@ -35,6 +35,8 @@ export function StepSuggestedStarterpacks() {
     enabled: true,
     overrideInterests: state.interestsStepResults.selectedInterests,
   })
+  const starterPacks = suggestedStarterPacks?.starterPacks ?? []
+  const isEmpty = !isLoading && !isError && starterPacks.length === 0
 
   return (
     <View style={[a.align_start, a.gap_sm]} testID="onboardingInterests">
@@ -71,19 +73,26 @@ export function StepSuggestedStarterpacks() {
               </Trans>
             </Admonition>
           </View>
+        ) : isEmpty ? (
+          <View style={[a.flex_1, a.pt_2xl]}>
+            <Admonition type="tip">
+              <Trans>
+                No starter packs are available right now. You can continue and
+                discover people to follow anytime in Explore.
+              </Trans>
+            </Admonition>
+          </View>
         ) : (
           <View style={[a.flex_1]}>
-            {suggestedStarterPacks?.starterPacks.map(
-              (starterPack, position) => (
-                <View style={[a.pb_lg]} key={starterPack.uri}>
-                  <StarterPackCard
-                    view={starterPack}
-                    recId={suggestedStarterPacks.recId}
-                    position={position}
-                  />
-                </View>
-              ),
-            )}
+            {starterPacks.map((starterPack, position) => (
+              <View style={[a.pb_lg]} key={starterPack.uri}>
+                <StarterPackCard
+                  view={starterPack}
+                  recId={suggestedStarterPacks?.recId}
+                  position={position}
+                />
+              </View>
+            ))}
           </View>
         )}
       </View>

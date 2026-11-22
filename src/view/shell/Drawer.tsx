@@ -12,12 +12,13 @@ import {
   type NavigationState,
   StackActions,
   useNavigation,
+  useNavigationState,
 } from '@react-navigation/native'
 
 import {UNREAD_NOTIFICATION_CAP} from '#/lib/constants'
 import {type PressableScale} from '#/lib/custom-animations/PressableScale'
 import {useNavigationTabState} from '#/lib/hooks/useNavigationTabState'
-import {getTabState, TabState} from '#/lib/routes/helpers'
+import {getCurrentRoute, getTabState, TabState} from '#/lib/routes/helpers'
 import {
   getCommonNavigationAction,
   getTabNavigationAction,
@@ -51,8 +52,10 @@ import {
 } from '#/components/icons/Bookmark'
 import {BulletList_Stroke2_Corner0_Rounded as ListIcon} from '#/components/icons/BulletList'
 import {Download_Stroke2_Corner0_Rounded as DownloadIcon} from '#/components/icons/Download'
-import {VideoClip_Stroke2_Corner0_Rounded as VideoClipIcon} from '#/components/icons/VideoClip'
 import {Earth_Stroke2_Corner0_Rounded as EarthIcon} from '#/components/icons/Earth'
+import {Growth_Stroke2_Corner0_Rounded as GrowthIcon} from '#/components/icons/Growth'
+import {Newspaper_Stroke2_Corner2_Rounded as NewspaperIcon} from '#/components/icons/Newspaper'
+import {VideoClip_Stroke2_Corner0_Rounded as VideoClipIcon} from '#/components/icons/VideoClip'
 import {
   Hashtag_Filled_Corner0_Rounded as HashtagFilledIcon,
   Hashtag_Stroke2_Corner0_Rounded as HashtagIcon,
@@ -228,6 +231,16 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
   const isAtmosphereEnabled = ax.features.enabled(
     ax.features.AtmosphereScreenEnable,
   )
+  const currentRouteName = useNavigationState(state =>
+    state ? getCurrentRoute(state).name : 'Home',
+  )
+  const isAtReels = currentRouteName === 'VideoFeed'
+  const isAtQuanty = currentRouteName === 'Quanty'
+  const isAtArticles = currentRouteName === 'Articles'
+  const isAtSpaces = currentRouteName === 'ZingSpaces'
+  const isAtStudio = currentRouteName === 'CreatorStudio'
+  const isAtPro = currentRouteName === 'QuantZingPro'
+  const isAtDownload = currentRouteName === 'Download'
 
   // events
   // =
@@ -352,6 +365,7 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
   }, [navigation, navigateToSecondaryTab, setDrawerOpen, ax])
 
   const onPressReels = useCallback(() => {
+    ax.metric('nav:click', {item: 'reels', surface: 'drawer'})
     setDrawerOpen(false)
     navigation.dispatch(
       getCommonNavigationAction(
@@ -359,9 +373,65 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
         navigation.getState(),
       ),
     )
-  }, [navigation, setDrawerOpen])
+  }, [navigation, setDrawerOpen, ax])
+
+  const onPressQuanty = useCallback(() => {
+    ax.metric('nav:click', {item: 'quanty', surface: 'drawer'})
+    setDrawerOpen(false)
+    navigation.dispatch(
+      getCommonNavigationAction(
+        {name: 'Quanty', params: undefined},
+        navigation.getState(),
+      ),
+    )
+  }, [navigation, setDrawerOpen, ax])
+
+  const onPressArticles = useCallback(() => {
+    ax.metric('nav:click', {item: 'articles', surface: 'drawer'})
+    setDrawerOpen(false)
+    navigation.dispatch(
+      getCommonNavigationAction(
+        {name: 'Articles', params: undefined},
+        navigation.getState(),
+      ),
+    )
+  }, [navigation, setDrawerOpen, ax])
+
+  const onPressZingSpaces = useCallback(() => {
+    ax.metric('nav:click', {item: 'spaces', surface: 'drawer'})
+    setDrawerOpen(false)
+    navigation.dispatch(
+      getCommonNavigationAction(
+        {name: 'ZingSpaces', params: undefined},
+        navigation.getState(),
+      ),
+    )
+  }, [navigation, setDrawerOpen, ax])
+
+  const onPressCreatorStudio = useCallback(() => {
+    ax.metric('nav:click', {item: 'studio', surface: 'drawer'})
+    setDrawerOpen(false)
+    navigation.dispatch(
+      getCommonNavigationAction(
+        {name: 'CreatorStudio', params: undefined},
+        navigation.getState(),
+      ),
+    )
+  }, [navigation, setDrawerOpen, ax])
+
+  const onPressQuantZingPro = useCallback(() => {
+    ax.metric('nav:click', {item: 'pro', surface: 'drawer'})
+    setDrawerOpen(false)
+    navigation.dispatch(
+      getCommonNavigationAction(
+        {name: 'QuantZingPro', params: undefined},
+        navigation.getState(),
+      ),
+    )
+  }, [navigation, setDrawerOpen, ax])
 
   const onPressDownload = useCallback(() => {
+    ax.metric('nav:click', {item: 'download', surface: 'drawer'})
     setDrawerOpen(false)
     navigation.dispatch(
       getCommonNavigationAction(
@@ -369,7 +439,7 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
         navigation.getState(),
       ),
     )
-  }, [navigation, setDrawerOpen])
+  }, [navigation, setDrawerOpen, ax])
 
   const onPressFeedback = useCallback(() => {
     setDrawerOpen(false)
@@ -440,8 +510,10 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
             <MenuItem
               icon={<VideoClipIcon style={[t.atoms.text]} width={iconWidth} />}
               label="Reels"
+              bold={isAtReels}
               onPress={onPressReels}
             />
+            <QuantyMenuItem isActive={isAtQuanty} onPress={onPressQuanty} />
             <SearchMenuItem isActive={isAtSearch} onPress={onPressSearch} />
             <ChatMenuItem isActive={isAtMessages} onPress={onPressMessages} />
             <NotificationsMenuItem
@@ -460,6 +532,22 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
               isActive={isAtBookmarks}
               onPress={onPressBookmarks}
             />
+            <ArticlesMenuItem
+              isActive={isAtArticles}
+              onPress={onPressArticles}
+            />
+            <ZingSpacesMenuItem
+              isActive={isAtSpaces}
+              onPress={onPressZingSpaces}
+            />
+            <CreatorStudioMenuItem
+              isActive={isAtStudio}
+              onPress={onPressCreatorStudio}
+            />
+            <QuantZingProMenuItem
+              isActive={isAtPro}
+              onPress={onPressQuantZingPro}
+            />
             <ProfileMenuItem
               isActive={isAtMyProfile}
               onPress={onPressProfile}
@@ -468,6 +556,7 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
             <MenuItem
               icon={<DownloadIcon style={[t.atoms.text]} width={iconWidth} />}
               label="Download App"
+              bold={isAtDownload}
               onPress={onPressDownload}
             />
           </>
@@ -477,13 +566,32 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
             <MenuItem
               icon={<VideoClipIcon style={[t.atoms.text]} width={iconWidth} />}
               label="Reels"
+              bold={isAtReels}
               onPress={onPressReels}
             />
+            <QuantyMenuItem isActive={isAtQuanty} onPress={onPressQuanty} />
             <FeedsMenuItem isActive={isAtFeeds} onPress={onPressMyFeeds} />
             <SearchMenuItem isActive={isAtSearch} onPress={onPressSearch} />
+            <ArticlesMenuItem
+              isActive={isAtArticles}
+              onPress={onPressArticles}
+            />
+            <ZingSpacesMenuItem
+              isActive={isAtSpaces}
+              onPress={onPressZingSpaces}
+            />
+            <CreatorStudioMenuItem
+              isActive={isAtStudio}
+              onPress={onPressCreatorStudio}
+            />
+            <QuantZingProMenuItem
+              isActive={isAtPro}
+              onPress={onPressQuantZingPro}
+            />
             <MenuItem
               icon={<DownloadIcon style={[t.atoms.text]} width={iconWidth} />}
               label="Download App"
+              bold={isAtDownload}
               onPress={onPressDownload}
             />
           </>
@@ -827,21 +935,54 @@ let SettingsMenuItem = ({onPress}: {onPress: () => void}): React.ReactNode => {
 }
 SettingsMenuItem = memo(SettingsMenuItem)
 
-let QuantyMenuItem = ({onPress}: {onPress: () => void}): React.ReactNode => {
+let QuantyMenuItem = ({
+  isActive,
+  onPress,
+}: {
+  isActive?: boolean
+  onPress: () => void
+}): React.ReactNode => {
   const t = useTheme()
   return (
     <MenuItem
-      icon={<SparkleIcon style={[t.atoms.text]} width={iconWidth} />}
+      icon={
+        <SparkleIcon
+          style={[isActive ? {color: t.palette.primary_500} : t.atoms.text]}
+          width={iconWidth}
+        />
+      }
       label="Quanty"
+      bold={isActive}
       onPress={onPress}
     />
   )
 }
 QuantyMenuItem = memo(QuantyMenuItem)
 
-let ZingSpacesMenuItem = ({
+let ArticlesMenuItem = ({
+  isActive,
   onPress,
 }: {
+  isActive?: boolean
+  onPress: () => void
+}): React.ReactNode => {
+  const t = useTheme()
+  return (
+    <MenuItem
+      icon={<NewspaperIcon style={[t.atoms.text]} width={iconWidth} />}
+      label="Articles"
+      bold={isActive}
+      onPress={onPress}
+    />
+  )
+}
+ArticlesMenuItem = memo(ArticlesMenuItem)
+
+let ZingSpacesMenuItem = ({
+  isActive,
+  onPress,
+}: {
+  isActive?: boolean
   onPress: () => void
 }): React.ReactNode => {
   const t = useTheme()
@@ -849,15 +990,37 @@ let ZingSpacesMenuItem = ({
     <MenuItem
       icon={<StreamingLiveIcon style={[t.atoms.text]} width={iconWidth} />}
       label="ZingSpaces"
+      bold={isActive}
       onPress={onPress}
     />
   )
 }
 ZingSpacesMenuItem = memo(ZingSpacesMenuItem)
 
-let QuantZingProMenuItem = ({
+let CreatorStudioMenuItem = ({
+  isActive,
   onPress,
 }: {
+  isActive?: boolean
+  onPress: () => void
+}): React.ReactNode => {
+  const t = useTheme()
+  return (
+    <MenuItem
+      icon={<GrowthIcon style={[t.atoms.text]} width={iconWidth} />}
+      label="Creator Studio"
+      bold={isActive}
+      onPress={onPress}
+    />
+  )
+}
+CreatorStudioMenuItem = memo(CreatorStudioMenuItem)
+
+let QuantZingProMenuItem = ({
+  isActive,
+  onPress,
+}: {
+  isActive?: boolean
   onPress: () => void
 }): React.ReactNode => {
   const t = useTheme()
@@ -865,6 +1028,7 @@ let QuantZingProMenuItem = ({
     <MenuItem
       icon={<VerifiedIcon style={[t.atoms.text]} width={iconWidth} />}
       label="QuantZing Pro"
+      bold={isActive}
       onPress={onPress}
     />
   )

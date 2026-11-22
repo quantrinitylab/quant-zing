@@ -25,16 +25,16 @@ describe('App Clip device family', () => {
   ])('matches the parent for %s builds', (_name, ios, expected) => {
     /** @type {Record<string, {buildSettings: Record<string, string>}>} */
     const configurations = {
-      APP_DEBUG: {buildSettings: {PRODUCT_NAME: '"Bluesky"'}},
-      APP_RELEASE: {buildSettings: {PRODUCT_NAME: '"Bluesky"'}},
+      APP_DEBUG: {buildSettings: {PRODUCT_NAME: '"QuantZing"'}},
+      APP_RELEASE: {buildSettings: {PRODUCT_NAME: '"QuantZing"'}},
     }
     const project = {
       addTarget: jest.fn(() => {
         configurations.CLIP_DEBUG = {
-          buildSettings: {PRODUCT_NAME: '"BlueskyClip"'},
+          buildSettings: {PRODUCT_NAME: '"QuantZingClip"'},
         }
         configurations.CLIP_RELEASE = {
-          buildSettings: {PRODUCT_NAME: '"BlueskyClip"'},
+          buildSettings: {PRODUCT_NAME: '"QuantZingClip"'},
         }
         return {uuid: 'APP_CLIP_TARGET', pbxNativeTarget: {}}
       }),
@@ -48,15 +48,15 @@ describe('App Clip device family', () => {
       hash: {project: {objects: {}}},
     }
     const config = {
-      name: 'Bluesky',
-      slug: 'bluesky',
+      name: 'QuantZing',
+      slug: 'quantzing',
       version: '1.0.0',
-      ios: {bundleIdentifier: 'xyz.blueskyweb.app', ...ios},
+      ios: {bundleIdentifier: 'com.quantzing.app', ...ios},
       modResults: project,
     }
 
     IOSConfig.DeviceFamily.setDeviceFamily(config, {project})
-    withXcodeTarget(config, {targetName: 'BlueskyClip'})
+    withXcodeTarget(config, {targetName: 'QuantZingClip'})
 
     for (const buildType of ['DEBUG', 'RELEASE']) {
       const parent = configurations[`APP_${buildType}`].buildSettings

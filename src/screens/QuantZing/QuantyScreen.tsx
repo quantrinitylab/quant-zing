@@ -15,28 +15,52 @@ import {
   fetchLiveNetworkBriefing,
   getQuantZingColors,
   type LiveNetworkBriefing,
-  type QuantyEngineOrigin,
   type QuantyMode,
   type QuantyPostContext,
   type QuantySourceCitation,
   type QuantyTrendItem,
   stripEmojisAndSymbols,
 } from '#/lib/quantos/client'
+import {
+  appendQuantyThreadMessage,
+  createQuantyThread,
+  deleteQuantyThread,
+  fetchQuantyManifest,
+  getActiveQuantySession,
+  getQuantyThread,
+  listQuantyThreads,
+  QUANTY_SLASH_COMMANDS,
+  type QuantyBridgeMode,
+  type QuantyManifestResponse,
+  type QuantySlashCommandHint,
+  type QuantyThreadMessage,
+  type QuantyThreadSummary,
+  sendQuantyChat,
+  setActiveQuantySession,
+  subscribeActiveQuantySession,
+} from '#/lib/quantos/quantyBridge'
 import {type NavigationProp} from '#/lib/routes/types'
 import {useGetTrendsQuery} from '#/state/queries/trending/useGetTrendsQuery'
 import {useRequireAuth, useSession} from '#/state/session'
 import {atoms as a, useTheme, web} from '#/alf'
 import {ArrowRotateClockwise_Stroke2_Corner0_Rounded as RefreshIcon} from '#/components/icons/Arrow'
 import {Clipboard_Stroke2_Corner2_Rounded as CopyIcon} from '#/components/icons/Clipboard'
+import {Clock_Stroke2_Corner0_Rounded as HistoryIcon} from '#/components/icons/Clock'
 import {MagnifyingGlass_Stroke2_Corner0_Rounded as SearchIcon} from '#/components/icons/MagnifyingGlass'
 import {PaperPlane_Stroke2_Corner0_Rounded as SendIcon} from '#/components/icons/PaperPlane'
 import {PencilLine_Stroke2_Corner0_Rounded as DraftIcon} from '#/components/icons/Pencil'
 import {PlusSmall_Stroke2_Corner0_Rounded as PlusIcon} from '#/components/icons/Plus'
 import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
 import {TimesLarge_Stroke2_Corner0_Rounded as CloseIcon} from '#/components/icons/Times'
+import {Trash_Stroke2_Corner0_Rounded as TrashIcon} from '#/components/icons/Trash'
 import {Trending2_Stroke2_Corner2_Rounded as TrendingIcon} from '#/components/icons/Trending'
 import {VerifiedCheck} from '#/components/icons/VerifiedCheck'
+import {Wrench_Stroke2_Corner2_Rounded as ToolIcon} from '#/components/icons/Wrench'
 import * as Layout from '#/components/Layout'
+import {QuantyActionCard} from '#/components/QuantZing/QuantyActionCard'
+import {QuantyCapabilityBar} from '#/components/QuantZing/QuantyCapabilityBar'
+import {QuantyMarkdown} from '#/components/QuantZing/QuantyMarkdown'
+import {QuantyToolTrace} from '#/components/QuantZing/QuantyToolTrace'
 import * as Toast from '#/components/Toast'
 import {Text} from '#/components/Typography'
 import {IS_WEB} from '#/env'
@@ -48,21 +72,8 @@ export interface QuantyRouteParams {
   authorHandle?: string
 }
 
-interface ChatMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  mode: QuantyMode
-  origin?: QuantyEngineOrigin
-  provider?: string
-  latencyMs?: number
-  citations?: QuantySourceCitation[]
-  suggestedZingDraft?: string
-  createdAt: string
-}
-
 const MODE_OPTIONS: Array<{
-  id: QuantyMode
+  id: QuantyBridgeMode
   label: string
 }> = [
   {
@@ -81,12 +92,16 @@ const MODE_OPTIONS: Array<{
     id: 'pulse',
     label: 'News',
   },
+  {
+    id: 'control',
+    label: 'Control',
+  },
 ]
 
 const FOLLOW_UP_CHIPS: Array<{
   label: string
   prompt: string
-  mode: QuantyMode
+  mode: QuantyBridgeMode
 }> = [
   {
     label: 'Draft a reply',
@@ -102,6 +117,11 @@ const FOLLOW_UP_CHIPS: Array<{
     label: 'Summarize in 1 line',
     prompt: 'Summarize this entire analysis in 1 crisp line',
     mode: 'ask',
+  },
+  {
+    label: '/trends',
+    prompt: '/trends',
+    mode: 'control',
   },
 ]
 
@@ -126,191 +146,18 @@ function formatCompact(n: number): string {
   return String(n)
 }
 
-function renderInlineFormatted(
-  line: string,
-  textColor: string,
-  mutedColor: string,
-  accentColor: string,
-) {
-  const parts = line.split(/(\*\*[^*]+\*\*|_[^_]+_|\*[^*]+\*)/g)
-  return parts.map((part, idx) => {
-    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
-      return (
-        <Text
-          key={idx}
-          style={[a.text_sm, a.font_bold, {color: textColor}]}>
-          {part.slice(2, -2)}
-        </Text>
-      )
-    }
-    if (
-      ((part.startsWith('_') && part.endsWith('_')) ||
-        (part.startsWith('*') && part.endsWith('*'))) &&
-      part.length > 2
-    ) {
-      return (
-        <Text
-          key={idx}
-          style={[a.text_xs, {color: mutedColor, fontStyle: 'italic'}]}>
-          {part.slice(1, -1)}
-        </Text>
-      )
-    }
-    if (part.includes('@') || part.includes('#')) {
-      return (
-        <Text key={idx} style={[a.text_sm, {color: textColor}]}>
-          {part.split(/(@[a-zA-Z0-9._-]+|#[a-zA-Z0-9_]+)/g).map((seg, j) =>
-            seg.startsWith('@') || seg.startsWith('#') ? (
-              <Text key={j} style={[a.text_sm, {color: accentColor}]}>
-                {seg}
-              </Text>
-            ) : (
-              seg
-            ),
-          )}
-        </Text>
-      )
-    }
-    return (
-      <Text key={idx} style={[a.text_sm, {color: textColor}]}>
-        {part}
-      </Text>
-    )
-  })
-}
-
-function FormattedQuantyText({
-  content,
-  textColor,
-  mutedColor,
-  accentColor,
-  borderColor,
-}: {
-  content: string
-  textColor: string
-  mutedColor: string
-  accentColor: string
-  borderColor: string
-}) {
-  const sanitized = stripEmojisAndSymbols(content)
-  const lines = sanitized.split('\n')
-  return (
-    <View style={[a.gap_xs]}>
-      {lines.map((rawLine, index) => {
-        const line = rawLine.trimEnd()
-        if (!line.trim()) {
-          return <View key={index} style={{height: 4}} />
-        }
-        if (line.startsWith('### ') || line.startsWith('## ')) {
-          const headingText = line.replace(/^#{2,3}\s+/, '')
-          return (
-            <Text
-              key={index}
-              style={[
-                a.text_md,
-                a.font_bold,
-                a.leading_snug,
-                {color: textColor, marginTop: index === 0 ? 0 : 8},
-              ]}>
-              {headingText}
-            </Text>
-          )
-        }
-        if (line.startsWith('> ')) {
-          return (
-            <View
-              key={index}
-              style={[
-                a.pl_sm,
-                a.py_2xs,
-                {borderLeftWidth: 2, borderLeftColor: accentColor},
-              ]}>
-              <Text style={[a.text_sm, a.leading_snug, {color: textColor}]}>
-                {renderInlineFormatted(
-                  line.slice(2),
-                  textColor,
-                  mutedColor,
-                  accentColor,
-                )}
-              </Text>
-            </View>
-          )
-        }
-        const numberedMatch = line.match(/^(\d+)\.\s+(.*)$/)
-        if (numberedMatch) {
-          return (
-            <View
-              key={index}
-              style={[a.flex_row, a.align_start, a.gap_xs, {paddingLeft: 2}]}>
-              <Text
-                style={[
-                  a.text_sm,
-                  a.font_bold,
-                  {color: accentColor, minWidth: 18},
-                ]}>
-                {numberedMatch[1]}.
-              </Text>
-              <Text
-                style={[a.flex_1, a.text_sm, a.leading_snug, {color: textColor}]}>
-                {renderInlineFormatted(
-                  numberedMatch[2],
-                  textColor,
-                  mutedColor,
-                  accentColor,
-                )}
-              </Text>
-            </View>
-          )
-        }
-        if (line.startsWith('- ') || line.startsWith('* ')) {
-          return (
-            <View
-              key={index}
-              style={[a.flex_row, a.align_start, a.gap_xs, {paddingLeft: 4}]}>
-              <Text style={[a.text_sm, a.font_bold, {color: mutedColor}]}>
-                {'-'}
-              </Text>
-              <Text
-                style={[a.flex_1, a.text_sm, a.leading_snug, {color: textColor}]}>
-                {renderInlineFormatted(
-                  line.slice(2),
-                  textColor,
-                  mutedColor,
-                  accentColor,
-                )}
-              </Text>
-            </View>
-          )
-        }
-        if (line === '---') {
-          return (
-            <View
-              key={index}
-              style={{height: 1, backgroundColor: borderColor, marginVertical: 4}}
-            />
-          )
-        }
-        return (
-          <Text
-            key={index}
-            style={[a.text_sm, a.leading_snug, {color: textColor}]}>
-            {renderInlineFormatted(line, textColor, mutedColor, accentColor)}
-          </Text>
-        )
-      })}
-    </View>
-  )
+function toLegacyQuantyMode(mode: QuantyBridgeMode): QuantyMode {
+  if (mode === 'control') return 'ask'
+  return mode
 }
 
 export function QuantyScreen() {
   const t = useTheme()
-  const colors = useMemo(
-    () => getQuantZingColors(t.scheme === 'dark'),
-    [t.scheme],
-  )
+  const colors = useMemo(() => getQuantZingColors(t.name), [t.name])
   const navigation = useNavigation<NavigationProp>()
   const route = useRoute()
   const {currentAccount, hasSession} = useSession()
+  const accessJwt = currentAccount?.accessJwt
   const requireAuth = useRequireAuth()
   const {openComposer} = useOpenComposer()
   const {data: trendsData} = useGetTrendsQuery({limit: 8})
@@ -336,12 +183,22 @@ export function QuantyScreen() {
     }))
   }, [trendsData])
 
-  const [mode, setMode] = useState<QuantyMode>(
+  const initialSession = useMemo(() => getActiveQuantySession(), [])
+
+  const [mode, setMode] = useState<QuantyBridgeMode>(
     routeParams.postText ? 'deepsearch' : 'ask',
   )
   const [input, setInput] = useState('')
   const [isSending, setIsSending] = useState(false)
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(
+    () => initialSession.threadId,
+  )
+  const [messages, setMessages] = useState<QuantyThreadMessage[]>(
+    () => initialSession.messages,
+  )
+  const [savedThreads, setSavedThreads] = useState<QuantyThreadSummary[]>([])
+  const [showThreadsDrawer, setShowThreadsDrawer] = useState(false)
+  const [manifest, setManifest] = useState<QuantyManifestResponse | null>(null)
   const [attachedPost, setAttachedPost] = useState<QuantyPostContext | null>(
     () =>
       routeParams.postText
@@ -357,11 +214,53 @@ export function QuantyScreen() {
   const [isLoadingBriefing, setIsLoadingBriefing] = useState(true)
 
   const autoRunKeyRef = useRef<string | null>(null)
-  const messagesRef = useRef<ChatMessage[]>(messages)
+  const messagesRef = useRef<QuantyThreadMessage[]>(messages)
   messagesRef.current = messages
+  const activeThreadIdRef = useRef<string | null>(activeThreadId)
+  activeThreadIdRef.current = activeThreadId
   const isSendingRef = useRef(isSending)
   isSendingRef.current = isSending
   const briefingTrendSigRef = useRef<string>('')
+
+  // Subscribe to shared session state so Floating Dock & QuantyScreen stay synced
+  useEffect(() => {
+    return subscribeActiveQuantySession(snap => {
+      setActiveThreadId(snap.threadId)
+      setMessages(snap.messages)
+    })
+  }, [])
+
+  // Load 21-Tool Sovereign Manifest & QuantOS Health
+  const refreshManifest = useCallback(async () => {
+    try {
+      const m = await fetchQuantyManifest(accessJwt)
+      setManifest(m)
+    } catch {
+      // Keep previous manifest or default 21-tool catalog fallback
+    }
+  }, [accessJwt])
+
+  useEffect(() => {
+    void refreshManifest()
+  }, [refreshManifest])
+
+  // Load server-persisted Quanty threads for signed-in users
+  const refreshThreads = useCallback(async () => {
+    if (!hasSession || !accessJwt) {
+      setSavedThreads([])
+      return
+    }
+    try {
+      const list = await listQuantyThreads(accessJwt, 25)
+      setSavedThreads(list)
+    } catch {
+      // Ignore transient errors
+    }
+  }, [accessJwt, hasSession])
+
+  useEffect(() => {
+    void refreshThreads()
+  }, [refreshThreads])
 
   const loadBriefing = useCallback(
     async (trendsOverride?: QuantyTrendItem[]) => {
@@ -391,10 +290,62 @@ export function QuantyScreen() {
     void loadBriefing(trendingTopics)
   }, [briefing, loadBriefing, trendingTopics])
 
+  const updateSessionMessages = useCallback(
+    (
+      nextMessages: QuantyThreadMessage[],
+      nextThreadId: string | null = activeThreadIdRef.current,
+    ) => {
+      activeThreadIdRef.current = nextThreadId
+      messagesRef.current = nextMessages
+      setActiveThreadId(nextThreadId)
+      setMessages(nextMessages)
+      setActiveQuantySession({
+        threadId: nextThreadId,
+        messages: nextMessages,
+      })
+    },
+    [],
+  )
+
+  const handleSelectThread = useCallback(
+    async (summary: QuantyThreadSummary) => {
+      if (!accessJwt) return
+      setShowThreadsDrawer(false)
+      try {
+        const detail = await getQuantyThread(summary.id, accessJwt)
+        if (detail) {
+          setMode(detail.thread.mode || 'ask')
+          if (detail.thread.postContext) {
+            setAttachedPost(detail.thread.postContext)
+          }
+          updateSessionMessages(detail.messages, detail.thread.id)
+        }
+      } catch {
+        Toast.show('Could not load saved Quanty thread.', {type: 'warning'})
+      }
+    },
+    [accessJwt, updateSessionMessages],
+  )
+
+  const handleDeleteThread = useCallback(
+    async (threadIdToDelete: string) => {
+      if (!accessJwt) return
+      const ok = await deleteQuantyThread(threadIdToDelete, accessJwt)
+      if (ok) {
+        setSavedThreads(prev => prev.filter(item => item.id !== threadIdToDelete))
+        if (activeThreadIdRef.current === threadIdToDelete) {
+          updateSessionMessages([], null)
+        }
+        Toast.show('Deleted Quanty thread', {type: 'info'})
+      }
+    },
+    [accessJwt, updateSessionMessages],
+  )
+
   const runQuery = useCallback(
     async (
       promptText: string,
-      activeMode: QuantyMode,
+      activeMode: QuantyBridgeMode,
       postCtx?: QuantyPostContext | null,
       options?: {resetThread?: boolean; feedUri?: string},
     ) => {
@@ -406,8 +357,13 @@ export function QuantyScreen() {
       )
       if (!cleanPrompt || isSendingRef.current) return
 
-      const userMsg: ChatMessage = {
+      const currentThreadId = options?.resetThread
+        ? null
+        : activeThreadIdRef.current
+
+      const userMsg: QuantyThreadMessage = {
         id: `u_${Date.now()}`,
+        threadId: currentThreadId || 'local',
         role: 'user',
         content: cleanPrompt,
         mode: activeMode,
@@ -421,55 +377,158 @@ export function QuantyScreen() {
             content: m.content,
           }))
 
-      if (options?.resetThread) {
-        setMessages([userMsg])
-      } else {
-        setMessages(prev => [...prev, userMsg])
-      }
+      const optimisticMessages = options?.resetThread
+        ? [userMsg]
+        : [...messagesRef.current, userMsg]
+
+      updateSessionMessages(optimisticMessages, currentThreadId)
       setInput('')
       setIsSending(true)
       isSendingRef.current = true
 
       try {
-        const res = await askQuanty({
-          prompt: cleanPrompt,
-          mode: activeMode,
-          ownerId: currentAccount?.did || currentAccount?.handle || undefined,
-          postContext: postCtx || undefined,
-          history: baseHistory,
-          trendingTopics,
-          feedUri: options?.feedUri,
-        })
-
-        const assistantMsg: ChatMessage = {
-          id: `a_${Date.now()}`,
-          role: 'assistant',
-          content: stripEmojisAndSymbols(res.answer),
-          mode: activeMode,
-          origin: res.origin,
-          provider: res.provider,
-          latencyMs: res.latencyMs,
-          citations: res.citations,
-          suggestedZingDraft: res.suggestedZingDraft
-            ? stripEmojisAndSymbols(res.suggestedZingDraft)
-            : undefined,
-          createdAt: new Date().toISOString(),
+        let ensuredThreadId = currentThreadId
+        if (hasSession && accessJwt && !ensuredThreadId) {
+          const created = await createQuantyThread(
+            {
+              title: cleanPrompt.slice(0, 72),
+              mode: activeMode,
+              postContext: postCtx || null,
+            },
+            accessJwt,
+          ).catch(() => null)
+          if (created?.id) {
+            ensuredThreadId = created.id
+          }
         }
 
-        setMessages(prev => [...prev, assistantMsg])
+        let assistantMsg: QuantyThreadMessage
+
+        try {
+          const res = await sendQuantyChat(
+            {
+              prompt: cleanPrompt,
+              mode: activeMode,
+              postContext: postCtx || null,
+              history: baseHistory,
+              feedUri: options?.feedUri,
+              threadId: ensuredThreadId || undefined,
+              allowAutoReadTools: true,
+            },
+            accessJwt,
+          )
+
+          const resolvedThreadId = res.threadId || ensuredThreadId || null
+
+          assistantMsg = {
+            id: `a_${Date.now()}`,
+            threadId: resolvedThreadId || 'local',
+            role: 'assistant',
+            content: stripEmojisAndSymbols(res.answer),
+            mode: activeMode,
+            origin: res.origin,
+            provider: res.provider,
+            model: res.model,
+            latencyMs: res.latencyMs,
+            citations: res.citations,
+            toolTraces: res.toolTraces,
+            proposedActions: res.proposedActions,
+            suggestedZingDraft: res.suggestedZingDraft
+              ? stripEmojisAndSymbols(res.suggestedZingDraft)
+              : undefined,
+            createdAt: new Date().toISOString(),
+          }
+
+          if (hasSession && accessJwt && ensuredThreadId && !res.threadId) {
+            await appendQuantyThreadMessage(
+              ensuredThreadId,
+              {
+                role: 'user',
+                content: cleanPrompt,
+                mode: activeMode,
+              },
+              accessJwt,
+            ).catch(() => null)
+            await appendQuantyThreadMessage(
+              ensuredThreadId,
+              {
+                role: 'assistant',
+                content: assistantMsg.content,
+                mode: activeMode,
+                origin: assistantMsg.origin,
+                provider: assistantMsg.provider,
+                model: assistantMsg.model,
+                latencyMs: assistantMsg.latencyMs,
+                citations: assistantMsg.citations,
+                toolTraces: assistantMsg.toolTraces,
+                proposedActions: assistantMsg.proposedActions,
+                suggestedZingDraft: assistantMsg.suggestedZingDraft,
+              },
+              accessJwt,
+            ).catch(() => null)
+          }
+
+          const finalMessages = [...optimisticMessages, assistantMsg]
+          updateSessionMessages(finalMessages, resolvedThreadId)
+          if (hasSession && accessJwt) {
+            void refreshThreads()
+          }
+        } catch {
+          // Graceful fallback to client-side grounded engine if bridge call fails
+          const fallbackRes = await askQuanty({
+            prompt: cleanPrompt,
+            mode: toLegacyQuantyMode(activeMode),
+            ownerId:
+              currentAccount?.did || currentAccount?.handle || undefined,
+            postContext: postCtx || undefined,
+            history: baseHistory,
+            trendingTopics,
+            feedUri: options?.feedUri,
+          })
+
+          assistantMsg = {
+            id: `a_${Date.now()}`,
+            threadId: ensuredThreadId || 'local',
+            role: 'assistant',
+            content: stripEmojisAndSymbols(fallbackRes.answer),
+            mode: activeMode,
+            origin: fallbackRes.origin,
+            provider: fallbackRes.provider,
+            latencyMs: fallbackRes.latencyMs,
+            citations: fallbackRes.citations,
+            suggestedZingDraft: fallbackRes.suggestedZingDraft
+              ? stripEmojisAndSymbols(fallbackRes.suggestedZingDraft)
+              : undefined,
+            createdAt: new Date().toISOString(),
+          }
+
+          const finalMessages = [...optimisticMessages, assistantMsg]
+          updateSessionMessages(finalMessages, ensuredThreadId)
+        }
       } catch {
-        Toast.show('Quanty could not complete that request. Please try again.', {
-          type: 'error',
-        })
+        Toast.show(
+          'Quanty could not complete that request. Please try again.',
+          {
+            type: 'error',
+          },
+        )
       } finally {
         setIsSending(false)
         isSendingRef.current = false
       }
     },
-    [currentAccount, trendingTopics],
+    [
+      accessJwt,
+      currentAccount?.did,
+      currentAccount?.handle,
+      hasSession,
+      refreshThreads,
+      trendingTopics,
+      updateSessionMessages,
+    ],
   )
 
-  // Auto-run when opened from ANY Zing card's sparkle button
+  // Auto-run when opened from ANY Zing card's sparkle button or deep-link prompt
   useEffect(() => {
     const key = `${routeParams.postUri || ''}|${routeParams.postText || ''}|${routeParams.prompt || ''}`
     if (!routeParams.postText && !routeParams.prompt) return
@@ -485,7 +544,11 @@ export function QuantyScreen() {
       : null
     setAttachedPost(ctx)
 
-    const initialMode: QuantyMode = ctx ? 'deepsearch' : 'ask'
+    const initialMode: QuantyBridgeMode = routeParams.prompt?.trim().startsWith('/')
+      ? 'control'
+      : ctx
+        ? 'deepsearch'
+        : 'ask'
     setMode(initialMode)
 
     const autoPrompt =
@@ -505,6 +568,33 @@ export function QuantyScreen() {
     runQuery,
   ])
 
+  const handleSelectSlashCommand = useCallback(
+    (hint: QuantySlashCommandHint) => {
+      if (hint.autoRunOnSelect) {
+        setMode('control')
+        void runQuery(hint.command, 'control', attachedPost)
+      } else {
+        setMode('control')
+        setInput(hint.template)
+      }
+    },
+    [attachedPost, runQuery],
+  )
+
+  // Slash command autocomplete suggestions when input begins with '/'
+  const slashMatches = useMemo<QuantySlashCommandHint[]>(() => {
+    const trimmed = input.trimStart()
+    if (!trimmed.startsWith('/')) return []
+    const firstToken = trimmed.split(/\s+/)[0].toLowerCase()
+    const hasArguments = trimmed.includes(' ')
+    if (hasArguments) return []
+    return QUANTY_SLASH_COMMANDS.filter(
+      cmd =>
+        cmd.command.toLowerCase().startsWith(firstToken) ||
+        cmd.title.toLowerCase().includes(firstToken.slice(1)),
+    ).slice(0, 7)
+  }, [input])
+
   const handleCopy = useCallback(
     async (text: string, label = 'Copied Quanty response') => {
       try {
@@ -518,7 +608,7 @@ export function QuantyScreen() {
   )
 
   const handleSendAsZing = useCallback(
-    (msg: ChatMessage) => {
+    (msg: QuantyThreadMessage) => {
       const draft = stripEmojisAndSymbols(
         msg.suggestedZingDraft ||
           msg.content
@@ -565,6 +655,24 @@ export function QuantyScreen() {
     [handleOpenPostUri],
   )
 
+  const handlePressHandle = useCallback(
+    (handle: string) => {
+      const clean = handle.replace(/^@/, '').trim()
+      if (!clean) return
+      navigation.navigate('Profile', {name: clean})
+    },
+    [navigation],
+  )
+
+  const handlePressTag = useCallback(
+    (tag: string) => {
+      const clean = tag.replace(/^#/, '').trim()
+      if (!clean) return
+      navigation.navigate('Hashtag', {tag: clean})
+    },
+    [navigation],
+  )
+
   const focusedContextLines = useMemo(() => {
     if (!attachedPost?.text) return []
     return stripEmojisAndSymbols(attachedPost.text)
@@ -577,6 +685,87 @@ export function QuantyScreen() {
     () => (briefing?.stories ?? []).slice(0, 5),
     [briefing],
   )
+
+  const renderSlashAutocomplete = () => {
+    if (slashMatches.length === 0) return null
+    return (
+      <View
+        testID="quantySlashAutocomplete"
+        style={[
+          a.p_xs,
+          a.rounded_lg,
+          a.gap_2xs,
+          {
+            backgroundColor: colors.card,
+            borderWidth: 1,
+            borderColor: colors.border,
+          },
+        ]}>
+        <Text
+          style={[
+            a.text_2xs,
+            a.font_bold,
+            a.px_xs,
+            {color: colors.muted},
+          ]}>
+          SLASH COMMANDS ({slashMatches.length})
+        </Text>
+        {slashMatches.map(hint => {
+          const isDestructive = hint.category === 'destructive'
+          const badgeColor = isDestructive
+            ? colors.danger
+            : hint.category === 'write'
+              ? colors.rezing
+              : colors.accent
+          return (
+            <Pressable
+              key={hint.command}
+              accessibilityRole="button"
+              accessibilityLabel={`${hint.command} ${hint.title}`}
+              onPress={() => handleSelectSlashCommand(hint)}
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.justify_between,
+                a.gap_sm,
+                a.px_sm,
+                a.py_xs,
+                a.rounded_md,
+                {
+                  backgroundColor: colors.bg,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                },
+                web({cursor: 'pointer'}),
+              ]}>
+              <View style={[a.flex_row, a.align_center, a.gap_xs, a.flex_1]}>
+                <Text
+                  style={[a.text_xs, a.font_bold, {color: badgeColor}]}>
+                  {hint.command}
+                </Text>
+                <Text
+                  style={[a.text_xs, a.font_semi_bold, {color: colors.text}]}>
+                  {hint.title}
+                </Text>
+                <Text
+                  numberOfLines={1}
+                  style={[a.text_2xs, a.flex_1, {color: colors.muted}]}>
+                  {hint.description}
+                </Text>
+              </View>
+              <Text style={[a.text_2xs, a.font_bold, {color: badgeColor}]}>
+                {hint.category === 'read'
+                  ? 'Live Read'
+                  : isDestructive
+                    ? 'Gate'
+                    : 'Confirm'}
+              </Text>
+            </Pressable>
+          )
+        })}
+      </View>
+    )
+  }
 
   return (
     <Layout.Screen
@@ -593,41 +782,176 @@ export function QuantyScreen() {
           </View>
         </Layout.Header.Content>
 
-        {messages.length > 0 ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="New chat"
-            onPress={() => {
-              setMessages([])
-              setAttachedPost(null)
-              setInput('')
-            }}
+        <View style={[a.flex_row, a.align_center, a.gap_xs]}>
+          {hasSession && savedThreads.length > 0 && (
+            <Pressable
+              testID="quantyThreadsDrawerToggle"
+              accessibilityRole="button"
+              accessibilityLabel="Saved Quanty threads"
+              onPress={() => setShowThreadsDrawer(prev => !prev)}
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.gap_2xs,
+                a.px_sm,
+                a.py_2xs,
+                a.rounded_full,
+                {
+                  backgroundColor: showThreadsDrawer
+                    ? colors.ctaBg
+                    : colors.card,
+                  borderWidth: 1,
+                  borderColor: showThreadsDrawer
+                    ? colors.ctaBg
+                    : colors.border,
+                },
+                web({cursor: 'pointer'}),
+              ]}>
+              <HistoryIcon
+                size="xs"
+                fill={showThreadsDrawer ? colors.ctaText : colors.text}
+              />
+              <Text
+                style={[
+                  a.text_xs,
+                  a.font_semi_bold,
+                  {color: showThreadsDrawer ? colors.ctaText : colors.text},
+                ]}>
+                Threads ({savedThreads.length})
+              </Text>
+            </Pressable>
+          )}
+
+          {messages.length > 0 && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="New chat"
+              onPress={() => {
+                updateSessionMessages([], null)
+                setAttachedPost(null)
+                setInput('')
+              }}
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.gap_2xs,
+                a.px_sm,
+                a.py_2xs,
+                a.rounded_full,
+                {
+                  backgroundColor: colors.card,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                },
+                web({cursor: 'pointer'}),
+              ]}>
+              <PlusIcon size="xs" fill={colors.text} />
+              <Text style={[a.text_xs, a.font_semi_bold, {color: colors.text}]}>
+                New chat
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      </Layout.Header.Outer>
+
+      <Layout.Content
+        style={{backgroundColor: colors.bg}}
+        contentContainerStyle={[a.p_md, a.gap_lg, {paddingBottom: 120}]}>
+        {/* Top Capability Bar: Live QuantOS status + 21 Tools + Slash Command Chips */}
+        <QuantyCapabilityBar
+          manifest={manifest}
+          attachedPost={attachedPost}
+          onSelectCommand={handleSelectSlashCommand}
+          onQuickPrompt={promptText =>
+            void runQuery(promptText, mode, attachedPost)
+          }
+        />
+
+        {/* Server-Persisted Threads Drawer */}
+        {showThreadsDrawer && savedThreads.length > 0 && (
+          <View
+            testID="quantySavedThreadsList"
             style={[
-              a.flex_row,
-              a.align_center,
-              a.gap_2xs,
-              a.px_sm,
-              a.py_2xs,
-              a.rounded_full,
+              a.p_md,
+              a.rounded_lg,
+              a.gap_xs,
               {
                 backgroundColor: colors.card,
                 borderWidth: 1,
                 borderColor: colors.border,
               },
             ]}>
-            <PlusIcon size="xs" fill={colors.text} />
-            <Text style={[a.text_xs, a.font_semi_bold, {color: colors.text}]}>
-              New chat
-            </Text>
-          </Pressable>
-        ) : (
-          <Layout.Header.Slot />
+            <View
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.justify_between,
+                a.pb_2xs,
+              ]}>
+              <Text style={[a.text_xs, a.font_bold, {color: colors.muted}]}>
+                SAVED QUANTY THREADS ({savedThreads.length})
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close saved threads"
+                onPress={() => setShowThreadsDrawer(false)}>
+                <CloseIcon size="xs" fill={colors.muted} />
+              </Pressable>
+            </View>
+            {savedThreads.slice(0, 10).map(thread => {
+              const isCurrent = thread.id === activeThreadId
+              return (
+                <View
+                  key={thread.id}
+                  style={[
+                    a.flex_row,
+                    a.align_center,
+                    a.justify_between,
+                    a.gap_xs,
+                    a.px_sm,
+                    a.py_xs,
+                    a.rounded_md,
+                    {
+                      backgroundColor: isCurrent
+                        ? colors.accentSubtle
+                        : colors.bg,
+                      borderWidth: 1,
+                      borderColor: isCurrent ? colors.accent : colors.border,
+                    },
+                  ]}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={thread.title}
+                    onPress={() => void handleSelectThread(thread)}
+                    style={[a.flex_1, a.gap_2xs, web({cursor: 'pointer'})]}>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        a.text_xs,
+                        a.font_semi_bold,
+                        {color: colors.text},
+                      ]}>
+                      {stripEmojisAndSymbols(thread.title)}
+                    </Text>
+                    <Text style={[a.text_2xs, {color: colors.muted}]}>
+                      {thread.mode.toUpperCase()} · {thread.messageCount}{' '}
+                      messages
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Delete thread ${thread.title}`}
+                    onPress={() => void handleDeleteThread(thread.id)}
+                    hitSlop={8}
+                    style={[a.p_xs, web({cursor: 'pointer'})]}>
+                    <TrashIcon size="xs" fill={colors.muted} />
+                  </Pressable>
+                </View>
+              )
+            })}
+          </View>
         )}
-      </Layout.Header.Outer>
 
-      <Layout.Content
-        style={{backgroundColor: colors.bg}}
-        contentContainerStyle={[a.p_md, a.gap_lg, {paddingBottom: 120}]}>
         {/* Attached Zing Context Card */}
         {attachedPost && (
           <View
@@ -721,9 +1045,9 @@ export function QuantyScreen() {
 
         {/* Home State (Spacious Grok-grade minimal layout) */}
         {messages.length === 0 ? (
-          <View style={[a.gap_lg, a.pt_lg]}>
+          <View style={[a.gap_lg, a.pt_sm]}>
             {/* Centered Quanty Brand Mark */}
-            <View style={[a.align_center, a.gap_sm, a.py_md]}>
+            <View style={[a.align_center, a.gap_sm, a.py_sm]}>
               <View
                 style={[
                   a.align_center,
@@ -742,10 +1066,22 @@ export function QuantyScreen() {
               <Text style={[a.text_2xl, a.font_bold, {color: colors.text}]}>
                 Quanty
               </Text>
+              <Text
+                style={[
+                  a.text_xs,
+                  a.text_center,
+                  {color: colors.muted, maxWidth: 460},
+                ]}>
+                Ask questions, run DeepSearch across live Sovereign Zings, or
+                type / to invoke 21 platform tools with cryptographic approval
+                gates.
+              </Text>
             </View>
 
-            {/* Sleek Rounded Dark Prompt Input Box */}
+            {/* Sleek Rounded Prompt Input Box + Slash Autocomplete */}
             <View style={[a.gap_sm]}>
+              {renderSlashAutocomplete()}
+
               <View
                 style={[
                   a.flex_row,
@@ -761,9 +1097,10 @@ export function QuantyScreen() {
                   },
                 ]}>
                 <TextInput
+                  testID="quantyPromptInput"
                   value={input}
                   onChangeText={setInput}
-                  placeholder="Ask anything"
+                  placeholder="Ask anything or type /zing, /trends, /analytics, /dm..."
                   placeholderTextColor={colors.muted}
                   multiline={false}
                   returnKeyType="send"
@@ -779,6 +1116,7 @@ export function QuantyScreen() {
                   ]}
                 />
                 <Pressable
+                  testID="quantySendBtn"
                   accessibilityRole="button"
                   accessibilityLabel="Send prompt to Quanty"
                   disabled={isSending || (!input.trim() && mode !== 'pulse')}
@@ -796,12 +1134,13 @@ export function QuantyScreen() {
                           ? 0.4
                           : 1,
                     },
+                    web({cursor: 'pointer'}),
                   ]}>
                   <SendIcon size="xs" fill={colors.ctaText} />
                 </Pressable>
               </View>
 
-              {/* 4 Clean Monochrome Mode Pills */}
+              {/* 5 Clean Monochrome Mode Pills */}
               <View
                 style={[
                   a.flex_row,
@@ -839,6 +1178,7 @@ export function QuantyScreen() {
                           borderWidth: 1,
                           borderColor: active ? colors.ctaBg : colors.border,
                         },
+                        web({cursor: 'pointer'}),
                       ]}>
                       {option.id === 'ask' && (
                         <SparkleIcon
@@ -860,6 +1200,12 @@ export function QuantyScreen() {
                       )}
                       {option.id === 'pulse' && (
                         <TrendingIcon
+                          size="xs"
+                          fill={active ? colors.ctaText : colors.muted}
+                        />
+                      )}
+                      {option.id === 'control' && (
+                        <ToolIcon
                           size="xs"
                           fill={active ? colors.ctaText : colors.muted}
                         />
@@ -1073,13 +1419,38 @@ export function QuantyScreen() {
                     )}
                   </View>
 
-                  <FormattedQuantyText
-                    content={msg.content}
-                    textColor={colors.text}
-                    mutedColor={colors.muted}
-                    accentColor={colors.accent}
-                    borderColor={colors.border}
+                  {/* Live Tool Execution Trace & Engine Origin Badge */}
+                  <QuantyToolTrace
+                    traces={msg.toolTraces}
+                    origin={msg.origin}
+                    model={msg.model}
+                    provider={msg.provider}
+                    latencyMs={msg.latencyMs}
                   />
+
+                  {/* Structured Markdown Body */}
+                  <QuantyMarkdown
+                    content={msg.content}
+                    citations={msg.citations}
+                    onPressCitation={handleOpenCitation}
+                    onPressHandle={handlePressHandle}
+                    onPressTag={handlePressTag}
+                  />
+
+                  {/* Interactive 2-Phase Cryptographic Action Confirmation Cards */}
+                  {msg.proposedActions && msg.proposedActions.length > 0 && (
+                    <View style={[a.gap_sm]}>
+                      {msg.proposedActions.map(actionCard => (
+                        <QuantyActionCard
+                          key={actionCard.actionId}
+                          actionCard={actionCard}
+                          onExecuted={() => {
+                            void refreshManifest()
+                          }}
+                        />
+                      ))}
+                    </View>
+                  )}
 
                   {/* Suggested Zing Draft Preview Box */}
                   {msg.suggestedZingDraft && (
@@ -1145,6 +1516,7 @@ export function QuantyScreen() {
                           borderWidth: 1,
                           borderColor: colors.border,
                         },
+                        web({cursor: 'pointer'}),
                       ]}>
                       <CopyIcon size="xs" fill={colors.text} />
                       <Text
@@ -1169,6 +1541,7 @@ export function QuantyScreen() {
                         a.py_xs,
                         a.rounded_full,
                         {backgroundColor: colors.ctaBg},
+                        web({cursor: 'pointer'}),
                       ]}>
                       <SendIcon size="xs" fill={colors.ctaText} />
                       <Text
@@ -1324,10 +1697,13 @@ export function QuantyScreen() {
                 ]}>
                 <ActivityIndicator size="small" color={colors.muted} />
                 <Text style={[a.text_sm, {color: colors.muted}]}>
-                  Thinking...
+                  Running live tools and synthesizing...
                 </Text>
               </View>
             )}
+
+            {/* Slash Command Autocomplete above Follow-Up Input */}
+            {renderSlashAutocomplete()}
 
             {/* Bottom Follow-Up Input Bar */}
             <View
@@ -1345,9 +1721,10 @@ export function QuantyScreen() {
                 },
               ]}>
               <TextInput
+                testID="quantyFollowUpInput"
                 value={input}
                 onChangeText={setInput}
-                placeholder="Ask follow-up..."
+                placeholder="Ask follow-up or type /zing, /trends, /dm..."
                 placeholderTextColor={colors.muted}
                 multiline={false}
                 returnKeyType="send"
@@ -1363,6 +1740,7 @@ export function QuantyScreen() {
                 ]}
               />
               <Pressable
+                testID="quantyFollowUpSendBtn"
                 accessibilityRole="button"
                 accessibilityLabel="Send follow-up to Quanty"
                 disabled={isSending || !input.trim()}
@@ -1377,6 +1755,7 @@ export function QuantyScreen() {
                     backgroundColor: colors.ctaBg,
                     opacity: isSending || !input.trim() ? 0.4 : 1,
                   },
+                  web({cursor: 'pointer'}),
                 ]}>
                 <SendIcon size="xs" fill={colors.ctaText} />
               </Pressable>

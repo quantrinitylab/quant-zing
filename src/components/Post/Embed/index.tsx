@@ -34,6 +34,7 @@ import {AtCard} from '#/components/Post/Embed/AtCard'
 import {getAtCardProvider} from '#/components/Post/Embed/AtCard/providers'
 import {StandardSiteEmbed} from '#/components/Post/Embed/StandardSiteEmbed'
 import {isStandardSiteEmbed} from '#/components/Post/Embed/StandardSiteEmbed/utils'
+import {QuantZingPollCard} from '#/components/QuantZing/QuantZingPollCard'
 import {RichText} from '#/components/RichText'
 import {Embed as StarterPackCard} from '#/components/StarterPack/StarterPackCard'
 import {SubtleHover} from '#/components/SubtleHover'
@@ -56,6 +57,27 @@ import {VideoEmbed} from './VideoEmbed'
 export {PostEmbedViewContext} from './types'
 
 export function Embed({embed: rawEmbed, ...rest}: EmbedProps) {
+  const anyEmbed = (rawEmbed ||
+    (rest.post?.record as Record<string, any> | undefined)?.embed) as
+    | Record<string, any>
+    | undefined
+  if (
+    anyEmbed?.$type === 'com.quantzing.embed.poll#view' ||
+    anyEmbed?.$type === 'com.quantzing.embed.poll'
+  ) {
+    return (
+      <View style={[a.mt_sm, rest.style]}>
+        <QuantZingPollCard
+          poll={anyEmbed}
+          postUri={
+            (typeof anyEmbed.uri === 'string' && anyEmbed.uri) ||
+            rest.post?.uri
+          }
+        />
+      </View>
+    )
+  }
+
   const embed = parseEmbed(rawEmbed)
 
   switch (embed.type) {

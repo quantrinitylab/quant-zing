@@ -1,11 +1,9 @@
-import {useMemo} from 'react'
 import {ScrollView, StyleSheet, useWindowDimensions, View} from 'react-native'
 
 import {useWebMediaQueries} from '#/lib/hooks/useWebMediaQueries'
-import {getQuantZingColors} from '#/lib/quantos/client'
 import {Logo} from '#/view/icons/Logo'
 import {Logotype} from '#/view/icons/Logotype'
-import {atoms as a, BreakpointWidthContext, useTheme} from '#/alf'
+import {atoms as a, BreakpointWidthContext, useTheme, web} from '#/alf'
 import {CENTER_COLUMN_WIDTH} from '#/components/Layout'
 import {IS_NATIVE, IS_WEB} from '#/env'
 import {Text} from '../text/Text'
@@ -25,17 +23,16 @@ export const LoggedOutLayout = ({
   const {isMobile, isTabletOrMobile} = useWebMediaQueries()
   const {width} = useWindowDimensions()
   const t = useTheme()
-  const isDark = t.scheme === 'dark'
-  const colors = useMemo(() => getQuantZingColors(isDark), [isDark])
 
   const sideBg = {
-    backgroundColor: isDark ? '#000000' : '#F7F9F9',
+    backgroundColor:
+      t.name === 'light' ? t.palette.contrast_25 : t.palette.contrast_0,
   }
-  const contentBg = {
-    backgroundColor: colors.bg,
-    borderColor: colors.border,
-    borderLeftWidth: 1,
-  }
+  const contentBg = [
+    t.atoms.bg,
+    t.atoms.border_contrast_low,
+    {borderLeftWidth: 1},
+  ]
 
   if (IS_NATIVE || isMobile) {
     const content = (
@@ -43,9 +40,10 @@ export const LoggedOutLayout = ({
         value={IS_NATIVE ? Math.min(width, CENTER_COLUMN_WIDTH) : undefined}>
         <View
           style={[
-            scrollable && a.flex_1,
+            scrollable && a.flex_grow,
             a.pt_lg,
-            {backgroundColor: colors.bg},
+            t.atoms.bg,
+            web({minHeight: '100dvh'}),
             IS_NATIVE && [
               a.w_full,
               a.self_center,
@@ -61,7 +59,7 @@ export const LoggedOutLayout = ({
               a.pb_sm,
             ]}>
             <Logo width={34} />
-            <Logotype width={124} fill={colors.text} />
+            <Logotype width={124} fill={t.atoms.text.color} />
           </View>
           {children}
         </View>
@@ -71,7 +69,7 @@ export const LoggedOutLayout = ({
     if (scrollable) {
       return (
         <ScrollView
-          style={[a.flex_1, {backgroundColor: colors.bg}]}
+          style={[a.flex_1, t.atoms.bg]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="none"
           contentContainerStyle={[a.flex_grow]}>
@@ -84,16 +82,16 @@ export const LoggedOutLayout = ({
   }
 
   return (
-    <View style={[styles.container, {backgroundColor: colors.bg}]}>
+    <View style={[styles.container, web({minHeight: '100dvh'}), t.atoms.bg]}>
       <View style={[styles.side, sideBg]}>
         <View style={styles.brandRow}>
           <Logo width={44} />
-          <Logotype width={150} fill={colors.text} />
+          <Logotype width={150} fill={t.atoms.text.color} />
         </View>
         {leadin ? (
           <Text
             style={[
-              {color: colors.muted},
+              t.atoms.text_contrast_medium,
               styles.leadinText,
               isTabletOrMobile && styles.leadinTextSmall,
             ]}>
@@ -102,7 +100,7 @@ export const LoggedOutLayout = ({
         ) : null}
         <Text
           style={[
-            {color: colors.text},
+            t.atoms.text,
             styles.titleText,
             isTabletOrMobile && styles.titleTextSmall,
           ]}>
@@ -110,12 +108,12 @@ export const LoggedOutLayout = ({
         </Text>
         <Text
           type="2xl-medium"
-          style={[{color: colors.muted}, styles.descriptionText]}>
+          style={[t.atoms.text_contrast_medium, styles.descriptionText]}>
           {description}
         </Text>
       </View>
       {scrollable ? (
-        <View style={[styles.scrollableContent, contentBg]}>
+        <View style={[styles.scrollableContent, ...contentBg]}>
           <ScrollView
             style={a.flex_1}
             contentContainerStyle={styles.scrollViewContentContainer}
@@ -135,7 +133,7 @@ export const LoggedOutLayout = ({
           </ScrollView>
         </View>
       ) : (
-        <View style={[styles.content, contentBg]}>
+        <View style={[styles.content, ...contentBg]}>
           <View style={styles.contentWrapper}>{children}</View>
         </View>
       )}
@@ -146,7 +144,7 @@ export const LoggedOutLayout = ({
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    height: '100vh',
+    minHeight: '100vh' as any,
   },
   side: {
     flex: 1,
@@ -170,8 +168,9 @@ const styles = StyleSheet.create({
     flex: 2,
   },
   scrollViewContentContainer: {
-    flex: 1,
+    flexGrow: 1,
     paddingHorizontal: 40,
+    paddingVertical: 24,
   },
   leadinText: {
     fontSize: 36,

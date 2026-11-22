@@ -6,7 +6,8 @@ const {withExtensionInfoPlist} = require('./withExtensionInfoPlist')
 const {withExtensionViewController} = require('./withExtensionViewController')
 const {withIntentFilters} = require('./withIntentFilters')
 
-const SHARE_EXTENSION_NAME = 'Share-with-Bluesky'
+const SHARE_EXTENSION_SOURCE_DIR = 'Share-with-Bluesky'
+const SHARE_EXTENSION_NAME = 'Share-with-QuantZing'
 const SHARE_EXTENSION_CONTROLLER_NAME = 'ShareViewController'
 
 const withShareExtensions = config => {
@@ -23,12 +24,14 @@ const withShareExtensions = config => {
       withExtensionInfoPlist,
       {
         extensionName: SHARE_EXTENSION_NAME,
+        sourceDir: SHARE_EXTENSION_SOURCE_DIR,
       },
     ],
     [
       withExtensionViewController,
       {
         extensionName: SHARE_EXTENSION_NAME,
+        sourceDir: SHARE_EXTENSION_SOURCE_DIR,
         controllerName: SHARE_EXTENSION_CONTROLLER_NAME,
       },
     ],

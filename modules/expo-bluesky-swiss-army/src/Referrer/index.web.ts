@@ -25,7 +25,7 @@ function getReferrerInfoSync(): ReferrerInfo | null {
   ) {
     try {
       const url = new URL(document.referrer)
-      if (url.hostname !== 'bsky.app') {
+      if (url.hostname !== 'quantzing.quantrinity.in' && url.hostname !== 'quantzing.com' && url.hostname !== 'quantzing.in') {
         return {
           referrer: url.href,
           hostname: url.hostname,

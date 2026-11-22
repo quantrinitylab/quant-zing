@@ -2,7 +2,10 @@ import {isValidElement} from 'react'
 import {nanoid} from 'nanoid/non-secure'
 import {toast as sonner, Toaster} from 'sonner'
 
+import {useHasOpenDialog} from '#/state/dialogs'
+import {useIsDrawerOpen} from '#/state/shell'
 import {atoms as a} from '#/alf'
+import {useLightbox} from '#/components/Lightbox/state'
 import {DURATION} from '#/components/Toast/const'
 import {
   Icon as ToastIcon,
@@ -21,12 +24,21 @@ export {type ToastType} from '#/components/Toast/types'
  * component tree.
  */
 export function ToastOutlet() {
+  const hasOpenDialog = useHasOpenDialog()
+  const lightboxOpen = Boolean(useLightbox().activeLightbox)
+  const drawerOpen = useIsDrawerOpen()
+  const isBottomBarHidden = hasOpenDialog || lightboxOpen || drawerOpen
+
   return (
     <Toaster
       position="bottom-left"
       gap={a.gap_sm.gap}
       offset={a.p_xl.padding}
-      mobileOffset={a.p_xl.padding}
+      mobileOffset={{
+        bottom: isBottomBarHidden ? a.p_xl.padding : 76,
+        left: a.p_md.padding,
+        right: a.p_md.padding,
+      }}
     />
   )
 }

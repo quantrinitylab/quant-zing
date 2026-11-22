@@ -1,5 +1,5 @@
 import {useCallback} from 'react'
-import {View} from 'react-native'
+import {useWindowDimensions, View} from 'react-native'
 import Animated from 'react-native-reanimated'
 import {msg, plural} from '@lingui/core/macro'
 import {useLingui} from '@lingui/react'
@@ -69,8 +69,18 @@ export function BottomBarWeb() {
   const composerOpen = Boolean(useComposerState())
   const lightboxOpen = Boolean(useLightbox().activeLightbox)
   const drawerOpen = useIsDrawerOpen()
+  const currentRouteName = useNavigationState(state =>
+    state ? getCurrentRoute(state).name : 'Home',
+  )
+  const isMessagesConversation = currentRouteName === 'MessagesConversation'
   const hideBarForOverlay =
-    hasOpenDialog || composerOpen || lightboxOpen || drawerOpen
+    hasOpenDialog ||
+    composerOpen ||
+    lightboxOpen ||
+    drawerOpen ||
+    isMessagesConversation
+  const {width: windowWidth} = useWindowDimensions()
+  const isCompactLoggedOut = windowWidth < 380
   const t = useTheme()
   const footerMinimalShellTransform = useMinimalShellFooterTransform()
   const {requestSwitchToAccount} = useLoggedOutViewControls()
@@ -251,25 +261,24 @@ export function BottomBarWeb() {
               a.flex_row,
               a.align_center,
               a.justify_between,
-              a.gap_sm,
               {
-                paddingTop: 10,
-                paddingBottom: 10,
-                paddingLeft: 12,
-                paddingRight: 12,
+                gap: isCompactLoggedOut ? 6 : 8,
+                paddingVertical: 8,
+                paddingHorizontal: isCompactLoggedOut ? 8 : 12,
               },
             ]}>
             <View
               style={[
                 a.flex_row,
                 a.align_center,
-                a.gap_sm,
-                {flexShrink: 1, minWidth: 0},
+                {gap: isCompactLoggedOut ? 6 : 8, flexShrink: 1, minWidth: 0},
               ]}>
-              <Logo allowVariants={false} width={28} />
-              <View style={{paddingTop: 2}}>
-                <Logotype width={82} fill={t.atoms.text.color} />
-              </View>
+              <Logo allowVariants={false} width={26} />
+              {!isCompactLoggedOut && (
+                <View style={{paddingTop: 2}}>
+                  <Logotype width={74} fill={t.atoms.text.color} />
+                </View>
+              )}
               <Link
                 href="/quanty"
                 navigationAction="navigate"
@@ -288,22 +297,17 @@ export function BottomBarWeb() {
                   a.justify_center,
                   a.rounded_full,
                   {
-                    width: 34,
-                    height: 34,
-                    backgroundColor:
-                      t.scheme === 'dark' ? '#16181C' : t.palette.contrast_25,
+                    width: 32,
+                    height: 32,
+                    backgroundColor: t.palette.contrast_25,
                     borderWidth: 1,
-                    borderColor:
-                      t.scheme === 'dark' ? '#2F3336' : t.palette.contrast_100,
+                    borderColor: t.palette.contrast_100,
                   },
                 ]}>
                 <Sparkle
                   aria-hidden={true}
-                  width={17}
-                  style={{
-                    color:
-                      t.scheme === 'dark' ? '#E7E9EA' : t.atoms.text.color,
-                  }}
+                  width={16}
+                  style={t.atoms.text}
                 />
               </Link>
             </View>
@@ -312,16 +316,16 @@ export function BottomBarWeb() {
               style={[
                 a.flex_row,
                 a.align_center,
-                a.gap_xs,
-                {flexShrink: 0},
+                {gap: 6, flexShrink: 0},
               ]}>
               <Button
                 onPress={showCreateAccount}
                 label={_(msg`Create account`)}
                 size="small"
                 variant="solid"
-                color="primary">
-                <ButtonText>
+                color="primary"
+                style={isCompactLoggedOut ? {paddingHorizontal: 10} : undefined}>
+                <ButtonText numberOfLines={1}>
                   <Trans>Create account</Trans>
                 </ButtonText>
               </Button>
@@ -330,8 +334,9 @@ export function BottomBarWeb() {
                 label={_(msg`Sign in`)}
                 size="small"
                 variant="solid"
-                color="secondary">
-                <ButtonText>
+                color="secondary"
+                style={isCompactLoggedOut ? {paddingHorizontal: 10} : undefined}>
+                <ButtonText numberOfLines={1}>
                   <Trans>Sign in</Trans>
                 </ButtonText>
               </Button>

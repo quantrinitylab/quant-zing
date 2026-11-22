@@ -1,4 +1,6 @@
 // @ts-check
+const fs = require('fs')
+const path = require('path')
 const pkg = require('./package.json')
 const {getNativeQueries} = require('./src/components/ShareDialog/catalog.ts')
 
@@ -25,24 +27,33 @@ module.exports = function (_config) {
   const IS_DEV = !IS_TESTFLIGHT && !IS_PRODUCTION
 
   const ASSOCIATED_DOMAINS = [
+    'applinks:quantzing.quantrinity.in',
     'applinks:quantzing.com',
     'applinks:www.quantzing.com',
     'applinks:quantzing.in',
+    'appclips:quantzing.quantrinity.in',
     'appclips:quantzing.com',
+    'webcredentials:quantzing.quantrinity.in',
     'webcredentials:quantzing.com',
     'webcredentials:quantzing.in',
     ...(IS_DEV || IS_TESTFLIGHT ? [] : []),
   ]
 
   /*
-   * EXPO_PUBLIC_ENV is also an EAS environment secret, which wins over a build
-   * profile's env, so profiles opt out of OTA updates with their own flag. A
-   * dev client with updates on rejects unsigned manifests from a local Metro.
+   * Keep Expo OTA updates disabled unless explicitly enabled with a
+   * QuantZing-owned signing certificate so upstream OTA certificates and
+   * manifest endpoints are never embedded in QuantZing release builds.
    */
   const UPDATES_ENABLED =
-    (IS_TESTFLIGHT || IS_PRODUCTION) && !process.env.DISABLE_UPDATES
+    (IS_TESTFLIGHT || IS_PRODUCTION) &&
+    process.env.ENABLE_EXPO_UPDATES === '1' &&
+    process.env.DISABLE_UPDATES !== '1'
 
   const USE_SENTRY = Boolean(process.env.SENTRY_AUTH_TOKEN)
+  const USE_BITDRIFT = Boolean(process.env.EXPO_PUBLIC_BITDRIFT_API_KEY)
+  const HAS_GOOGLE_SERVICES = fs.existsSync(
+    path.join(__dirname, 'google-services.json'),
+  )
 
   /**
    * Apps the share sheet can detect, generated from the share platform
@@ -209,7 +220,9 @@ module.exports = function (_config) {
           monochromeImage: './assets/icon-android-monochrome.png',
           backgroundColor: '#000000',
         },
-        googleServicesFile: './google-services.json',
+        googleServicesFile: HAS_GOOGLE_SERVICES
+          ? './google-services.json'
+          : undefined,
         package: 'com.quantzing.app',
         blockedPermissions: ['android.permission.ACCESS_FINE_LOCATION'],
         intentFilters: [
@@ -217,6 +230,10 @@ module.exports = function (_config) {
             action: 'VIEW',
             autoVerify: true,
             data: [
+              {
+                scheme: 'https',
+                host: 'quantzing.quantrinity.in',
+              },
               {
                 scheme: 'https',
                 host: 'quantzing.com',
@@ -243,7 +260,10 @@ module.exports = function (_config) {
         favicon: './assets/favicon.png',
       },
       updates: {
-        url: 'https://updates.quantzing.com/manifest',
+        url: UPDATES_ENABLED
+          ? process.env.EXPO_UPDATES_URL ||
+            'https://updates.quantzing.com/manifest'
+          : undefined,
         enabled: UPDATES_ENABLED,
         fallbackToCacheTimeout: 30000,
         codeSigningCertificate: UPDATES_ENABLED
@@ -373,7 +393,7 @@ module.exports = function (_config) {
         [
           '@bitdrift/react-native',
           {
-            networkInstrumentation: true,
+            networkInstrumentation: USE_BITDRIFT,
           },
         ],
         ...(USE_SENTRY
@@ -396,7 +416,8 @@ module.exports = function (_config) {
           {
             ios: {
               deploymentTarget: '16.4',
-              buildReactNativeFromSource: true,
+              buildReactNativeFromSource:
+                process.env.BUILD_RN_FROM_SOURCE === '1',
               ccacheEnabled: IS_DEV,
               cxxLanguageStandard: 'c++23',
               extraPods: [
@@ -408,10 +429,11 @@ module.exports = function (_config) {
               ],
             },
             android: {
-              compileSdkVersion: 37,
-              targetSdkVersion: 36,
-              buildToolsVersion: '37.0.0',
-              buildReactNativeFromSource: true,
+              compileSdkVersion: Number(process.env.ANDROID_COMPILE_SDK || 36),
+              targetSdkVersion: Number(process.env.ANDROID_TARGET_SDK || 35),
+              buildToolsVersion: process.env.ANDROID_BUILD_TOOLS || '36.0.0',
+              buildReactNativeFromSource:
+                process.env.BUILD_RN_FROM_SOURCE === '1',
               enableMinifyInReleaseBuilds: true,
             },
           },
@@ -441,6 +463,7 @@ module.exports = function (_config) {
         './plugins/withAndroidNoJitpackPlugin.js',
         './plugins/withAndroidPreparedTextLayoutPlugin.js',
         './plugins/withAndroidComposeVersion.js',
+        './plugins/withAndroidQuantZingBuild.js',
         './plugins/withIOSWindowingControlStyle.js',
         './plugins/shareExtension/withShareExtensions.js',
         './plugins/notificationsExtension/withNotificationsExtension.js',

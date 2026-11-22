@@ -12,7 +12,7 @@ export const QUANTZING_SERVICE =
 export const QUANTZING_SERVICE_DID = 'did:web:quantzing.com'
 export const LOCAL_DEV_SERVICE =
   Platform.OS === 'android' ? 'http://10.0.2.2:3008' : 'http://localhost:3008'
-export const STAGING_SERVICE = QUANTZING_SERVICE
+export const STAGING_SERVICE = 'https://staging.quantzing.quantrinity.in'
 export const BSKY_SERVICE = QUANTZING_SERVICE
 export const BSKY_SERVICE_DID = QUANTZING_SERVICE_DID
 export const PUBLIC_BSKY_SERVICE = QUANTZING_SERVICE
@@ -26,18 +26,13 @@ export const STARTER_PACK_DEFAULT_SIZE = 150
 export const STARTER_PACK_MAX_SIZE = 500
 export const CARD_ASPECT_RATIO = 1200 / 630
 
-// HACK
-// Yes, this is exactly what it looks like. It's a hard-coded constant
-// reflecting the number of new users in the last week. We don't have
-// time to add a route to the servers for this so we're just going to hard
-// code and update this number with each release until we can get the
-// server route done.
-// -prf
-export const JOINED_THIS_WEEK = 560000 // estimate as of 12/18/24
+// Replaced legacy hardcoded signup estimate with zero; starter pack screens
+// should query live backend metrics rather than displaying a fabricated figure.
+export const JOINED_THIS_WEEK = 0
 
 export const DISCOVER_DEBUG_DIDS: Record<string, true> = {}
 
-const BASE_FEEDBACK_FORM_URL = `${HELP_DESK_URL}/requests/new`
+const BASE_FEEDBACK_FORM_URL = '/help'
 export function FEEDBACK_FORM_URL({
   email,
   handle,
@@ -45,14 +40,15 @@ export function FEEDBACK_FORM_URL({
   email?: string
   handle?: string
 }): string {
-  let str = BASE_FEEDBACK_FORM_URL
+  const params = new URLSearchParams()
   if (email) {
-    str += `?tf_anonymous_requester_email=${encodeURIComponent(email)}`
-    if (handle) {
-      str += `&tf_17205412673421=${encodeURIComponent(handle)}`
-    }
+    params.set('email', email)
   }
-  return str
+  if (handle) {
+    params.set('handle', handle)
+  }
+  const qs = params.toString()
+  return qs ? `${BASE_FEEDBACK_FORM_URL}?${qs}` : BASE_FEEDBACK_FORM_URL
 }
 
 export const MAX_DISPLAY_NAME = 64
@@ -219,14 +215,12 @@ export const EMOJI_REACTION_LIMIT = 5
 export const urls = {
   website: {
     blog: {
-      findFriendsAnnouncement:
-        'https://quantzing.com/blog/find-friends',
-      initialVerificationAnnouncement: `https://quantzing.com/blog/verification`,
-      searchTipsAndTricks: 'https://quantzing.com/blog/search',
+      findFriendsAnnouncement: '/help',
+      initialVerificationAnnouncement: '/help',
+      searchTipsAndTricks: '/help',
     },
     support: {
-      findFriendsPrivacyPolicy:
-        'https://quantzing.com/support/find-friends-privacy-policy',
+      findFriendsPrivacyPolicy: '/privacy',
     },
   },
 }

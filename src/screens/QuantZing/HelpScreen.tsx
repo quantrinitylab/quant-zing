@@ -1,9 +1,22 @@
-import {useMemo, useState} from 'react'
-import {Linking, Pressable, TextInput, View} from 'react-native'
+import {useCallback, useEffect, useMemo, useState} from 'react'
+import {
+  ActivityIndicator,
+  Linking,
+  Pressable,
+  TextInput,
+  View,
+} from 'react-native'
 import {setStringAsync} from 'expo-clipboard'
 
-import {getQuantZingColors} from '#/lib/quantos/client'
+import {
+  fetchSupportTickets,
+  getQuantZingColors,
+  submitSupportTicket,
+  type SupportTicket,
+} from '#/lib/quantos/client'
+import {useSession} from '#/state/session'
 import {atoms as a, useTheme, web} from '#/alf'
+import {Check_Stroke2_Corner0_Rounded as CheckIcon} from '#/components/icons/Check'
 import {
   ChevronBottom_Stroke2_Corner0_Rounded as ChevronDownIcon,
   ChevronTop_Stroke2_Corner0_Rounded as ChevronUpIcon,
@@ -14,6 +27,7 @@ import {Growth_Stroke2_Corner0_Rounded as GrowthIcon} from '#/components/icons/G
 import {Lock_Stroke2_Corner0_Rounded as LockIcon} from '#/components/icons/Lock'
 import {MagnifyingGlass_Stroke2_Corner0_Rounded as SearchIcon} from '#/components/icons/MagnifyingGlass'
 import {Newspaper_Stroke2_Corner2_Rounded as ArticleIcon} from '#/components/icons/Newspaper'
+import {PaperPlane_Stroke2_Corner0_Rounded as SendIcon} from '#/components/icons/PaperPlane'
 import {Repost_Stroke2_Corner2_Rounded as RezingIcon} from '#/components/icons/Repost'
 import {ShieldCheck_Stroke2_Corner0_Rounded as ShieldIcon} from '#/components/icons/Shield'
 import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
@@ -39,15 +53,23 @@ interface FaqItem {
   category: string
 }
 
+const SUPPORT_CATEGORIES = [
+  'General Support',
+  'Feature & Feedback',
+  'Bug Report',
+  'Account & Verification',
+  'Billing & Pro',
+]
+
 const QUICK_GUIDES: QuickGuide[] = [
   {
     id: 'zings-rezings',
-    title: 'How Zings & Rezings Work',
+    title: 'How Zings, Polls & Rezings Work',
     category: 'Core Feed',
     summary:
-      'Publish real-time Zings, amplify voices with Rezings, and organize conversations with threads and bookmarks.',
+      'Publish real-time Zings and interactive polls, amplify voices with Rezings, and organize conversations with threads and bookmarks.',
     steps: [
-      'Tap "New Zing" in the left sidebar to publish updates with photos, videos, GIFs, or quotes.',
+      'Use the inline Zing composer or tap "New Zing" in the left sidebar to publish updates with photos, videos, interactive polls, or quotes.',
       'Rezing to share a post directly to your followers, or Quote Zing to add your own commentary.',
       'Save high-signal Zings to your private Bookmarks tab anytime for quick reference.',
     ],
@@ -71,11 +93,11 @@ const QUICK_GUIDES: QuickGuide[] = [
     title: 'Creating Articles & ZingSpaces',
     category: 'Publishing',
     summary:
-      'Write rich long-form essays in Articles Studio and host live audio conversations in ZingSpaces.',
+      'Write rich long-form essays in Articles Studio and host live conversations in ZingSpaces.',
     steps: [
-      'Open Articles Studio to compose long-form essays with custom cover presets, markdown sections, and one-click Zing sharing.',
-      'Drafts save automatically in local storage so you can write offline without losing progress.',
-      'Launch or join live audio rooms in ZingSpaces to speak directly with your audience in real time.',
+      'Open Articles Studio to compose long-form essays with custom cover presets, blob cover uploads, markdown sections, and one-click Zing sharing.',
+      'Drafts and published essays persist directly to your Sovereign PDS account so you can access them across devices.',
+      'Launch or join live rooms in ZingSpaces with real-time participant sync, raised hands, and stage reactions.',
     ],
     route: '/articles',
     routeLabel: 'Open Articles Studio',
@@ -85,25 +107,25 @@ const QUICK_GUIDES: QuickGuide[] = [
     title: 'Creator Studio & QuantZing Pro',
     category: 'Monetization',
     summary:
-      'Track audience analytics, unlock Verified status, and earn 70/30 ad revenue share.',
+      'Track real impression analytics, unlock Verified status, and enroll in 70/30 creator revenue share.',
     steps: [
-      'Visit Creator Studio to inspect impressions, engagement velocity, top Zings, and 70/30 payout readiness.',
-      'Upgrade to Zing Basic, Zing Pro, or Zing Pro+ for extended Zings, 4K video, and priority Quanty access.',
-      'Eligible Pro creators earn 70% of net ad revenue directly to their connected payout account.',
+      'Visit Creator Studio to inspect real view impressions, engagement velocity, top Zings, and 70/30 payout eligibility.',
+      'Upgrade to QuantZing Pro for your Verified Checkmark badge, priority Quanty access, and creator tools.',
+      'Eligible Pro creators can enroll in 70/30 creator monetization directly inside Creator Studio.',
     ],
     route: '/studio',
     routeLabel: 'Open Creator Studio',
   },
   {
     id: 'account-security',
-    title: 'Account Security & Recovery',
+    title: 'Account Security & Sovereignty',
     category: 'Security',
     summary:
-      'Protect your @handle.quantzing.com identity with strong credentials, 2FA, and App Passwords.',
+      'Protect your @handle.quantzing.com identity on Sovereign ATProto.',
     steps: [
-      'Use a unique password of at least 8 characters and enable email or authenticator 2FA in Privacy & Security settings.',
-      'Create scoped App Passwords when connecting third-party tools instead of sharing your main password.',
-      'Use "Forgot password?" on the Sign In screen anytime to send a verification reset code to your account email.',
+      'Use a strong unique password and review your active sessions in Settings.',
+      'Your @handle.quantzing.com identity is backed by a portable Decentralized Identifier (DID) on Sovereign PDS.',
+      'Submit a support ticket below or contact support@quantzing.com anytime for account assistance.',
     ],
   },
 ]
@@ -114,7 +136,7 @@ const FAQ_ITEMS: FaqItem[] = [
     category: 'Account',
     question: 'What is my @handle.quantzing.com identity and do I own it?',
     answer:
-      'Every QuantZing member receives a @handle.quantzing.com handle linked to a portable Decentralized Identifier (DID). You can also attach your own custom domain via DNS and export your full repository and follower graph at any time with zero lock-in.',
+      'Every QuantZing member receives a @handle.quantzing.com handle linked to a portable Decentralized Identifier (DID) persisted on Sovereign PDS.',
   },
   {
     id: 'faq-quanty',
@@ -128,14 +150,14 @@ const FAQ_ITEMS: FaqItem[] = [
     category: 'Monetization',
     question: 'How do 70/30 creator payouts work?',
     answer:
-      'Creators subscribed to Zing Pro or Zing Pro+ who meet organic audience and engagement thresholds can enable monetization in Creator Studio. Creators receive 70% of verified net ad revenue generated on their eligible content.',
+      'Creators subscribed to QuantZing Pro who meet audience and 30-day impression thresholds can enroll in monetization inside Creator Studio to earn 70% of verified net ad revenue.',
   },
   {
     id: 'faq-privacy',
     category: 'Privacy',
     question: 'Are my Direct Messages, Bookmarks, and Article drafts private?',
     answer:
-      'Yes. While public Zings, Replies, Rezings, and published Articles are public records on the network, your Direct Messages (Chat), saved Bookmarks, unpublished Article drafts, and muted words remain strictly private and are never published to the public feed.',
+      'Yes. While public Zings, Replies, Rezings, and published Articles are public records on the network, your Direct Messages (Chat), saved Bookmarks, unpublished Article drafts, and muted words remain strictly private.',
   },
   {
     id: 'faq-moderation',
@@ -143,20 +165,6 @@ const FAQ_ITEMS: FaqItem[] = [
     question: 'How do I report spam, harassment, or mute unwanted topics?',
     answer:
       'Tap the three-dot menu on any Zing or profile to mute words, block accounts, or submit a moderation report. You can also manage muted keywords, thread reply limits, and moderation lists anytime inside Settings.',
-  },
-  {
-    id: 'faq-export',
-    category: 'Account',
-    question: 'Can I export my data or delete my QuantZing account?',
-    answer:
-      'Yes. You retain complete data ownership. You can download your signed repository archive or initiate permanent account deletion directly from Settings, or contact privacy@quantzing.com for assistance.',
-  },
-  {
-    id: 'faq-password',
-    category: 'Security',
-    question: 'I forgot my password — how do I recover my account?',
-    answer:
-      'Open the Sign In screen and tap "Forgot password?". Enter the email address registered to your QuantZing account to receive a one-time recovery code and set a new password immediately.',
   },
 ]
 
@@ -175,14 +183,121 @@ function GuideIcon({id, color}: {id: string; color: string}) {
   }
 }
 
+function formatTicketDate(iso?: string): string {
+  if (!iso) return ''
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return iso
+  }
+}
+
 export function HelpScreen() {
   const t = useTheme()
-  const colors = useMemo(
-    () => getQuantZingColors(t.scheme === 'dark'),
-    [t.scheme],
-  )
+  const colors = useMemo(() => getQuantZingColors(t.name), [t.name])
+  const {hasSession, currentAccount} = useSession()
+  const accessJwt = currentAccount?.accessJwt
+
   const [searchQuery, setSearchQuery] = useState('')
   const [openFaqId, setOpenFaqId] = useState<string | null>(FAQ_ITEMS[0].id)
+
+  // Support ticket submission & history state
+  const [ticketCategory, setTicketCategory] = useState<string>(
+    SUPPORT_CATEGORIES[0],
+  )
+  const [ticketSubject, setTicketSubject] = useState('')
+  const [ticketEmail, setTicketEmail] = useState(
+    currentAccount?.email || '',
+  )
+  const [ticketMessage, setTicketMessage] = useState('')
+  const [isSubmittingTicket, setIsSubmittingTicket] = useState(false)
+  const [lastSubmittedTicket, setLastSubmittedTicket] =
+    useState<SupportTicket | null>(null)
+  const [tickets, setTickets] = useState<SupportTicket[]>([])
+  const [loadingTickets, setLoadingTickets] = useState(false)
+
+  useEffect(() => {
+    if (currentAccount?.email && !ticketEmail) {
+      setTicketEmail(currentAccount.email)
+    }
+  }, [currentAccount?.email, ticketEmail])
+
+  const loadTicketHistory = useCallback(async () => {
+    if (!hasSession || !accessJwt) {
+      setTickets([])
+      return
+    }
+    setLoadingTickets(true)
+    try {
+      const list = await fetchSupportTickets(accessJwt)
+      setTickets(list)
+    } catch {
+      // Ignore if offline
+    } finally {
+      setLoadingTickets(false)
+    }
+  }, [accessJwt, hasSession])
+
+  useEffect(() => {
+    void loadTicketHistory()
+  }, [loadTicketHistory])
+
+  const handleSubmitTicket = useCallback(async () => {
+    const cleanSubject = ticketSubject.trim()
+    const cleanMessage = ticketMessage.trim()
+    if (!cleanSubject) {
+      Toast.show('Enter a short subject for your support ticket', {
+        type: 'warning',
+      })
+      return
+    }
+    if (!cleanMessage) {
+      Toast.show('Describe your question, feedback, or issue', {
+        type: 'warning',
+      })
+      return
+    }
+    if (isSubmittingTicket) return
+
+    setIsSubmittingTicket(true)
+    try {
+      const created = await submitSupportTicket(
+        {
+          category: ticketCategory,
+          subject: cleanSubject,
+          message: cleanMessage,
+          email: ticketEmail.trim() || currentAccount?.email || undefined,
+        },
+        accessJwt,
+      )
+      setLastSubmittedTicket(created)
+      setTickets(prev => [created, ...prev.filter(tItem => tItem.id !== created.id)])
+      setTicketSubject('')
+      setTicketMessage('')
+      Toast.show(`Support ticket #${created.id} submitted`, {
+        type: 'success',
+      })
+    } catch (err: any) {
+      Toast.show(err?.message || 'Unable to submit support ticket', {
+        type: 'warning',
+      })
+    } finally {
+      setIsSubmittingTicket(false)
+    }
+  }, [
+    accessJwt,
+    currentAccount?.email,
+    isSubmittingTicket,
+    ticketCategory,
+    ticketEmail,
+    ticketMessage,
+    ticketSubject,
+  ])
 
   const normalizedQuery = searchQuery.trim().toLowerCase()
 
@@ -220,11 +335,11 @@ export function HelpScreen() {
           <View style={[a.flex_row, a.align_center, a.gap_xs]}>
             <QuestionIcon size="md" fill={colors.accent} />
             <Layout.Header.TitleText style={{color: colors.text}}>
-              Help Center
+              Help Center & Support
             </Layout.Header.TitleText>
           </View>
           <Layout.Header.SubtitleText>
-            Guides, FAQs & Direct QuantZing Support
+            Guides, FAQs & Direct Support Tickets
           </Layout.Header.SubtitleText>
         </Layout.Header.Content>
         <Layout.Header.Slot />
@@ -250,8 +365,8 @@ export function HelpScreen() {
               How can we help you on QuantZing?
             </Text>
             <Text style={[a.text_sm, {color: colors.muted}]}>
-              Search quick-start guides, Quanty tips, creator payouts, or
-              account recovery answers.
+              Search quick-start guides, Quanty tips, creator payouts, or submit
+              a persisted support ticket below.
             </Text>
           </View>
 
@@ -273,7 +388,7 @@ export function HelpScreen() {
             <TextInput
               value={searchQuery}
               onChangeText={setSearchQuery}
-              placeholder="Search guides & FAQs (e.g. Quanty, payouts, handle, 2FA)..."
+              placeholder="Search guides & FAQs (e.g. Quanty, payouts, handle, polls)..."
               placeholderTextColor={colors.muted}
               style={[
                 a.flex_1,
@@ -296,15 +411,332 @@ export function HelpScreen() {
           </View>
         </View>
 
+        {/* Persisted Support & Feedback Ticket Submission Form */}
+        <View
+          testID="supportTicketFormCard"
+          style={[
+            a.p_lg,
+            a.rounded_lg,
+            a.gap_md,
+            {
+              backgroundColor: colors.card,
+              borderWidth: 1,
+              borderColor: colors.border,
+            },
+          ]}>
+          <View style={[a.flex_row, a.align_center, a.justify_between]}>
+            <View style={[a.flex_1, a.gap_2xs]}>
+              <Text style={[a.text_lg, a.font_bold, {color: colors.text}]}>
+                Submit a Support or Feedback Ticket
+              </Text>
+              <Text style={[a.text_xs, {color: colors.muted}]}>
+                Persisted directly to Sovereign PDS for QuantZing Support review
+              </Text>
+            </View>
+            <View
+              style={[
+                a.px_sm,
+                a.py_2xs,
+                a.rounded_full,
+                {backgroundColor: colors.accentSubtle},
+              ]}>
+              <Text
+                style={[{fontSize: 11, fontWeight: '700', color: colors.accent}]}>
+                Direct Ticket
+              </Text>
+            </View>
+          </View>
+
+          {/* Category Pills */}
+          <View style={[a.gap_xs]}>
+            <Text style={[a.text_xs, a.font_bold, {color: colors.muted}]}>
+              CATEGORY
+            </Text>
+            <View style={[a.flex_row, a.flex_wrap, a.gap_xs]}>
+              {SUPPORT_CATEGORIES.map(cat => {
+                const selected = ticketCategory === cat
+                return (
+                  <Pressable
+                    key={cat}
+                    accessibilityRole="button"
+                    onPress={() => setTicketCategory(cat)}
+                    style={[
+                      a.px_sm,
+                      a.py_2xs,
+                      a.rounded_full,
+                      {
+                        backgroundColor: selected
+                          ? colors.accentSubtle
+                          : colors.surface,
+                        borderWidth: 1,
+                        borderColor: selected ? colors.accent : colors.border,
+                      },
+                    ]}>
+                    <Text
+                      style={[
+                        a.text_xs,
+                        a.font_semi_bold,
+                        {color: selected ? colors.accent : colors.text},
+                      ]}>
+                      {cat}
+                    </Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+          </View>
+
+          <TextInput
+            testID="supportTicketSubjectInput"
+            value={ticketSubject}
+            onChangeText={setTicketSubject}
+            placeholder="Subject (e.g. Verification request, bug report, feature idea)"
+            placeholderTextColor={colors.muted}
+            style={[
+              a.text_sm,
+              a.px_md,
+              a.py_sm,
+              a.rounded_md,
+              {
+                backgroundColor: colors.surface,
+                color: colors.text,
+                borderWidth: 1,
+                borderColor: colors.border,
+              },
+              web({outlineStyle: 'none'} as any),
+            ]}
+          />
+
+          {!hasSession && (
+            <TextInput
+              testID="supportTicketEmailInput"
+              value={ticketEmail}
+              onChangeText={setTicketEmail}
+              placeholder="Contact email (optional)"
+              placeholderTextColor={colors.muted}
+              style={[
+                a.text_sm,
+                a.px_md,
+                a.py_sm,
+                a.rounded_md,
+                {
+                  backgroundColor: colors.surface,
+                  color: colors.text,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                },
+                web({outlineStyle: 'none'} as any),
+              ]}
+            />
+          )}
+
+          <TextInput
+            testID="supportTicketMessageInput"
+            value={ticketMessage}
+            onChangeText={setTicketMessage}
+            placeholder="Describe what happened or what you would like us to build..."
+            placeholderTextColor={colors.muted}
+            multiline
+            style={[
+              a.text_sm,
+              a.px_md,
+              a.py_sm,
+              a.rounded_md,
+              {
+                minHeight: 88,
+                textAlignVertical: 'top',
+                backgroundColor: colors.surface,
+                color: colors.text,
+                borderWidth: 1,
+                borderColor: colors.border,
+              },
+              web({outlineStyle: 'none'} as any),
+            ]}
+          />
+
+          {lastSubmittedTicket && (
+            <View
+              testID="supportTicketSubmittedBanner"
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.gap_sm,
+                a.p_sm,
+                a.rounded_md,
+                {
+                  backgroundColor: colors.rezingSubtle,
+                  borderWidth: 1,
+                  borderColor: colors.rezing,
+                },
+              ]}>
+              <CheckIcon size="xs" fill={colors.rezing} />
+              <Text style={[a.text_xs, a.font_semi_bold, {color: colors.text}]}>
+                Ticket #{lastSubmittedTicket.id} ({lastSubmittedTicket.category})
+                received — status: {lastSubmittedTicket.status.toUpperCase()}
+              </Text>
+            </View>
+          )}
+
+          <View style={[a.flex_row, a.align_center, a.justify_between]}>
+            <Text style={[a.text_xs, {color: colors.muted}]}>
+              {hasSession && currentAccount?.handle
+                ? `Submitting as @${currentAccount.handle}`
+                : 'Submitting to QuantZing Support queue'}
+            </Text>
+
+            <Pressable
+              testID="submitSupportTicketBtn"
+              accessibilityRole="button"
+              accessibilityLabel="Submit Support Ticket"
+              disabled={isSubmittingTicket}
+              onPress={() => void handleSubmitTicket()}
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.gap_xs,
+                a.px_lg,
+                a.py_sm,
+                a.rounded_full,
+                {
+                  backgroundColor: colors.ctaBg,
+                  opacity: isSubmittingTicket ? 0.6 : 1,
+                },
+              ]}>
+              {isSubmittingTicket ? (
+                <ActivityIndicator size="small" color={colors.ctaText} />
+              ) : (
+                <SendIcon size="xs" fill={colors.ctaText} />
+              )}
+              <Text style={[a.text_xs, a.font_bold, {color: colors.ctaText}]}>
+                Submit Ticket
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {/* User's Submitted Support Ticket History */}
+        {(hasSession || tickets.length > 0) && (
+          <View
+            testID="supportTicketHistoryCard"
+            style={[
+              a.p_lg,
+              a.rounded_lg,
+              a.gap_sm,
+              {
+                backgroundColor: colors.card,
+                borderWidth: 1,
+                borderColor: colors.border,
+              },
+            ]}>
+            <View style={[a.flex_row, a.align_center, a.justify_between]}>
+              <Text style={[a.text_md, a.font_bold, {color: colors.text}]}>
+                Your Support Tickets ({tickets.length})
+              </Text>
+              {hasSession && (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => void loadTicketHistory()}>
+                  <Text
+                    style={[
+                      a.text_xs,
+                      a.font_semi_bold,
+                      {color: colors.accent},
+                    ]}>
+                    Refresh
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+
+            {loadingTickets ? (
+              <View style={[a.py_md, a.align_center]}>
+                <ActivityIndicator size="small" color={colors.accent} />
+              </View>
+            ) : tickets.length === 0 ? (
+              <Text style={[a.text_xs, {color: colors.muted}]}>
+                No support tickets submitted yet.
+              </Text>
+            ) : (
+              <View style={[a.gap_xs]}>
+                {tickets.map(ticket => (
+                  <View
+                    key={ticket.id}
+                    style={[
+                      a.p_sm,
+                      a.rounded_md,
+                      a.gap_2xs,
+                      {
+                        backgroundColor: colors.surface,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                      },
+                    ]}>
+                    <View
+                      style={[
+                        a.flex_row,
+                        a.align_center,
+                        a.justify_between,
+                        a.gap_xs,
+                      ]}>
+                      <Text
+                        style={[
+                          a.text_xs,
+                          a.font_bold,
+                          {color: colors.accent},
+                        ]}>
+                        #{ticket.id} · {ticket.category}
+                      </Text>
+                      <View
+                        style={[
+                          a.px_xs,
+                          {
+                            paddingVertical: 2,
+                            borderRadius: 999,
+                            backgroundColor:
+                              ticket.status === 'resolved'
+                                ? colors.rezingSubtle
+                                : colors.accentSubtle,
+                          },
+                        ]}>
+                        <Text
+                          style={[
+                            {
+                              fontSize: 10,
+                              fontWeight: '700',
+                              color:
+                                ticket.status === 'resolved'
+                                  ? colors.rezing
+                                  : colors.accent,
+                            },
+                          ]}>
+                          {(ticket.status || 'open').toUpperCase()}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text
+                      style={[
+                        a.text_sm,
+                        a.font_semi_bold,
+                        {color: colors.text},
+                      ]}>
+                      {ticket.subject}
+                    </Text>
+                    {ticket.createdAt && (
+                      <Text style={[{fontSize: 11, color: colors.muted}]}>
+                        Submitted {formatTicketDate(ticket.createdAt)}
+                      </Text>
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Quick-Start Guides */}
         <View style={[a.gap_sm]}>
           <Text
-            style={[
-              a.text_md,
-              a.font_bold,
-              a.px_xs,
-              {color: colors.text},
-            ]}>
+            style={[a.text_md, a.font_bold, a.px_xs, {color: colors.text}]}>
             Quick-Start Guides
           </Text>
 
@@ -320,8 +752,8 @@ export function HelpScreen() {
                 },
               ]}>
               <Text style={[a.text_sm, {color: colors.muted}]}>
-                No quick-start guides match "{searchQuery}". Try another
-                keyword or contact support@quantzing.com below.
+                No quick-start guides match "{searchQuery}". Try another keyword
+                or submit a support ticket above.
               </Text>
             </View>
           ) : (
@@ -440,12 +872,7 @@ export function HelpScreen() {
         {/* Interactive FAQ Accordion */}
         <View style={[a.gap_sm]}>
           <Text
-            style={[
-              a.text_md,
-              a.font_bold,
-              a.px_xs,
-              {color: colors.text},
-            ]}>
+            style={[a.text_md, a.font_bold, a.px_xs, {color: colors.text}]}>
             Frequently Asked Questions
           </Text>
 
@@ -570,18 +997,17 @@ export function HelpScreen() {
             </View>
             <View style={[a.flex_1]}>
               <Text style={[a.text_md, a.font_bold, {color: colors.text}]}>
-                Direct QuantZing Support
+                Direct QuantZing Support Email
               </Text>
               <Text style={[a.text_xs, {color: colors.muted}]}>
-                Need human help? Reach our team at support@quantzing.com
+                Prefer email? Reach our team at support@quantzing.com
               </Text>
             </View>
           </View>
 
           <Text style={[a.text_sm, a.leading_relaxed, {color: colors.muted}]}>
-            Include your @handle.quantzing.com username and a short description
-            of the issue so we can resolve it quickly. Typical response time:
-            under 24 hours.
+            Include your @handle.quantzing.com username and ticket ID so our
+            team can resolve your request quickly.
           </Text>
 
           <View style={[a.flex_row, a.flex_wrap, a.gap_sm]}>
@@ -638,7 +1064,8 @@ export function HelpScreen() {
               label="Terms of Service"
               style={[a.flex_row, a.align_center, a.gap_xs]}>
               <ArticleIcon size="xs" fill={colors.accent} />
-              <Text style={[a.text_xs, a.font_semi_bold, {color: colors.accent}]}>
+              <Text
+                style={[a.text_xs, a.font_semi_bold, {color: colors.accent}]}>
                 Terms of Service
               </Text>
             </Link>
@@ -647,7 +1074,8 @@ export function HelpScreen() {
               label="Privacy Policy"
               style={[a.flex_row, a.align_center, a.gap_xs]}>
               <ShieldIcon size="xs" fill={colors.accent} />
-              <Text style={[a.text_xs, a.font_semi_bold, {color: colors.accent}]}>
+              <Text
+                style={[a.text_xs, a.font_semi_bold, {color: colors.accent}]}>
                 Privacy Policy
               </Text>
             </Link>

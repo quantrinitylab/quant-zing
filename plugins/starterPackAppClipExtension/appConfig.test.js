@@ -27,7 +27,7 @@ it.each([
       process.env.EXPO_PUBLIC_ENV = environment
     }
 
-    const config = createAppConfig({name: 'Bluesky', slug: 'bluesky'}).expo
+    const config = createAppConfig({name: 'QuantZing', slug: 'quantzing'}).expo
 
     expect(config.ios.supportsTablet).toBe(true)
     expect(

@@ -1,6 +1,15 @@
 import {useCallback, useMemo, useState} from 'react'
-import {Keyboard, Pressable, StyleSheet, TextInput, View} from 'react-native'
+import {
+  ActivityIndicator,
+  Keyboard,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native'
+import {RichText} from '@bsky/sdk/richtext'
 import {useNavigation} from '@react-navigation/native'
+import {useQueryClient} from '@tanstack/react-query'
 
 import {useOpenComposer} from '#/lib/hooks/useOpenComposer'
 import {
@@ -9,9 +18,19 @@ import {
   useVideoLibraryPermission,
 } from '#/lib/hooks/usePermissions'
 import {openCamera, openUnifiedPicker} from '#/lib/media/picker'
+import {
+  createQuantZingPostRecord,
+  getQuantZingColors,
+} from '#/lib/quantos/client'
 import {type NavigationProp} from '#/lib/routes/types'
+import {emitPostCreated} from '#/state/events'
 import {useCurrentAccountProfile} from '#/state/queries/useCurrentAccountProfile'
-import {useRequireAuth, useSession} from '#/state/session'
+import {
+  useAppviewClient,
+  useMaybePdsClient,
+  useRequireAuth,
+  useSession,
+} from '#/state/session'
 import {MAX_GALLERY_IMAGES} from '#/view/com/composer/state/composer'
 import {UserAvatar} from '#/view/com/util/UserAvatar'
 import {atoms as a, useTheme, web} from '#/alf'
@@ -23,35 +42,31 @@ import {Image_Stroke2_Corner2_Rounded as ImageIcon} from '#/components/icons/Ima
 import {PlusLarge_Stroke2_Corner0_Rounded as PlusIcon} from '#/components/icons/Plus'
 import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
 import {TimesLarge_Stroke2_Corner0_Rounded as CloseIcon} from '#/components/icons/TimesLarge'
+import * as Toast from '#/components/Toast'
 import {Text} from '#/components/Typography'
 import {useAnalytics} from '#/analytics'
 import {IS_NATIVE, IS_WEB} from '#/env'
+import {com} from '#/lexicons'
 
 const MAX_WAVE_LENGTH = 300
 const MIN_POLL_OPTIONS = 2
 const MAX_POLL_OPTIONS = 4
-
-function formatWaveWithPoll(
-  rawText: string,
-  pollOpen: boolean,
-  pollOptions: string[],
-) {
-  const trimmed = rawText.trim()
-  if (!pollOpen) return trimmed
-  const filledOptions = pollOptions.map(o => o.trim()).filter(Boolean)
-  if (filledOptions.length === 0) return trimmed
-  const pollBlock = [
-    'Poll:',
-    ...filledOptions.map((opt, idx) => `${idx + 1}. ${opt}`),
-  ].join('\n')
-  return trimmed ? `${trimmed}\n\n${pollBlock}` : pollBlock
-}
+const POLL_DURATIONS = [
+  {hours: 1, label: '1h'},
+  {hours: 6, label: '6h'},
+  {hours: 24, label: '24h'},
+  {hours: 72, label: '3d'},
+]
 
 export function ComposerPrompt() {
   const t = useTheme()
+  const colors = useMemo(() => getQuantZingColors(t.name), [t.name])
   const ax = useAnalytics()
   const navigation = useNavigation<NavigationProp>()
-  const {hasSession} = useSession()
+  const queryClient = useQueryClient()
+  const appviewClient = useAppviewClient()
+  const pdsClient = useMaybePdsClient()
+  const {hasSession, currentAccount} = useSession()
   const requireAuth = useRequireAuth()
   const {openComposer} = useOpenComposer()
   const profile = useCurrentAccountProfile()
@@ -63,14 +78,18 @@ export function ComposerPrompt() {
   const [draftText, setDraftText] = useState('')
   const [pollOpen, setPollOpen] = useState(false)
   const [pollOptions, setPollOptions] = useState<string[]>(['', ''])
+  const [pollDurationHours, setPollDurationHours] = useState<number>(24)
+  const [isPublishing, setIsPublishing] = useState(false)
 
-  const composedText = useMemo(
-    () => formatWaveWithPoll(draftText, pollOpen, pollOptions),
-    [draftText, pollOpen, pollOptions],
+  const trimmedDraft = useMemo(() => draftText.trim(), [draftText])
+  const filledPollOptions = useMemo(
+    () => pollOptions.map(o => o.trim()).filter(Boolean),
+    [pollOptions],
   )
-  const charCount = composedText.length
+  const charCount = draftText.length
   const isOverLimit = charCount > MAX_WAVE_LENGTH
-  const hasContent = charCount > 0
+  const hasContent =
+    trimmedDraft.length > 0 || (pollOpen && filledPollOptions.length >= 2)
 
   const onTogglePoll = useCallback(() => {
     setPollOpen(prev => {
@@ -100,26 +119,162 @@ export function ComposerPrompt() {
     )
   }, [])
 
-  const onPressWave = useCallback(() => {
-    if (isOverLimit) return
-    ax.metric('composerPrompt:press', {})
-    requireAuth(() => {
+  const publishInlineZing = useCallback(async () => {
+    if (isPublishing || isOverLimit) return
+
+    if (pollOpen && filledPollOptions.length < MIN_POLL_OPTIONS) {
+      Toast.show('Add at least 2 poll choices before publishing', {
+        type: 'warning',
+      })
+      return
+    }
+
+    const postText =
+      trimmedDraft || (pollOpen ? 'Vote in this Zing Poll:' : '')
+    if (!postText) {
       openComposer({
-        text: composedText || undefined,
         logContext: 'Fab',
       })
+      return
+    }
+
+    const did = currentAccount?.did || pdsClient?.did
+    if (!did) {
+      openComposer({
+        text: trimmedDraft || undefined,
+        logContext: 'Fab',
+      })
+      return
+    }
+
+    setIsPublishing(true)
+    try {
+      const rt = new RichText({text: postText}, {cleanNewlines: true})
+      try {
+        await rt.detectFacets(appviewClient)
+      } catch {
+        // Proceed even if offline facet detection fails
+      }
+
+      const expiresAt = new Date(
+        Date.now() + pollDurationHours * 3600 * 1000,
+      ).toISOString()
+
+      const pollInput =
+        pollOpen && filledPollOptions.length >= MIN_POLL_OPTIONS
+          ? {
+              question: trimmedDraft || 'Community Poll',
+              options: filledPollOptions.map((text, idx) => ({
+                id: `opt_${idx + 1}`,
+                text,
+              })),
+              durationHours: pollDurationHours,
+              expiresAt,
+            }
+          : undefined
+
+      if (currentAccount?.accessJwt) {
+        await createQuantZingPostRecord(
+          {
+            repo: did,
+            text: rt.text,
+            facets: rt.facets,
+            poll: pollInput,
+          },
+          currentAccount.accessJwt,
+        )
+      } else if (pdsClient) {
+        const record: Record<string, unknown> = {
+          $type: 'app.bsky.feed.post',
+          text: rt.text,
+          createdAt: new Date().toISOString(),
+        }
+        if (rt.facets && rt.facets.length > 0) {
+          record.facets = rt.facets
+        }
+        if (pollInput) {
+          record.embed = {
+            $type: 'com.quantzing.embed.poll',
+            question: pollInput.question,
+            options: pollInput.options,
+            durationHours: pollInput.durationHours,
+            expiresAt: pollInput.expiresAt,
+          }
+        }
+        await pdsClient.call(com.atproto.repo.createRecord, {
+          repo: did as any,
+          collection: 'app.bsky.feed.post',
+          record: record as any,
+          validate: false,
+        })
+      } else {
+        throw new Error('Authentication session not ready')
+      }
+
       setDraftText('')
       setPollOpen(false)
       setPollOptions(['', ''])
+      setPollDurationHours(24)
+
+      emitPostCreated()
+      await queryClient.invalidateQueries({queryKey: ['post-feed']})
+
+      Toast.show(pollInput ? 'Zing Poll published' : 'Zing published', {
+        type: 'success',
+      })
+    } catch (err: any) {
+      Toast.show(err?.message || 'Unable to publish Zing right now', {
+        type: 'warning',
+      })
+    } finally {
+      setIsPublishing(false)
+    }
+  }, [
+    appviewClient,
+    currentAccount?.accessJwt,
+    currentAccount?.did,
+    filledPollOptions,
+    isOverLimit,
+    isPublishing,
+    openComposer,
+    pdsClient,
+    pollDurationHours,
+    pollOpen,
+    queryClient,
+    trimmedDraft,
+  ])
+
+  const onPressWave = useCallback(() => {
+    if (isOverLimit || isPublishing) return
+    ax.metric('composerPrompt:press', {})
+    requireAuth(() => {
+      if (trimmedDraft.length > 0 || pollOpen) {
+        void publishInlineZing()
+      } else {
+        // Open full modal composer without destroying any existing state
+        openComposer({
+          text: trimmedDraft || undefined,
+          logContext: 'Fab',
+        })
+      }
     })
-  }, [ax, composedText, isOverLimit, openComposer, requireAuth])
+  }, [
+    ax,
+    isOverLimit,
+    isPublishing,
+    openComposer,
+    pollOpen,
+    publishInlineZing,
+    requireAuth,
+    trimmedDraft,
+  ])
 
   const onPressAskQuanty = useCallback(() => {
-    const prompt = draftText.trim()
-      ? `Refine and fact-check this Zing draft: ${draftText.trim()}`
+    const prompt = trimmedDraft
+      ? `Refine and fact-check this Zing draft: ${trimmedDraft}`
       : 'Help me draft a high-signal Zing about trending topics today'
     navigation.navigate('Quanty', {prompt})
-  }, [draftText, navigation])
+  }, [navigation, trimmedDraft])
 
   const onPressTagQuanty = useCallback(() => {
     setDraftText(prev => {
@@ -135,7 +290,7 @@ export function ComposerPrompt() {
     if (!IS_NATIVE) {
       requireAuth(() => {
         openComposer({
-          text: composedText || undefined,
+          text: trimmedDraft || undefined,
           openGallery: true,
           logContext: 'Fab',
         })
@@ -172,7 +327,7 @@ export function ComposerPrompt() {
         )
         if (videoAsset) {
           openComposer({
-            text: composedText || undefined,
+            text: trimmedDraft || undefined,
             videoUri: {
               uri: videoAsset.uri,
               width: videoAsset.width,
@@ -194,7 +349,7 @@ export function ComposerPrompt() {
 
         if (imageUris.length > 0) {
           openComposer({
-            text: composedText || undefined,
+            text: trimmedDraft || undefined,
             imageUris,
             logContext: 'Fab',
           })
@@ -207,12 +362,12 @@ export function ComposerPrompt() {
     }
   }, [
     ax,
-    composedText,
     openComposer,
     requestPhotoAccessIfNeeded,
     requestVideoAccessIfNeeded,
     requireAuth,
     sheetWrapper,
+    trimmedDraft,
   ])
 
   const onPressCamera = useCallback(async () => {
@@ -247,7 +402,7 @@ export function ComposerPrompt() {
         nativeImageUris = imageUris
       }
       openComposer({
-        text: composedText || undefined,
+        text: trimmedDraft || undefined,
         imageUris: nativeImageUris,
         logContext: 'Fab',
       })
@@ -256,28 +411,25 @@ export function ComposerPrompt() {
         ax.logger.error('Error opening camera', {error: err})
       }
     }
-  }, [ax, composedText, openComposer, requestCameraAccessIfNeeded])
+  }, [ax, openComposer, requestCameraAccessIfNeeded, trimmedDraft])
 
   if (!IS_WEB && !profile) {
     return null
   }
 
-  const isLight = t.name === 'light'
-  const pillBg = isLight ? '#0F1419' : '#EFF3F4'
-  const pillText = isLight ? '#FFFFFF' : '#0F1419'
   const counterColor = isOverLimit
-    ? '#F91880'
+    ? colors.like
     : charCount >= 260
-      ? '#1D9BF0'
-      : '#71767B'
+      ? colors.accent
+      : colors.muted
 
   return (
     <View
       style={[
-        t.atoms.bg,
         {
+          backgroundColor: colors.bg,
           borderBottomWidth: 1,
-          borderColor: t.atoms.border_contrast_low.borderColor,
+          borderColor: colors.border,
           paddingHorizontal: 16,
           paddingTop: 14,
           paddingBottom: 12,
@@ -296,12 +448,12 @@ export function ComposerPrompt() {
             value={draftText}
             onChangeText={setDraftText}
             placeholder="What's zinging?"
-            placeholderTextColor="#71767B"
+            placeholderTextColor={colors.muted}
             multiline
             accessibilityLabel="What's zinging?"
             style={[
               {
-                color: t.atoms.text.color,
+                color: colors.text,
                 fontSize: 19,
                 lineHeight: 24,
                 minHeight: 46,
@@ -318,6 +470,7 @@ export function ComposerPrompt() {
 
           {pollOpen && (
             <View
+              testID="composerPollBuilder"
               style={[
                 a.gap_sm,
                 {
@@ -325,8 +478,8 @@ export function ComposerPrompt() {
                   padding: 12,
                   borderRadius: 14,
                   borderWidth: 1,
-                  borderColor: t.atoms.border_contrast_low.borderColor,
-                  backgroundColor: isLight ? '#F7F9F9' : '#16181C',
+                  borderColor: colors.border,
+                  backgroundColor: colors.card,
                 },
               ]}>
               <View style={[a.flex_row, a.align_center, a.justify_between]}>
@@ -334,7 +487,7 @@ export function ComposerPrompt() {
                   style={[
                     a.text_xs,
                     a.font_bold,
-                    {color: '#1D9BF0', letterSpacing: 0.4},
+                    {color: colors.accent, letterSpacing: 0.4},
                   ]}>
                   ZING POLL
                 </Text>
@@ -342,7 +495,7 @@ export function ComposerPrompt() {
                   onPress={onTogglePoll}
                   accessibilityRole="button"
                   accessibilityLabel="Remove poll">
-                  <Text style={[a.text_xs, {color: '#F91880'}]}>
+                  <Text style={[a.text_xs, {color: colors.like}]}>
                     Remove poll
                   </Text>
                 </Pressable>
@@ -355,20 +508,20 @@ export function ComposerPrompt() {
                     value={option}
                     onChangeText={val => onUpdatePollOption(index, val)}
                     placeholder={`Choice ${index + 1}${index >= 2 ? ' (optional)' : ''}`}
-                    placeholderTextColor="#71767B"
-                    maxLength={40}
+                    placeholderTextColor={colors.muted}
+                    maxLength={60}
                     accessibilityLabel={`Poll choice ${index + 1}`}
                     style={[
                       a.flex_1,
                       {
-                        color: t.atoms.text.color,
+                        color: colors.text,
                         fontSize: 14,
                         paddingHorizontal: 12,
                         paddingVertical: 8,
                         borderRadius: 10,
                         borderWidth: 1,
-                        borderColor: t.atoms.border_contrast_low.borderColor,
-                        backgroundColor: isLight ? '#FFFFFF' : '#000000',
+                        borderColor: colors.border,
+                        backgroundColor: colors.bg,
                       },
                       web({outline: 'none'}),
                     ]}
@@ -384,28 +537,80 @@ export function ComposerPrompt() {
                         a.rounded_full,
                         {width: 30, height: 30},
                       ]}>
-                      <CloseIcon width={14} style={{color: '#71767B'}} />
+                      <CloseIcon width={14} style={{color: colors.muted}} />
                     </Pressable>
                   )}
                 </View>
               ))}
-              {pollOptions.length < MAX_POLL_OPTIONS && (
-                <Pressable
-                  onPress={onAddPollOption}
-                  accessibilityRole="button"
-                  accessibilityLabel="Add poll choice"
-                  style={[
-                    a.flex_row,
-                    a.align_center,
-                    a.gap_xs,
-                    {paddingTop: 2, alignSelf: 'flex-start'},
-                  ]}>
-                  <PlusIcon width={14} style={{color: '#1D9BF0'}} />
-                  <Text style={[a.text_xs, a.font_semi_bold, {color: '#1D9BF0'}]}>
-                    Add choice
+
+              <View
+                style={[
+                  a.flex_row,
+                  a.align_center,
+                  a.justify_between,
+                  a.flex_wrap,
+                  a.gap_xs,
+                  {paddingTop: 2},
+                ]}>
+                {pollOptions.length < MAX_POLL_OPTIONS ? (
+                  <Pressable
+                    onPress={onAddPollOption}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add poll choice"
+                    style={[a.flex_row, a.align_center, a.gap_xs]}>
+                    <PlusIcon width={14} style={{color: colors.accent}} />
+                    <Text
+                      style={[
+                        a.text_xs,
+                        a.font_semi_bold,
+                        {color: colors.accent},
+                      ]}>
+                      Add choice
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <View />
+                )}
+
+                <View style={[a.flex_row, a.align_center, a.gap_2xs]}>
+                  <Text style={[a.text_xs, {color: colors.muted}]}>
+                    Duration:
                   </Text>
-                </Pressable>
-              )}
+                  {POLL_DURATIONS.map(d => {
+                    const active = pollDurationHours === d.hours
+                    return (
+                      <Pressable
+                        key={d.hours}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Poll duration ${d.label}`}
+                        onPress={() => setPollDurationHours(d.hours)}
+                        style={[
+                          a.px_xs,
+                          {
+                            paddingVertical: 2,
+                            borderRadius: 999,
+                            backgroundColor: active
+                              ? colors.accentSubtle
+                              : colors.surface,
+                            borderWidth: 1,
+                            borderColor: active ? colors.accent : colors.border,
+                          },
+                        ]}>
+                        <Text
+                          style={[
+                            {
+                              fontSize: 11,
+                              fontWeight: active ? '700' : '500',
+                              color: active ? colors.accent : colors.muted,
+                            },
+                          ]}>
+                          {d.label}
+                        </Text>
+                      </Pressable>
+                    )
+                  })}
+                </View>
+              </View>
             </View>
           )}
 
@@ -417,7 +622,7 @@ export function ComposerPrompt() {
               a.flex_wrap,
               {
                 borderTopWidth: StyleSheet.hairlineWidth,
-                borderColor: t.atoms.border_contrast_low.borderColor,
+                borderColor: colors.border,
                 marginTop: 10,
                 paddingTop: 10,
                 rowGap: 8,
@@ -431,7 +636,7 @@ export function ComposerPrompt() {
                 variant="ghost"
                 shape="round"
                 style={{width: 30, height: 30, padding: 0}}>
-                <ImageIcon width={19} style={{color: '#1D9BF0'}} />
+                <ImageIcon width={19} style={{color: colors.accent}} />
               </Button>
               {IS_NATIVE && (
                 <Button
@@ -440,7 +645,7 @@ export function ComposerPrompt() {
                   variant="ghost"
                   shape="round"
                   style={{width: 30, height: 30, padding: 0}}>
-                  <CameraIcon width={19} style={{color: '#1D9BF0'}} />
+                  <CameraIcon width={19} style={{color: colors.accent}} />
                 </Button>
               )}
               <Button
@@ -450,9 +655,9 @@ export function ComposerPrompt() {
                 shape="round"
                 style={[
                   {width: 30, height: 30, padding: 0},
-                  pollOpen && {backgroundColor: 'rgba(29, 155, 240, 0.16)'},
+                  pollOpen && {backgroundColor: colors.accentSubtle},
                 ]}>
-                <PollIcon width={19} style={{color: '#1D9BF0'}} />
+                <PollIcon width={19} style={{color: colors.accent}} />
               </Button>
               <Button
                 onPress={onPressAskQuanty}
@@ -460,7 +665,7 @@ export function ComposerPrompt() {
                 variant="ghost"
                 shape="round"
                 style={{width: 30, height: 30, padding: 0}}>
-                <SparkleIcon width={19} style={{color: '#1D9BF0'}} />
+                <SparkleIcon width={19} style={{color: colors.accent}} />
               </Button>
               <Pressable
                 testID="composerTagQuantyBtn"
@@ -474,9 +679,9 @@ export function ComposerPrompt() {
                   {
                     paddingHorizontal: 8,
                     height: 26,
-                    backgroundColor: 'rgba(29, 155, 240, 0.12)',
+                    backgroundColor: colors.accentSubtle,
                     borderWidth: 1,
-                    borderColor: 'rgba(29, 155, 240, 0.35)',
+                    borderColor: colors.accent,
                     opacity: pressed ? 0.78 : 1,
                   },
                 ]}>
@@ -484,7 +689,7 @@ export function ComposerPrompt() {
                   style={[
                     a.text_xs,
                     a.font_bold,
-                    {color: '#1D9BF0', lineHeight: 14},
+                    {color: colors.accent, lineHeight: 14},
                   ]}>
                   @quanty
                 </Text>
@@ -501,40 +706,48 @@ export function ComposerPrompt() {
                 {charCount}/{MAX_WAVE_LENGTH}
               </Text>
               <Pressable
-                disabled={isOverLimit}
+                testID="composerPromptPostBtn"
+                disabled={isOverLimit || isPublishing}
                 onPress={onPressWave}
                 accessibilityRole="button"
                 accessibilityLabel={
                   hasSession ? 'Post Zing' : 'Sign in to Zing'
                 }
                 style={({pressed}) => [
+                  a.flex_row,
                   a.align_center,
                   a.justify_center,
+                  a.gap_xs,
                   a.rounded_full,
                   {
-                    backgroundColor: pillBg,
+                    backgroundColor: colors.ctaBg,
                     height: 34,
                     paddingHorizontal: 14,
-                    opacity: isOverLimit
-                      ? 0.4
-                      : !hasContent && hasSession
-                        ? 0.72
-                        : pressed
-                          ? 0.86
-                          : 1,
+                    opacity:
+                      isOverLimit || isPublishing
+                        ? 0.45
+                        : !hasContent && hasSession
+                          ? 0.75
+                          : pressed
+                            ? 0.86
+                            : 1,
                   },
                 ]}>
-                <Text
-                  style={[
-                    a.font_bold,
-                    {
-                      color: pillText,
-                      fontSize: 15,
-                      lineHeight: 18,
-                    },
-                  ]}>
-                  Zing
-                </Text>
+                {isPublishing ? (
+                  <ActivityIndicator size="small" color={colors.ctaText} />
+                ) : (
+                  <Text
+                    style={[
+                      a.font_bold,
+                      {
+                        color: colors.ctaText,
+                        fontSize: 15,
+                        lineHeight: 18,
+                      },
+                    ]}>
+                    Zing
+                  </Text>
+                )}
               </Pressable>
             </View>
           </View>

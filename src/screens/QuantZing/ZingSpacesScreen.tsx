@@ -5,39 +5,35 @@ import {useNavigation} from '@react-navigation/native'
 
 import {useOpenComposer} from '#/lib/hooks/useOpenComposer'
 import {
+  createZingSpace,
+  deleteZingSpace,
+  fetchZingSpace,
+  fetchZingSpaces,
   getQuantZingColors,
+  getSpaceEventsUrl,
+  joinZingSpace,
+  leaveZingSpace,
   type QuantySourceCitation,
+  type QuantZingSpace,
+  type QuantZingSpaceReactionKind,
   searchLiveZings,
+  sendSpaceReaction,
+  setSpaceHand,
   stripEmojisAndSymbols,
+  updateZingSpace,
 } from '#/lib/quantos/client'
 import {type NavigationProp} from '#/lib/routes/types'
-import {useSession} from '#/state/session'
+import {useRequireAuth, useSession} from '#/state/session'
 import {atoms as a, useTheme, web} from '#/alf'
 import {Clock_Stroke2_Corner0_Rounded as ClockIcon} from '#/components/icons/Clock'
-import {Mute_Stroke2_Corner0_Rounded as MuteIcon} from '#/components/icons/Mute'
 import {PaperPlane_Stroke2_Corner0_Rounded as ShareIcon} from '#/components/icons/PaperPlane'
 import {RaisingHand4Finger_Stroke2_Corner2_Rounded as HandIcon} from '#/components/icons/RaisingHand'
-import {SpeakerVolumeFull_Stroke2_Corner0_Rounded as SpeakerIcon} from '#/components/icons/Speaker'
 import {StreamingLive_Stroke2_Corner0_Rounded as LiveIcon} from '#/components/icons/StreamingLive'
 import {Trash_Stroke2_Corner0_Rounded as TrashIcon} from '#/components/icons/Trash'
 import * as Layout from '#/components/Layout'
 import * as Toast from '#/components/Toast'
 import {Text} from '#/components/Typography'
 import {IS_WEB} from '#/env'
-
-const STORAGE_KEY = 'quantzing_spaces_v1'
-
-interface SavedZingSpace {
-  id: string
-  roomSlug: string
-  title: string
-  topics: string[]
-  hostHandle: string
-  allowRecording: boolean
-  coHostEnabled: boolean
-  status: 'live' | 'scheduled' | 'ended'
-  createdAt: string
-}
 
 const SUGGESTED_TOPICS = [
   'AI & Agents',
@@ -48,102 +44,213 @@ const SUGGESTED_TOPICS = [
   'Breaking News',
 ]
 
-const REACTIONS = [
-  {id: 'clap', symbol: 'CLAP', label: 'Clap'},
-  {id: '100', symbol: '100', label: '100'},
-  {id: 'zing', symbol: 'ZING', label: 'Zing'},
-  {id: 'heart', symbol: 'LOVE', label: 'Love'},
-  {id: 'rocket', symbol: 'BOOST', label: 'Boost'},
+const SCHEDULE_PRESETS: Array<{label: string; offsetMinutes: number}> = [
+  {label: '+30m', offsetMinutes: 30},
+  {label: '+1h', offsetMinutes: 60},
+  {label: '+3h', offsetMinutes: 180},
+  {label: '+24h', offsetMinutes: 1440},
 ]
 
-function loadSpaces(): SavedZingSpace[] {
-  if (!IS_WEB || typeof window === 'undefined') return []
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as SavedZingSpace[]) : []
-  } catch {
-    return []
-  }
-}
+const REACTIONS: Array<{
+  kind: QuantZingSpaceReactionKind
+  symbol: string
+  label: string
+}> = [
+  {kind: 'applause', symbol: 'APPLAUSE', label: 'Applause'},
+  {kind: 'fire', symbol: 'FIRE', label: 'Fire'},
+  {kind: 'insight', symbol: 'INSIGHT', label: 'Insight'},
+  {kind: 'heart', symbol: 'HEART', label: 'Heart'},
+  {kind: 'wave', symbol: 'WAVE', label: 'Wave'},
+]
 
-function persistSpaces(spaces: SavedZingSpace[]) {
-  if (!IS_WEB || typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(spaces))
-  } catch {
-    // Ignore storage errors
-  }
+const REACTION_LABEL_MAP: Record<QuantZingSpaceReactionKind, string> = {
+  applause: 'APPLAUSE',
+  fire: 'FIRE',
+  insight: 'INSIGHT',
+  heart: 'HEART',
+  wave: 'WAVE',
 }
 
 function formatElapsed(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
+  const safe = Math.max(0, Math.floor(seconds))
+  const h = Math.floor(safe / 3600)
+  const m = Math.floor((safe % 3600) / 60)
+  const s = safe % 60
+  if (h > 0) {
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  }
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+function formatScheduledTime(iso?: string): string {
+  if (!iso) return ''
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return iso
+  }
 }
 
 export function ZingSpacesScreen() {
   const t = useTheme()
-  const colors = useMemo(
-    () => getQuantZingColors(t.scheme === 'dark'),
-    [t.scheme],
-  )
+  const colors = useMemo(() => getQuantZingColors(t.name), [t.name])
   const navigation = useNavigation<NavigationProp>()
-  const {currentAccount} = useSession()
+  const {hasSession, currentAccount} = useSession()
+  const requireAuth = useRequireAuth()
   const {openComposer} = useOpenComposer()
 
-  const hostHandle = currentAccount?.handle || 'host.quantzing.com'
+  const accessJwt = currentAccount?.accessJwt
+  const viewerDid = currentAccount?.did
 
   // Creator form state
   const [title, setTitle] = useState('')
   const [selectedTopics, setSelectedTopics] = useState<string[]>([
     'AI & Agents',
   ])
-  const [allowRecording, setAllowRecording] = useState(true)
-  const [coHostEnabled, setCoHostEnabled] = useState(true)
+  const [scheduleOffsetMin, setScheduleOffsetMin] = useState<number>(60)
+  const [isCreating, setIsCreating] = useState(false)
 
-  // Spaces persistence + active live room
-  const [spaces, setSpaces] = useState<SavedZingSpace[]>(() => loadSpaces())
-  const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null)
-  const [micMuted, setMicMuted] = useState(false)
-  const [handRaised, setHandRaised] = useState(false)
+  // Persisted spaces from Sovereign PDS
+  const [statusFilter, setStatusFilter] = useState<
+    'all' | 'live' | 'scheduled' | 'ended'
+  >('all')
+  const [spaces, setSpaces] = useState<QuantZingSpace[]>([])
+  const [loadingSpaces, setLoadingSpaces] = useState(true)
+  const [activeSpaceSlug, setActiveSpaceSlug] = useState<string | null>(null)
+  const [actionBusy, setActionBusy] = useState(false)
   const [elapsedSec, setElapsedSec] = useState(0)
-  const [recentReactions, setRecentReactions] = useState<
-    Array<{id: string; symbol: string}>
-  >([])
 
-  // Live #spaces / #live discovery
+  // Live #spaces / #live feed post discovery
   const [discoveryPosts, setDiscoveryPosts] = useState<QuantySourceCitation[]>(
     [],
   )
   const [loadingDiscovery, setLoadingDiscovery] = useState(true)
 
-  useEffect(() => {
-    persistSpaces(spaces)
-  }, [spaces])
+  const upsertSpaceInState = useCallback((updated: QuantZingSpace) => {
+    if (!updated?.slug) return
+    setSpaces(prev => {
+      const idx = prev.findIndex(
+        s => s.slug === updated.slug || s.id === updated.id,
+      )
+      if (idx === -1) {
+        return [updated, ...prev]
+      }
+      const next = [...prev]
+      next[idx] = updated
+      return next
+    })
+  }, [])
 
-  const activeSpace = useMemo(
-    () => spaces.find(s => s.id === activeSpaceId) || null,
-    [activeSpaceId, spaces],
+  const loadSpacesList = useCallback(
+    async (filter: 'all' | 'live' | 'scheduled' | 'ended' = statusFilter) => {
+      setLoadingSpaces(true)
+      try {
+        const fetched = await fetchZingSpaces(filter, accessJwt)
+        setSpaces(fetched)
+        setActiveSpaceSlug(prev => {
+          if (prev && fetched.some(s => s.slug === prev)) {
+            return prev
+          }
+          const firstLive = fetched.find(s => s.status === 'live')
+          return firstLive ? firstLive.slug : null
+        })
+      } catch (err: any) {
+        Toast.show(err?.message || 'Unable to load ZingSpaces right now', {
+          type: 'warning',
+        })
+      } finally {
+        setLoadingSpaces(false)
+      }
+    },
+    [accessJwt, statusFilter],
   )
 
   useEffect(() => {
-    if (!activeSpace) {
+    void loadSpacesList(statusFilter)
+  }, [loadSpacesList, statusFilter])
+
+  const activeSpace = useMemo(
+    () => spaces.find(s => s.slug === activeSpaceSlug) || null,
+    [activeSpaceSlug, spaces],
+  )
+
+  // Real server startedAt elapsed timer
+  useEffect(() => {
+    if (!activeSpace || activeSpace.status !== 'live') {
       setElapsedSec(0)
       return
     }
-    const timer = setInterval(() => {
-      setElapsedSec(prev => prev + 1)
-    }, 1000)
+    const computeFromServerStart = () => {
+      const startedMs = new Date(activeSpace.startedAt).getTime()
+      if (!Number.isFinite(startedMs)) {
+        setElapsedSec(0)
+        return
+      }
+      setElapsedSec(Math.max(0, Math.floor((Date.now() - startedMs) / 1000)))
+    }
+    computeFromServerStart()
+    const timer = setInterval(computeFromServerStart, 1000)
     return () => clearInterval(timer)
   }, [activeSpace])
+
+  // Real-time SSE stream on web + polling fallback for active space
+  useEffect(() => {
+    if (!activeSpaceSlug) return
+
+    let eventSource: EventSource | null = null
+    if (IS_WEB && typeof EventSource !== 'undefined') {
+      try {
+        eventSource = new EventSource(getSpaceEventsUrl(activeSpaceSlug))
+        const handleEvent = (ev: MessageEvent) => {
+          try {
+            const parsed = JSON.parse(ev.data)
+            const room = parsed?.space || parsed
+            if (room && typeof room.slug === 'string') {
+              upsertSpaceInState(room as QuantZingSpace)
+            }
+          } catch {
+            // Ignore heartbeat or non-JSON frame
+          }
+        }
+        eventSource.addEventListener('space_update', handleEvent as any)
+        eventSource.onmessage = handleEvent
+      } catch {
+        eventSource = null
+      }
+    }
+
+    const pollInterval = setInterval(() => {
+      fetchZingSpace(activeSpaceSlug, accessJwt)
+        .then(fresh => {
+          if (fresh) {
+            upsertSpaceInState(fresh)
+          }
+        })
+        .catch(() => {})
+    }, 5000)
+
+    return () => {
+      if (eventSource) {
+        try {
+          eventSource.close()
+        } catch {}
+      }
+      clearInterval(pollInterval)
+    }
+  }, [accessJwt, activeSpaceSlug, upsertSpaceInState])
 
   const loadLiveDiscovery = useCallback(async () => {
     setLoadingDiscovery(true)
     try {
-      const primary = await searchLiveZings('#spaces', 5, 'latest')
-      const secondary = await searchLiveZings('#live', 5, 'latest')
+      const [primary, secondary] = await Promise.all([
+        searchLiveZings('#spaces', 5, 'latest'),
+        searchLiveZings('#live', 5, 'latest'),
+      ])
       const seen = new Set<string>()
       const merged: QuantySourceCitation[] = []
       for (const item of [...primary, ...secondary]) {
@@ -174,88 +281,291 @@ export function ZingSpacesScreen() {
     })
   }, [])
 
-  const createSpace = useCallback(
+  const handleCreateSpace = useCallback(
     (status: 'live' | 'scheduled') => {
       const cleanTitle = title.trim()
       if (!cleanTitle) {
         Toast.show('Give your ZingSpace a title first', {type: 'warning'})
         return
       }
-      const slug = `zs-${Date.now().toString(36)}`
-      const record: SavedZingSpace = {
-        id: slug,
-        roomSlug: slug,
-        title: cleanTitle,
-        topics: selectedTopics,
-        hostHandle,
-        allowRecording,
-        coHostEnabled,
-        status,
-        createdAt: new Date().toISOString(),
-      }
-      setSpaces(prev => [record, ...prev])
-      setTitle('')
-      if (status === 'live') {
-        setActiveSpaceId(record.id)
-        setMicMuted(false)
-        setHandRaised(false)
-        setElapsedSec(0)
-        Toast.show('ZingSpace is now live', {
-          type: 'success',
-        })
-      } else {
-        Toast.show('ZingSpace scheduled', {type: 'success'})
-      }
+      requireAuth(async () => {
+        if (!accessJwt || isCreating) return
+        setIsCreating(true)
+        try {
+          const scheduledFor =
+            status === 'scheduled'
+              ? new Date(
+                  Date.now() + scheduleOffsetMin * 60 * 1000,
+                ).toISOString()
+              : undefined
+          const created = await createZingSpace(
+            {
+              title: cleanTitle,
+              topic: selectedTopics.join(' · '),
+              status,
+              scheduledFor,
+            },
+            accessJwt,
+          )
+          upsertSpaceInState(created)
+          setTitle('')
+          if (created.status === 'live') {
+            setActiveSpaceSlug(created.slug)
+            Toast.show('ZingSpace is now live on Sovereign PDS', {
+              type: 'success',
+            })
+          } else {
+            Toast.show('ZingSpace scheduled on Sovereign PDS', {
+              type: 'success',
+            })
+          }
+        } catch (err: any) {
+          Toast.show(err?.message || 'Failed to create ZingSpace', {
+            type: 'warning',
+          })
+        } finally {
+          setIsCreating(false)
+        }
+      })
     },
-    [allowRecording, coHostEnabled, hostHandle, selectedTopics, title],
+    [
+      accessJwt,
+      isCreating,
+      requireAuth,
+      scheduleOffsetMin,
+      selectedTopics,
+      title,
+      upsertSpaceInState,
+    ],
   )
 
   const handleEndSpace = useCallback(() => {
     if (!activeSpace) return
-    setSpaces(prev =>
-      prev.map(s => (s.id === activeSpace.id ? {...s, status: 'ended'} : s)),
-    )
-    setActiveSpaceId(null)
-    Toast.show('ZingSpace ended', {type: 'info'})
-  }, [activeSpace])
+    requireAuth(async () => {
+      if (!accessJwt || actionBusy) return
+      setActionBusy(true)
+      try {
+        const updated = await updateZingSpace(
+          activeSpace.slug,
+          {status: 'ended'},
+          accessJwt,
+        )
+        upsertSpaceInState(updated)
+        setActiveSpaceSlug(null)
+        Toast.show('ZingSpace ended', {type: 'info'})
+      } catch (err: any) {
+        Toast.show(err?.message || 'Unable to end ZingSpace', {
+          type: 'warning',
+        })
+      } finally {
+        setActionBusy(false)
+      }
+    })
+  }, [accessJwt, actionBusy, activeSpace, requireAuth, upsertSpaceInState])
 
-  const handleJoinOrGoLive = useCallback((space: SavedZingSpace) => {
-    setSpaces(prev =>
-      prev.map(s => (s.id === space.id ? {...s, status: 'live'} : s)),
-    )
-    setActiveSpaceId(space.id)
-    setMicMuted(false)
-    setElapsedSec(0)
-  }, [])
+  const handleJoinOrOpenSpace = useCallback(
+    (space: QuantZingSpace) => {
+      const isHost = Boolean(viewerDid && space.hostDid === viewerDid)
+      if (space.status === 'scheduled' && isHost) {
+        requireAuth(async () => {
+          if (!accessJwt) return
+          try {
+            const liveSpace = await updateZingSpace(
+              space.slug,
+              {status: 'live'},
+              accessJwt,
+            )
+            upsertSpaceInState(liveSpace)
+            setActiveSpaceSlug(liveSpace.slug)
+            Toast.show('ZingSpace is now live', {type: 'success'})
+          } catch (err: any) {
+            Toast.show(err?.message || 'Unable to start ZingSpace', {
+              type: 'warning',
+            })
+          }
+        })
+        return
+      }
+
+      setActiveSpaceSlug(space.slug)
+      if (hasSession && accessJwt && space.status === 'live') {
+        const alreadyParticipant = space.participants.some(
+          p => p.did === viewerDid,
+        )
+        if (!alreadyParticipant) {
+          joinZingSpace(space.slug, accessJwt)
+            .then(updated => {
+              upsertSpaceInState(updated)
+            })
+            .catch(() => {})
+        }
+      }
+    },
+    [accessJwt, hasSession, requireAuth, upsertSpaceInState, viewerDid],
+  )
+
+  const handleJoinLeaveActiveSpace = useCallback(() => {
+    if (!activeSpace) return
+    requireAuth(async () => {
+      if (!accessJwt || actionBusy) return
+      const isInRoom = activeSpace.participants.some(p => p.did === viewerDid)
+      setActionBusy(true)
+      try {
+        if (isInRoom && activeSpace.hostDid !== viewerDid) {
+          const updated = await leaveZingSpace(activeSpace.slug, accessJwt)
+          upsertSpaceInState(updated)
+          setActiveSpaceSlug(null)
+          Toast.show('Left ZingSpace', {type: 'info'})
+        } else {
+          const updated = await joinZingSpace(activeSpace.slug, accessJwt)
+          upsertSpaceInState(updated)
+          Toast.show('Joined ZingSpace stage', {type: 'success'})
+        }
+      } catch (err: any) {
+        Toast.show(err?.message || 'Unable to update room membership', {
+          type: 'warning',
+        })
+      } finally {
+        setActionBusy(false)
+      }
+    })
+  }, [
+    accessJwt,
+    actionBusy,
+    activeSpace,
+    requireAuth,
+    upsertSpaceInState,
+    viewerDid,
+  ])
+
+  const handleToggleHand = useCallback(() => {
+    if (!activeSpace) return
+    requireAuth(async () => {
+      if (!accessJwt || actionBusy) return
+      const me = activeSpace.participants.find(p => p.did === viewerDid)
+      const nextRaised = !(me?.handRaised ?? false)
+      setActionBusy(true)
+      try {
+        if (!me) {
+          await joinZingSpace(activeSpace.slug, accessJwt)
+        }
+        const updated = await setSpaceHand(
+          activeSpace.slug,
+          nextRaised,
+          accessJwt,
+        )
+        upsertSpaceInState(updated)
+        Toast.show(
+          nextRaised ? 'Hand raised for host' : 'Hand lowered',
+          {type: 'info'},
+        )
+      } catch (err: any) {
+        Toast.show(err?.message || 'Unable to update hand status', {
+          type: 'warning',
+        })
+      } finally {
+        setActionBusy(false)
+      }
+    })
+  }, [
+    accessJwt,
+    actionBusy,
+    activeSpace,
+    requireAuth,
+    upsertSpaceInState,
+    viewerDid,
+  ])
+
+  const handlePromoteOrDemote = useCallback(
+    (targetDid: string, currentRole: 'host' | 'speaker' | 'listener') => {
+      if (!activeSpace || currentRole === 'host') return
+      requireAuth(async () => {
+        if (!accessJwt) return
+        try {
+          const updated = await updateZingSpace(
+            activeSpace.slug,
+            currentRole === 'listener'
+              ? {promoteDid: targetDid}
+              : {demoteDid: targetDid},
+            accessJwt,
+          )
+          upsertSpaceInState(updated)
+          Toast.show(
+            currentRole === 'listener'
+              ? 'Promoted participant to Speaker'
+              : 'Moved participant to Listener',
+            {type: 'success'},
+          )
+        } catch (err: any) {
+          Toast.show(err?.message || 'Unable to change participant role', {
+            type: 'warning',
+          })
+        }
+      })
+    },
+    [accessJwt, activeSpace, requireAuth, upsertSpaceInState],
+  )
 
   const handleDeleteSpace = useCallback(
-    (id: string) => {
-      if (activeSpaceId === id) setActiveSpaceId(null)
-      setSpaces(prev => prev.filter(s => s.id !== id))
+    (slug: string) => {
+      requireAuth(async () => {
+        if (!accessJwt) return
+        try {
+          await deleteZingSpace(slug, accessJwt)
+          if (activeSpaceSlug === slug) {
+            setActiveSpaceSlug(null)
+          }
+          setSpaces(prev => prev.filter(s => s.slug !== slug))
+          Toast.show('ZingSpace deleted', {type: 'info'})
+        } catch (err: any) {
+          Toast.show(err?.message || 'Unable to delete ZingSpace', {
+            type: 'warning',
+          })
+        }
+      })
     },
-    [activeSpaceId],
+    [accessJwt, activeSpaceSlug, requireAuth],
   )
 
   const handleShareSpace = useCallback(
-    (space: SavedZingSpace) => {
-      const tags = space.topics
-        .map(tag => `#${tag.replace(/[^a-zA-Z0-9]/g, '')}`)
+    (space: QuantZingSpace) => {
+      const topicTags = (space.topic || '')
+        .split(/[·,]+/)
+        .map(tItem => tItem.trim().replace(/[^a-zA-Z0-9]/g, ''))
+        .filter(Boolean)
+        .map(tag => `#${tag}`)
         .join(' ')
       openComposer({
-        text: `Live audio room on QuantZing: "${space.title}" hosted by @${space.hostHandle}. Join the ZingSpace! #spaces #live ${tags}`.slice(
-          0,
-          295,
-        ),
+        text: `Live ZingSpace on QuantZing: "${space.title}" hosted by @${space.hostHandle}. Join the room! #spaces #live ${topicTags}`
+          .trim()
+          .slice(0, 295),
         logContext: 'Other',
       })
     },
     [openComposer],
   )
 
-  const handleTriggerReaction = useCallback((symbol: string) => {
-    const id = `r_${Date.now()}_${Math.random()}`
-    setRecentReactions(prev => [...prev.slice(-7), {id, symbol}])
-  }, [])
+  const handleTriggerReaction = useCallback(
+    (kind: QuantZingSpaceReactionKind) => {
+      if (!activeSpace) return
+      requireAuth(async () => {
+        if (!accessJwt) return
+        try {
+          const updated = await sendSpaceReaction(
+            activeSpace.slug,
+            kind,
+            accessJwt,
+          )
+          upsertSpaceInState(updated)
+        } catch (err: any) {
+          Toast.show(err?.message || 'Unable to send reaction', {
+            type: 'warning',
+          })
+        }
+      })
+    },
+    [accessJwt, activeSpace, requireAuth, upsertSpaceInState],
+  )
 
   const handleOpenPost = useCallback(
     (post: QuantySourceCitation) => {
@@ -272,7 +582,15 @@ export function ZingSpacesScreen() {
     [navigation],
   )
 
-  const hostInitials = hostHandle.slice(0, 2).toUpperCase()
+  const viewerParticipant = useMemo(
+    () =>
+      activeSpace?.participants.find(p => p.did === viewerDid) || null,
+    [activeSpace, viewerDid],
+  )
+  const isViewerHost = Boolean(
+    activeSpace && viewerDid && activeSpace.hostDid === viewerDid,
+  )
+  const viewerHandRaised = Boolean(viewerParticipant?.handRaised)
 
   return (
     <Layout.Screen
@@ -288,7 +606,7 @@ export function ZingSpacesScreen() {
             </Layout.Header.TitleText>
           </View>
           <Layout.Header.SubtitleText>
-            Live audio rooms and community conversations
+            Live rooms, real-time speaker stages, and community discussions
           </Layout.Header.SubtitleText>
         </Layout.Header.Content>
         <Layout.Header.Slot />
@@ -320,7 +638,7 @@ export function ZingSpacesScreen() {
                 a.justify_between,
                 a.gap_xs,
               ]}>
-              <View style={[a.flex_row, a.align_center, a.gap_xs]}>
+              <View style={[a.flex_row, a.flex_wrap, a.align_center, a.gap_xs]}>
                 <View
                   style={[
                     a.flex_row,
@@ -329,56 +647,127 @@ export function ZingSpacesScreen() {
                     a.px_sm,
                     a.py_2xs,
                     a.rounded_full,
-                    {backgroundColor: colors.rezingSubtle},
+                    {
+                      backgroundColor:
+                        activeSpace.status === 'live'
+                          ? colors.rezingSubtle
+                          : colors.accentSubtle,
+                    },
                   ]}>
                   <View
                     style={{
                       width: 8,
                       height: 8,
                       borderRadius: 4,
-                      backgroundColor: colors.rezing,
+                      backgroundColor:
+                        activeSpace.status === 'live'
+                          ? colors.rezing
+                          : colors.accent,
                     }}
                   />
                   <Text
                     style={[
-                      {fontSize: 11, fontWeight: '700', color: colors.rezing},
-                    ]}>
-                    LIVE · {formatElapsed(elapsedSec)}
-                  </Text>
-                </View>
-                {activeSpace.allowRecording && (
-                  <View
-                    style={[
-                      a.px_sm,
-                      a.py_2xs,
-                      a.rounded_full,
                       {
-                        backgroundColor: colors.surface,
-                        borderWidth: 1,
-                        borderColor: colors.border,
+                        fontSize: 11,
+                        fontWeight: '700',
+                        color:
+                          activeSpace.status === 'live'
+                            ? colors.rezing
+                            : colors.accent,
                       },
                     ]}>
-                    <Text style={[{fontSize: 11, color: colors.muted}]}>
-                      REC ON
-                    </Text>
-                  </View>
-                )}
+                    {activeSpace.status === 'live'
+                      ? `LIVE · ${formatElapsed(elapsedSec)}`
+                      : activeSpace.status.toUpperCase()}
+                  </Text>
+                </View>
+
+                <View
+                  style={[
+                    a.px_sm,
+                    a.py_2xs,
+                    a.rounded_full,
+                    {
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    },
+                  ]}>
+                  <Text style={[{fontSize: 11, color: colors.muted}]}>
+                    Live Stage · Real-Time Sync
+                  </Text>
+                </View>
+
+                <View
+                  style={[
+                    a.px_sm,
+                    a.py_2xs,
+                    a.rounded_full,
+                    {
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    },
+                  ]}>
+                  <Text style={[{fontSize: 11, color: colors.text}]}>
+                    {activeSpace.speakerCount} speakers ·{' '}
+                    {activeSpace.listenerCount} listeners
+                  </Text>
+                </View>
               </View>
 
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="End Space"
-                onPress={handleEndSpace}
-                style={[
-                  a.px_md,
-                  a.py_xs,
-                  a.rounded_full,
-                  {backgroundColor: colors.danger},
-                ]}>
-                <Text style={[a.text_xs, a.font_bold, {color: '#FFFFFF'}]}>
-                  End Space
-                </Text>
-              </Pressable>
+              {isViewerHost && activeSpace.status === 'live' ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="End Space"
+                  disabled={actionBusy}
+                  onPress={handleEndSpace}
+                  style={[
+                    a.px_md,
+                    a.py_xs,
+                    a.rounded_full,
+                    {backgroundColor: colors.danger},
+                  ]}>
+                  <Text style={[a.text_xs, a.font_bold, {color: '#FFFFFF'}]}>
+                    End Space
+                  </Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    viewerParticipant ? 'Leave Space' : 'Join Space'
+                  }
+                  disabled={actionBusy}
+                  onPress={handleJoinLeaveActiveSpace}
+                  style={[
+                    a.px_md,
+                    a.py_xs,
+                    a.rounded_full,
+                    {
+                      backgroundColor: viewerParticipant
+                        ? colors.surface
+                        : colors.ctaBg,
+                      borderWidth: 1,
+                      borderColor: viewerParticipant
+                        ? colors.border
+                        : colors.ctaBg,
+                    },
+                  ]}>
+                  <Text
+                    style={[
+                      a.text_xs,
+                      a.font_bold,
+                      {
+                        color: viewerParticipant
+                          ? colors.text
+                          : colors.ctaText,
+                      },
+                    ]}>
+                    {viewerParticipant ? 'Leave Space' : 'Join Space'}
+                  </Text>
+                </Pressable>
+              )}
             </View>
 
             <View style={[a.gap_2xs]}>
@@ -386,11 +775,12 @@ export function ZingSpacesScreen() {
                 {activeSpace.title}
               </Text>
               <Text style={[a.text_xs, {color: colors.muted}]}>
-                Live Audio Room · {activeSpace.topics.join(' · ')}
+                Hosted by @{activeSpace.hostHandle} ·{' '}
+                {activeSpace.topic || 'General Discussion'}
               </Text>
             </View>
 
-            {/* Speaker / Listener Stage Grid */}
+            {/* Persisted Participant Stage Grid */}
             <View
               style={[
                 a.flex_row,
@@ -403,107 +793,115 @@ export function ZingSpacesScreen() {
                   borderColor: colors.border,
                 },
               ]}>
-              {/* Host Stage Avatar */}
-              <View style={[a.align_center, a.gap_xs, {width: 96}]}>
-                <View
-                  style={[
-                    a.align_center,
-                    a.justify_center,
-                    a.rounded_full,
-                    {
-                      width: 60,
-                      height: 60,
-                      backgroundColor: colors.accentSubtle,
-                      borderWidth: 2,
-                      borderColor: micMuted ? colors.border : colors.rezing,
-                    },
-                  ]}>
-                  <Text
-                    style={[a.text_md, a.font_bold, {color: colors.accent}]}>
-                    {hostInitials}
-                  </Text>
-                </View>
-                <Text
-                  numberOfLines={1}
-                  style={[a.text_xs, a.font_bold, {color: colors.text}]}>
-                  @{activeSpace.hostHandle}
-                </Text>
-                <Text
-                  style={[
-                    {fontSize: 11},
-                    {color: micMuted ? colors.muted : colors.rezing},
-                  ]}>
-                  {micMuted ? 'Host · Muted' : 'Host · Speaking'}
-                </Text>
-              </View>
+              {activeSpace.participants.map(participant => {
+                const initials = (
+                  participant.displayName ||
+                  participant.handle ||
+                  'QZ'
+                )
+                  .slice(0, 2)
+                  .toUpperCase()
+                const isSpeakerOrHost =
+                  participant.role === 'host' || participant.role === 'speaker'
+                const canManageRole =
+                  isViewerHost && participant.role !== 'host'
 
-              {/* Co-Host Slot */}
-              {activeSpace.coHostEnabled && (
-                <View style={[a.align_center, a.gap_xs, {width: 96}]}>
+                return (
                   <View
-                    style={[
-                      a.align_center,
-                      a.justify_center,
-                      a.rounded_full,
-                      {
-                        width: 60,
-                        height: 60,
-                        backgroundColor: colors.surface,
-                        borderWidth: 1,
-                        borderStyle: 'dashed',
-                        borderColor: colors.border,
-                      },
-                    ]}>
+                    key={participant.did}
+                    style={[a.align_center, a.gap_2xs, {width: 104}]}>
+                    <View
+                      style={[
+                        a.align_center,
+                        a.justify_center,
+                        a.rounded_full,
+                        {
+                          width: 56,
+                          height: 56,
+                          backgroundColor: isSpeakerOrHost
+                            ? colors.accentSubtle
+                            : colors.surface,
+                          borderWidth: 2,
+                          borderColor: participant.handRaised
+                            ? colors.accent
+                            : isSpeakerOrHost
+                              ? colors.rezing
+                              : colors.border,
+                        },
+                      ]}>
+                      <Text
+                        style={[
+                          a.text_sm,
+                          a.font_bold,
+                          {
+                            color: isSpeakerOrHost
+                              ? colors.accent
+                              : colors.text,
+                          },
+                        ]}>
+                        {initials}
+                      </Text>
+                    </View>
                     <Text
-                      style={[a.text_xs, a.font_bold, {color: colors.muted}]}>
-                      CO-HOST
+                      numberOfLines={1}
+                      style={[a.text_xs, a.font_bold, {color: colors.text}]}>
+                      @{participant.handle}
                     </Text>
+                    <Text
+                      style={[
+                        {fontSize: 11},
+                        {
+                          color: participant.handRaised
+                            ? colors.accent
+                            : isSpeakerOrHost
+                              ? colors.rezing
+                              : colors.muted,
+                        },
+                      ]}>
+                      {participant.role.toUpperCase()}
+                      {participant.handRaised ? ' · HAND UP' : ''}
+                    </Text>
+                    {canManageRole && (
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() =>
+                          handlePromoteOrDemote(
+                            participant.did,
+                            participant.role,
+                          )
+                        }
+                        style={[
+                          a.px_xs,
+                          {
+                            paddingVertical: 2,
+                            borderRadius: 999,
+                            backgroundColor: colors.surface,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                          },
+                        ]}>
+                        <Text
+                          style={[
+                            {fontSize: 10, fontWeight: '700', color: colors.accent},
+                          ]}>
+                          {participant.role === 'listener'
+                            ? 'Make Speaker'
+                            : 'To Listener'}
+                        </Text>
+                      </Pressable>
+                    )}
                   </View>
-                  <Text style={[a.text_xs, {color: colors.muted}]}>
-                    Open Slot
-                  </Text>
-                  <Text style={[{fontSize: 11, color: colors.accent}]}>
-                    Invite via Zing
-                  </Text>
-                </View>
-              )}
-
-              {/* Listener Queue / Hand-Raised Indicator */}
-              <View style={[a.align_center, a.gap_xs, {width: 96}]}>
-                <View
-                  style={[
-                    a.align_center,
-                    a.justify_center,
-                    a.rounded_full,
-                    {
-                      width: 60,
-                      height: 60,
-                      backgroundColor: colors.surface,
-                      borderWidth: 1,
-                      borderColor: handRaised ? colors.accent : colors.border,
-                    },
-                  ]}>
-                  <HandIcon
-                    size="md"
-                    fill={handRaised ? colors.accent : colors.muted}
-                  />
-                </View>
-                <Text style={[a.text_xs, {color: colors.text}]}>
-                  Listeners
-                </Text>
-                <Text style={[{fontSize: 11, color: colors.muted}]}>
-                  {handRaised ? 'Hand raised' : 'Room open'}
-                </Text>
-              </View>
+                )
+              })}
             </View>
 
-            {/* Recent Reactions Stream */}
-            {recentReactions.length > 0 && (
+            {/* Recent Persisted Reactions Stream */}
+            {activeSpace.recentReactions.length > 0 && (
               <View style={[a.flex_row, a.flex_wrap, a.align_center, a.gap_xs]}>
                 <Text style={[a.text_xs, {color: colors.muted}]}>
-                  Reactions:
+                  Live Reactions:
                 </Text>
-                {recentReactions.map(r => (
+                {activeSpace.recentReactions.slice(-8).map(r => (
                   <View
                     key={r.id}
                     style={[
@@ -518,7 +916,8 @@ export function ZingSpacesScreen() {
                       style={[
                         {fontSize: 10, fontWeight: '700', color: colors.accent},
                       ]}>
-                      {r.symbol}
+                      {REACTION_LABEL_MAP[r.kind] || r.kind.toUpperCase()} · @
+                      {r.handle}
                     </Text>
                   </View>
                 ))}
@@ -534,11 +933,15 @@ export function ZingSpacesScreen() {
                 a.justify_between,
                 a.gap_sm,
               ]}>
-              <View style={[a.flex_row, a.align_center, a.gap_xs]}>
+              <View style={[a.flex_row, a.flex_wrap, a.align_center, a.gap_xs]}>
                 <Pressable
+                  testID="zingSpaceRaiseHandBtn"
                   accessibilityRole="button"
-                  accessibilityLabel={micMuted ? 'Unmute mic' : 'Mute mic'}
-                  onPress={() => setMicMuted(prev => !prev)}
+                  accessibilityLabel={
+                    viewerHandRaised ? 'Lower Hand' : 'Raise Hand'
+                  }
+                  disabled={actionBusy}
+                  onPress={handleToggleHand}
                   style={[
                     a.flex_row,
                     a.align_center,
@@ -547,58 +950,26 @@ export function ZingSpacesScreen() {
                     a.py_xs,
                     a.rounded_full,
                     {
-                      backgroundColor: micMuted
-                        ? colors.surface
-                        : colors.ctaBg,
-                      borderWidth: 1,
-                      borderColor: micMuted ? colors.border : colors.ctaBg,
-                    },
-                  ]}>
-                  {micMuted ? (
-                    <MuteIcon size="xs" fill={colors.text} />
-                  ) : (
-                    <SpeakerIcon size="xs" fill={colors.ctaText} />
-                  )}
-                  <Text
-                    style={[
-                      a.text_xs,
-                      a.font_bold,
-                      {color: micMuted ? colors.text : colors.ctaText},
-                    ]}>
-                    {micMuted ? 'Unmute' : 'Mic Live'}
-                  </Text>
-                </Pressable>
-
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Raise Hand"
-                  onPress={() => setHandRaised(prev => !prev)}
-                  style={[
-                    a.flex_row,
-                    a.align_center,
-                    a.gap_xs,
-                    a.px_md,
-                    a.py_xs,
-                    a.rounded_full,
-                    {
-                      backgroundColor: handRaised
+                      backgroundColor: viewerHandRaised
                         ? colors.accentSubtle
                         : colors.surface,
                       borderWidth: 1,
-                      borderColor: handRaised ? colors.accent : colors.border,
+                      borderColor: viewerHandRaised
+                        ? colors.accent
+                        : colors.border,
                     },
                   ]}>
                   <HandIcon
                     size="xs"
-                    fill={handRaised ? colors.accent : colors.text}
+                    fill={viewerHandRaised ? colors.accent : colors.text}
                   />
                   <Text
                     style={[
                       a.text_xs,
                       a.font_semi_bold,
-                      {color: handRaised ? colors.accent : colors.text},
+                      {color: viewerHandRaised ? colors.accent : colors.text},
                     ]}>
-                    {handRaised ? 'Hand Raised' : 'Raise Hand'}
+                    {viewerHandRaised ? 'Hand Raised' : 'Raise Hand'}
                   </Text>
                 </Pressable>
 
@@ -628,10 +999,11 @@ export function ZingSpacesScreen() {
               <View style={[a.flex_row, a.flex_wrap, a.align_center, a.gap_xs]}>
                 {REACTIONS.map(reaction => (
                   <Pressable
-                    key={reaction.id}
+                    key={reaction.kind}
+                    testID={`zingSpaceReact-${reaction.kind}`}
                     accessibilityRole="button"
                     accessibilityLabel={`Send ${reaction.label} reaction`}
-                    onPress={() => handleTriggerReaction(reaction.symbol)}
+                    onPress={() => handleTriggerReaction(reaction.kind)}
                     style={[
                       a.align_center,
                       a.justify_center,
@@ -675,7 +1047,7 @@ export function ZingSpacesScreen() {
                 Start a ZingSpace
               </Text>
               <Text style={[a.text_xs, {color: colors.muted}]}>
-                Host real-time audio conversations with your audience
+                Launch or schedule a real-time room persisted on Sovereign PDS
               </Text>
             </View>
             <View
@@ -687,12 +1059,13 @@ export function ZingSpacesScreen() {
               ]}>
               <Text
                 style={[{fontSize: 11, fontWeight: '700', color: colors.accent}]}>
-                Live Audio
+                Live Stage
               </Text>
             </View>
           </View>
 
           <TextInput
+            testID="zingSpaceTitleInput"
             value={title}
             onChangeText={setTitle}
             placeholder="What do you want to talk about?"
@@ -751,79 +1124,51 @@ export function ZingSpacesScreen() {
             </View>
           </View>
 
-          {/* Toggles: Allow Recording & Co-Host Mode */}
-          <View style={[a.flex_row, a.flex_wrap, a.gap_sm]}>
-            <Pressable
-              accessibilityRole="switch"
-              accessibilityState={{checked: allowRecording}}
-              onPress={() => setAllowRecording(prev => !prev)}
-              style={[
-                a.flex_row,
-                a.align_center,
-                a.gap_xs,
-                a.px_md,
-                a.py_xs,
-                a.rounded_full,
-                {
-                  backgroundColor: colors.surface,
-                  borderWidth: 1,
-                  borderColor: allowRecording ? colors.rezing : colors.border,
-                },
-              ]}>
-              <View
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: allowRecording
-                    ? colors.rezing
-                    : colors.muted,
-                }}
-              />
-              <Text style={[a.text_xs, {color: colors.text}]}>
-                Allow Recording: {allowRecording ? 'On' : 'Off'}
-              </Text>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="switch"
-              accessibilityState={{checked: coHostEnabled}}
-              onPress={() => setCoHostEnabled(prev => !prev)}
-              style={[
-                a.flex_row,
-                a.align_center,
-                a.gap_xs,
-                a.px_md,
-                a.py_xs,
-                a.rounded_full,
-                {
-                  backgroundColor: colors.surface,
-                  borderWidth: 1,
-                  borderColor: coHostEnabled ? colors.accent : colors.border,
-                },
-              ]}>
-              <View
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: coHostEnabled
-                    ? colors.accent
-                    : colors.muted,
-                }}
-              />
-              <Text style={[a.text_xs, {color: colors.text}]}>
-                Co-Host Mode: {coHostEnabled ? 'On' : 'Off'}
-              </Text>
-            </Pressable>
+          {/* Schedule Offset Selector */}
+          <View style={[a.flex_row, a.flex_wrap, a.align_center, a.gap_xs]}>
+            <Text style={[a.text_xs, {color: colors.muted}]}>
+              Schedule window:
+            </Text>
+            {SCHEDULE_PRESETS.map(preset => {
+              const active = scheduleOffsetMin === preset.offsetMinutes
+              return (
+                <Pressable
+                  key={preset.label}
+                  accessibilityRole="button"
+                  onPress={() => setScheduleOffsetMin(preset.offsetMinutes)}
+                  style={[
+                    a.px_sm,
+                    a.py_2xs,
+                    a.rounded_full,
+                    {
+                      backgroundColor: active
+                        ? colors.accentSubtle
+                        : colors.surface,
+                      borderWidth: 1,
+                      borderColor: active ? colors.accent : colors.border,
+                    },
+                  ]}>
+                  <Text
+                    style={[
+                      a.text_xs,
+                      a.font_semi_bold,
+                      {color: active ? colors.accent : colors.text},
+                    ]}>
+                    {preset.label}
+                  </Text>
+                </Pressable>
+              )
+            })}
           </View>
 
           {/* Launch Buttons */}
-          <View style={[a.flex_row, a.align_center, a.gap_sm]}>
+          <View style={[a.flex_row, a.flex_wrap, a.align_center, a.gap_sm]}>
             <Pressable
+              testID="startZingSpaceLiveBtn"
               accessibilityRole="button"
               accessibilityLabel="Start ZingSpace live now"
-              onPress={() => createSpace('live')}
+              disabled={isCreating}
+              onPress={() => handleCreateSpace('live')}
               style={[
                 a.flex_row,
                 a.align_center,
@@ -831,18 +1176,24 @@ export function ZingSpacesScreen() {
                 a.px_lg,
                 a.py_sm,
                 a.rounded_full,
-                {backgroundColor: colors.ctaBg},
+                {backgroundColor: colors.ctaBg, opacity: isCreating ? 0.6 : 1},
               ]}>
-              <LiveIcon size="xs" fill={colors.ctaText} />
+              {isCreating ? (
+                <ActivityIndicator size="small" color={colors.ctaText} />
+              ) : (
+                <LiveIcon size="xs" fill={colors.ctaText} />
+              )}
               <Text style={[a.text_xs, a.font_bold, {color: colors.ctaText}]}>
                 Start ZingSpace Live
               </Text>
             </Pressable>
 
             <Pressable
+              testID="scheduleZingSpaceBtn"
               accessibilityRole="button"
               accessibilityLabel="Schedule ZingSpace for later"
-              onPress={() => createSpace('scheduled')}
+              disabled={isCreating}
+              onPress={() => handleCreateSpace('scheduled')}
               style={[
                 a.flex_row,
                 a.align_center,
@@ -859,110 +1210,205 @@ export function ZingSpacesScreen() {
               <ClockIcon size="xs" fill={colors.text} />
               <Text
                 style={[a.text_xs, a.font_semi_bold, {color: colors.text}]}>
-                Schedule
+                Schedule ({SCHEDULE_PRESETS.find(p => p.offsetMinutes === scheduleOffsetMin)?.label})
               </Text>
             </Pressable>
           </View>
         </View>
 
-        {/* Your Persisted & Scheduled ZingSpaces */}
-        {spaces.length > 0 && (
-          <View style={[a.gap_sm]}>
+        {/* Network ZingSpaces Directory */}
+        <View style={[a.gap_sm]}>
+          <View
+            style={[
+              a.flex_row,
+              a.flex_wrap,
+              a.align_center,
+              a.justify_between,
+              a.gap_xs,
+            ]}>
             <Text style={[a.text_sm, a.font_bold, {color: colors.text}]}>
-              Your ZingSpaces ({spaces.length})
+              Sovereign Network ZingSpaces ({spaces.length})
             </Text>
-            {spaces.map(space => (
-              <View
-                key={space.id}
-                style={[
-                  a.p_md,
-                  a.rounded_lg,
-                  a.gap_xs,
-                  {
-                    backgroundColor: colors.card,
-                    borderWidth: 1,
-                    borderColor:
-                      activeSpaceId === space.id
-                        ? colors.accent
-                        : colors.border,
-                  },
-                ]}>
-                <View
-                  style={[a.flex_row, a.align_center, a.justify_between]}>
-                  <Text
+
+            <View style={[a.flex_row, a.align_center, a.gap_2xs]}>
+              {(['all', 'live', 'scheduled', 'ended'] as const).map(tab => {
+                const active = statusFilter === tab
+                return (
+                  <Pressable
+                    key={tab}
+                    accessibilityRole="button"
+                    onPress={() => setStatusFilter(tab)}
                     style={[
-                      {fontSize: 11, fontWeight: '700'},
+                      a.px_sm,
+                      a.py_2xs,
+                      a.rounded_full,
                       {
-                        color:
-                          space.status === 'live'
-                            ? colors.rezing
-                            : space.status === 'scheduled'
-                              ? colors.accent
-                              : colors.muted,
+                        backgroundColor: active
+                          ? colors.accentSubtle
+                          : colors.card,
+                        borderWidth: 1,
+                        borderColor: active ? colors.accent : colors.border,
                       },
                     ]}>
-                    {space.status.toUpperCase()} · {space.topics.join(' · ')}
-                  </Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Delete ZingSpace"
-                    onPress={() => handleDeleteSpace(space.id)}
-                    hitSlop={8}>
-                    <TrashIcon size="xs" fill={colors.muted} />
+                    <Text
+                      style={[
+                        {
+                          fontSize: 11,
+                          fontWeight: active ? '700' : '600',
+                          color: active ? colors.accent : colors.muted,
+                        },
+                      ]}>
+                      {tab.toUpperCase()}
+                    </Text>
                   </Pressable>
-                </View>
+                )
+              })}
+            </View>
+          </View>
 
-                <Text style={[a.text_md, a.font_bold, {color: colors.text}]}>
-                  {space.title}
-                </Text>
+          {loadingSpaces ? (
+            <View
+              style={[
+                a.p_lg,
+                a.rounded_lg,
+                a.align_center,
+                a.gap_xs,
+                {
+                  backgroundColor: colors.card,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                },
+              ]}>
+              <ActivityIndicator size="small" color={colors.accent} />
+              <Text style={[a.text_xs, {color: colors.muted}]}>
+                Syncing ZingSpaces from Sovereign PDS...
+              </Text>
+            </View>
+          ) : spaces.length === 0 ? (
+            <View
+              style={[
+                a.p_lg,
+                a.rounded_lg,
+                a.align_center,
+                {
+                  backgroundColor: colors.card,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                },
+              ]}>
+              <Text style={[a.text_xs, {color: colors.muted}]}>
+                No {statusFilter === 'all' ? '' : statusFilter} ZingSpaces
+                found. Launch the first live room above!
+              </Text>
+            </View>
+          ) : (
+            spaces.map(space => {
+              const isHost = Boolean(viewerDid && space.hostDid === viewerDid)
+              const isActive = activeSpaceSlug === space.slug
 
-                <View style={[a.flex_row, a.align_center, a.gap_xs, a.pt_2xs]}>
-                  {activeSpaceId !== space.id && (
+              return (
+                <View
+                  key={space.slug}
+                  style={[
+                    a.p_md,
+                    a.rounded_lg,
+                    a.gap_xs,
+                    {
+                      backgroundColor: colors.card,
+                      borderWidth: 1,
+                      borderColor: isActive ? colors.accent : colors.border,
+                    },
+                  ]}>
+                  <View
+                    style={[a.flex_row, a.align_center, a.justify_between]}>
+                    <Text
+                      style={[
+                        {fontSize: 11, fontWeight: '700'},
+                        {
+                          color:
+                            space.status === 'live'
+                              ? colors.rezing
+                              : space.status === 'scheduled'
+                                ? colors.accent
+                                : colors.muted,
+                        },
+                      ]}>
+                      {space.status.toUpperCase()} · {space.topic || 'General'}
+                      {space.scheduledFor && space.status === 'scheduled'
+                        ? ` · ${formatScheduledTime(space.scheduledFor)}`
+                        : ''}
+                    </Text>
+                    {isHost && (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Delete ZingSpace"
+                        onPress={() => handleDeleteSpace(space.slug)}
+                        hitSlop={8}>
+                        <TrashIcon size="xs" fill={colors.muted} />
+                      </Pressable>
+                    )}
+                  </View>
+
+                  <Text style={[a.text_md, a.font_bold, {color: colors.text}]}>
+                    {space.title}
+                  </Text>
+
+                  <Text style={[a.text_xs, {color: colors.muted}]}>
+                    Host: @{space.hostHandle} · {space.speakerCount} speakers ·{' '}
+                    {space.listenerCount} listeners
+                  </Text>
+
+                  <View
+                    style={[a.flex_row, a.align_center, a.gap_xs, a.pt_2xs]}>
+                    {!isActive && space.status !== 'ended' && (
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => handleJoinOrOpenSpace(space)}
+                        style={[
+                          a.px_md,
+                          a.py_2xs,
+                          a.rounded_full,
+                          {backgroundColor: colors.ctaBg},
+                        ]}>
+                        <Text
+                          style={[
+                            a.text_xs,
+                            a.font_bold,
+                            {color: colors.ctaText},
+                          ]}>
+                          {space.status === 'scheduled'
+                            ? isHost
+                              ? 'Go Live'
+                              : 'View Stage'
+                            : 'Join Room'}
+                        </Text>
+                      </Pressable>
+                    )}
                     <Pressable
                       accessibilityRole="button"
-                      onPress={() => handleJoinOrGoLive(space)}
+                      onPress={() => handleShareSpace(space)}
                       style={[
                         a.px_md,
                         a.py_2xs,
                         a.rounded_full,
-                        {backgroundColor: colors.ctaBg},
+                        {
+                          backgroundColor: colors.surface,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                        },
                       ]}>
-                      <Text
-                        style={[
-                          a.text_xs,
-                          a.font_bold,
-                          {color: colors.ctaText},
-                        ]}>
-                        {space.status === 'scheduled'
-                          ? 'Go Live'
-                          : 'Reopen Room'}
+                      <Text style={[a.text_xs, {color: colors.accent}]}>
+                        Invite via Zing
                       </Text>
                     </Pressable>
-                  )}
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => handleShareSpace(space)}
-                    style={[
-                      a.px_md,
-                      a.py_2xs,
-                      a.rounded_full,
-                      {
-                        backgroundColor: colors.surface,
-                        borderWidth: 1,
-                        borderColor: colors.border,
-                      },
-                    ]}>
-                    <Text style={[a.text_xs, {color: colors.accent}]}>
-                      Invite via Zing
-                    </Text>
-                  </Pressable>
+                  </View>
                 </View>
-              </View>
-            ))}
-          </View>
-        )}
+              )
+            })
+          )}
+        </View>
 
-        {/* Live #spaces & #live Discovery */}
+        {/* Live #spaces & #live Community Feed Posts */}
         <View
           style={[
             a.rounded_lg,
@@ -983,10 +1429,10 @@ export function ZingSpacesScreen() {
             ]}>
             <View>
               <Text style={[a.text_md, a.font_bold, {color: colors.text}]}>
-                Live Rooms (#spaces & #live)
+                Community Announcements (#spaces & #live)
               </Text>
               <Text style={[a.text_xs, {color: colors.muted}]}>
-                Real-time public broadcasts and community rooms
+                Public Zings tagged with #spaces and #live across the network
               </Text>
             </View>
             <Pressable
@@ -1003,13 +1449,13 @@ export function ZingSpacesScreen() {
             <View style={[a.p_lg, a.align_center, a.gap_xs]}>
               <ActivityIndicator size="small" color={colors.accent} />
               <Text style={[a.text_xs, {color: colors.muted}]}>
-                Loading live rooms...
+                Loading community announcements...
               </Text>
             </View>
           ) : discoveryPosts.length === 0 ? (
             <View style={[a.p_lg, a.align_center]}>
               <Text style={[a.text_xs, {color: colors.muted}]}>
-                No live #spaces announcements right now. Start your own above!
+                No #spaces announcements right now. Start your own room above!
               </Text>
             </View>
           ) : (

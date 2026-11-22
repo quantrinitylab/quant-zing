@@ -118,7 +118,7 @@ export function PrivacyAndSecuritySettingsScreen({}: Props) {
                 <Admonition.Content>
                   <Admonition.Text>
                     <Trans>
-                      Note: Bluesky is part of the Atmosphere, an open public
+                      Note: QuantZing is part of the Atmosphere, an open public
                       network. These settings ask other apps and websites to
                       limit your visibility, but they can choose not to. Your
                       public content may still appear elsewhere.
@@ -127,10 +127,10 @@ export function PrivacyAndSecuritySettingsScreen({}: Props) {
                   <Admonition.Text>
                     <InlineLinkText
                       label={_(
-                        msg`Learn more about what is public on Bluesky.`,
+                        msg`Learn more about what is public on QuantZing.`,
                       )}
-                      to="https://quantzing.com/help/data-privacy">
-                      <Trans>Learn more about what is public on Bluesky.</Trans>
+                      to="/privacy">
+                      <Trans>Learn more about what is public on QuantZing.</Trans>
                     </InlineLinkText>
                   </Admonition.Text>
                 </Admonition.Content>

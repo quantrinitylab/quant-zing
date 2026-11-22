@@ -7,7 +7,7 @@ import {
   useState,
 } from 'react'
 import {useWindowDimensions, View} from 'react-native'
-import Animated, {useAnimatedStyle} from 'react-native-reanimated'
+import Animated, {interpolate, useAnimatedStyle} from 'react-native-reanimated'
 import {Trans} from '@lingui/react/macro'
 
 import {useInitialNumToRender} from '#/lib/hooks/useInitialNumToRender'
@@ -23,6 +23,7 @@ import {
 } from '#/state/queries/usePostThread'
 import {useSession} from '#/state/session'
 import {type OnPostSuccessData} from '#/state/shell/composer'
+import {useMinimalShellMode} from '#/state/shell/minimal-mode'
 import {useShellLayout} from '#/state/shell/shell-layout'
 import {List, type ListMethods} from '#/view/com/util/List'
 import {HeaderDropdown} from '#/screens/PostThread/components/HeaderDropdown'
@@ -675,15 +676,17 @@ export function PostThread({uri}: {uri: string}) {
 
 function MobileComposePrompt({onPressReply}: {onPressReply: () => unknown}) {
   const {footerHeight} = useShellLayout()
+  const {footerMode} = useMinimalShellMode()
 
   const animatedStyle = useAnimatedStyle(() => {
     return {
-      bottom: footerHeight.get(),
+      bottom: interpolate(footerMode.get(), [0, 1], [footerHeight.get(), 0]),
     }
   })
 
   return (
-    <Animated.View style={[a.fixed, a.left_0, a.right_0, animatedStyle]}>
+    <Animated.View
+      style={[a.fixed, a.left_0, a.right_0, {zIndex: 25}, animatedStyle]}>
       <ThreadComposePrompt onPressCompose={onPressReply} />
     </Animated.View>
   )

@@ -615,7 +615,7 @@ let ProfileMenu = ({
             authorDid: profile.did,
             url: toShareUrl(makeProfileLink(profile)),
             title: l({
-              message: `@${profile.handle} on Bluesky`,
+              message: `@${profile.handle} on QuantZing`,
               comment:
                 'Prefilled subject line when sharing a profile to email or Reddit',
             }),

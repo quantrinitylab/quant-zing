@@ -2,18 +2,8 @@ import {useMemo, useRef} from 'react'
 import {WebView, type WebViewNavigation} from 'react-native-webview'
 import {type ShouldStartLoadRequest} from 'react-native-webview/lib/WebViewTypes'
 
+import {QUANTZING_SERVICE} from '#/lib/constants'
 import {type CaptchaWebViewProps} from './CaptchaWebView.shared'
-
-const ALLOWED_HOSTS = [
-  'bsky.social',
-  'bsky.app',
-  'staging.bsky.app',
-  'staging.bsky.dev',
-  'app.staging.bsky.dev',
-  'js.hcaptcha.com',
-  'newassets.hcaptcha.com',
-  'api2.hcaptcha.com',
-]
 
 function safeHost(url: string): string {
   try {
@@ -22,6 +12,21 @@ function safeHost(url: string): string {
     return 'unparseable'
   }
 }
+
+const DEFAULT_QUANTZING_HOST = (() => {
+  const host = safeHost(QUANTZING_SERVICE)
+  return host !== 'unparseable' ? host : 'quantzing.quantrinity.in'
+})()
+
+const ALLOWED_HOSTS = [
+  DEFAULT_QUANTZING_HOST,
+  'quantzing.quantrinity.in',
+  'quantzing.com',
+  'quantzing.in',
+  'js.hcaptcha.com',
+  'newassets.hcaptcha.com',
+  'api2.hcaptcha.com',
+]
 
 export function CaptchaWebView({
   url,
@@ -32,19 +37,17 @@ export function CaptchaWebView({
   onBlockedLoad,
 }: CaptchaWebViewProps) {
   const redirectHost = useMemo(() => {
-    if (!state?.serviceUrl) return 'bsky.app'
+    if (!state?.serviceUrl) return DEFAULT_QUANTZING_HOST
 
-    return state?.serviceUrl &&
-      new URL(state?.serviceUrl).host === 'staging.bsky.dev'
-      ? 'app.staging.bsky.dev'
-      : 'bsky.app'
+    const serviceHost = safeHost(state.serviceUrl)
+    return serviceHost !== 'unparseable' ? serviceHost : DEFAULT_QUANTZING_HOST
   }, [state?.serviceUrl])
 
   const wasSuccessful = useRef(false)
 
   const onShouldStartLoadWithRequest = (event: ShouldStartLoadRequest) => {
     const host = safeHost(event.url)
-    const allowed = ALLOWED_HOSTS.includes(host)
+    const allowed = ALLOWED_HOSTS.includes(host) || host === redirectHost
 
     /*
      * iOS routes subframe navigations through this handler and cancels them if

@@ -99,7 +99,7 @@ export const router = new Router<AllNavigatableRoutes>({
   // QuantZing flagship modules
   Quanty: '/quanty',
   Articles: '/articles',
-  CreatorStudio: '/studio',
+  CreatorStudio: ['/studio', '/creator-studio'],
   ZingSpaces: '/spaces',
   QuantZingPro: ['/pro', '/premium'],
   // QuantZing legal & support

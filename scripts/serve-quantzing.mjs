@@ -1,10 +1,19 @@
 import http from 'node:http'
-import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import {fileURLToPath} from 'node:url'
-import {handleQuantZingPds, isQuantZingPdsRoute} from './quantzing-pds.mjs'
+import {
+  buildIosMobileconfigXml,
+  findAndroidApkPath,
+  findIosTouchIconPng,
+  flushAndClosePdsStore,
+  getActiveStore,
+  getAppReleasePayload,
+  getPackageVersion,
+  handleQuantZingPds,
+  isQuantZingPdsRoute,
+} from './quantzing-pds.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(__dirname, '..')
@@ -13,69 +22,10 @@ const opsPortalDir = path.resolve(__dirname, '..', 'ops-portal')
 const port = Number(process.env.PORT || 3008)
 const host = process.env.HOST || '127.0.0.1'
 
-function findAndroidApkPath() {
-  const candidates = [
-    process.env.QUANTZING_APK_PATH,
-    path.join(
-      process.env.QUANTZING_DATA_DIR || path.join(projectRoot, '.quantzing-data'),
-      'releases',
-      'quantzing-android.apk',
-    ),
-    path.join(projectRoot, 'releases', 'quantzing-android.apk'),
-    '/var/lib/quantzing/releases/quantzing-android.apk',
-    '/opt/quantzing/releases/quantzing-android.apk',
-  ].filter(Boolean)
-  for (const p of candidates) {
-    try {
-      if (fs.existsSync(p) && fs.statSync(p).isFile() && fs.statSync(p).size > 20_000) {
-        return p
-      }
-    } catch {}
-  }
-  return null
-}
-
-let cachedApkMeta = null
-function getAndroidApkMeta() {
-  const apkPath = findAndroidApkPath()
-  if (!apkPath) {
-    return {
-      available: false,
-      version: '1.139.0',
-      downloadUrl: '/download/quantzing-android.apk',
-      sizeBytes: 0,
-      sha256: null,
-      updatedAt: null,
-    }
-  }
-  const stat = fs.statSync(apkPath)
-  if (
-    cachedApkMeta &&
-    cachedApkMeta.path === apkPath &&
-    cachedApkMeta.mtimeMs === stat.mtimeMs &&
-    cachedApkMeta.sizeBytes === stat.size
-  ) {
-    return cachedApkMeta.meta
-  }
-  const hash = crypto
-    .createHash('sha256')
-    .update(fs.readFileSync(apkPath))
-    .digest('hex')
-  const meta = {
-    available: true,
-    version: '1.139.0',
-    downloadUrl: '/download/quantzing-android.apk',
-    sizeBytes: stat.size,
-    sha256: hash,
-    updatedAt: stat.mtime.toISOString(),
-  }
-  cachedApkMeta = {path: apkPath, mtimeMs: stat.mtimeMs, sizeBytes: stat.size, meta}
-  return meta
-}
-
 function findQuantZingIconPng() {
   const candidates = [
     path.join(projectRoot, 'assets', 'app-icons', 'android_icon_default_next.png'),
+    path.join(projectRoot, 'assets', 'app-icons', 'ios_icon_default_next.png'),
     path.join(projectRoot, 'assets', 'icon.png'),
     path.join(projectRoot, 'assets', 'favicon.png'),
   ]
@@ -83,6 +33,34 @@ function findQuantZingIconPng() {
     if (fs.existsSync(p)) return p
   }
   return null
+}
+
+function pipeFileStreamSafe(req, res, filePath, headers, compress = false) {
+  const readStream = fs.createReadStream(filePath)
+  readStream.on('error', () => {
+    if (!res.headersSent) {
+      res.writeHead(500, {'content-type': 'text/plain; charset=utf-8'})
+    }
+    if (!res.writableEnded) {
+      res.end('Internal stream error')
+    }
+  })
+
+  if (compress) {
+    const gzip = zlib.createGzip()
+    gzip.on('error', () => {
+      if (!res.writableEnded) res.end()
+    })
+    res.writeHead(200, {...headers, 'content-encoding': 'gzip'})
+    readStream.pipe(gzip).pipe(res)
+  } else {
+    res.writeHead(200, headers)
+    readStream.pipe(res)
+  }
+
+  req.on('aborted', () => {
+    readStream.destroy()
+  })
 }
 
 const OPS_SECURITY_HEADERS = {
@@ -252,7 +230,9 @@ function proxyRequest(req, res, route) {
   const forwardedHeaders = {...req.headers}
   delete forwardedHeaders.host
   delete forwardedHeaders.connection
-  forwardedHeaders['x-forwarded-host'] = String(req.headers.host || `${host}:${port}`)
+  forwardedHeaders['x-forwarded-host'] = String(
+    req.headers.host || `${host}:${port}`,
+  )
   forwardedHeaders['x-forwarded-proto'] = 'http'
 
   const proxyReq = http.request(
@@ -272,6 +252,9 @@ function proxyRequest(req, res, route) {
       if (!res.headersSent) {
         res.writeHead(proxyRes.statusCode || 502, responseHeaders)
       }
+      proxyRes.on('error', () => {
+        if (!res.writableEnded) res.end()
+      })
       proxyRes.pipe(res)
     },
   )
@@ -281,11 +264,15 @@ function proxyRequest(req, res, route) {
   })
 
   proxyReq.on('error', err => {
-    const code = err && typeof err === 'object' && 'code' in err ? err.code : err?.message
+    const code =
+      err && typeof err === 'object' && 'code' in err ? err.code : err?.message
     sendProxyOffline(res, route, String(code || 'UNAVAILABLE'))
   })
 
   req.on('aborted', () => {
+    proxyReq.destroy()
+  })
+  req.on('error', () => {
     proxyReq.destroy()
   })
 
@@ -304,13 +291,15 @@ function resolveStaticFile(pathname) {
   }
   const normalized = path.normalize(clean).replace(/^(\.\.[/\\])+/, '')
   const candidate = path.resolve(distDir, normalized.replace(/^[/\\]+/, ''))
-  if (
-    candidate.startsWith(`${distDir}${path.sep}`) &&
-    fs.existsSync(candidate) &&
-    fs.statSync(candidate).isFile()
-  ) {
-    return candidate
-  }
+  try {
+    if (
+      candidate.startsWith(`${distDir}${path.sep}`) &&
+      fs.existsSync(candidate) &&
+      fs.statSync(candidate).isFile()
+    ) {
+      return candidate
+    }
+  } catch {}
   return null
 }
 
@@ -325,14 +314,19 @@ function resolveOpsStaticFile(subPathname) {
     clean = '/index.html'
   }
   const normalized = path.normalize(clean).replace(/^(\.\.[/\\])+/, '')
-  const candidate = path.resolve(opsPortalDir, normalized.replace(/^[/\\]+/, ''))
-  if (
-    candidate.startsWith(`${opsPortalDir}${path.sep}`) &&
-    fs.existsSync(candidate) &&
-    fs.statSync(candidate).isFile()
-  ) {
-    return candidate
-  }
+  const candidate = path.resolve(
+    opsPortalDir,
+    normalized.replace(/^[/\\]+/, ''),
+  )
+  try {
+    if (
+      candidate.startsWith(`${opsPortalDir}${path.sep}`) &&
+      fs.existsSync(candidate) &&
+      fs.statSync(candidate).isFile()
+    ) {
+      return candidate
+    }
+  } catch {}
   return null
 }
 
@@ -371,14 +365,15 @@ function serveOpsPortal(req, res, subPathname) {
   }
 
   const acceptEncoding = String(req.headers['accept-encoding'] || '')
-  if (COMPRESSIBLE.has(ext) && acceptEncoding.includes('gzip')) {
-    headers['content-encoding'] = 'gzip'
-    res.writeHead(200, headers)
-    fs.createReadStream(filePath).pipe(zlib.createGzip()).pipe(res)
-  } else {
-    res.writeHead(200, headers)
-    fs.createReadStream(filePath).pipe(res)
-  }
+  const shouldCompress = COMPRESSIBLE.has(ext) && acceptEncoding.includes('gzip')
+  pipeFileStreamSafe(req, res, filePath, headers, shouldCompress)
+}
+
+// Warm SQLite WAL store once on process boot
+try {
+  getActiveStore()
+} catch (err) {
+  console.error('[QuantZing] Failed to bootstrap SQLite WAL store:', err)
 }
 
 const server = http.createServer((req, res) => {
@@ -391,7 +386,9 @@ const server = http.createServer((req, res) => {
       JSON.stringify({
         ok: true,
         service: 'quant-zing',
+        version: getPackageVersion(),
         engine: 'atproto-sovereign-pure',
+        storage: 'sqlite-wal',
         pds: true,
         blueskyUpstream: false,
         port,
@@ -422,6 +419,11 @@ const server = http.createServer((req, res) => {
         theme_color: '#000000',
         categories: ['social', 'news', 'entertainment'],
         icons: [
+          {
+            src: '/apple-touch-icon.png',
+            sizes: '180x180',
+            type: 'image/png',
+          },
           {
             src: '/app-icon-192.png',
             sizes: '192x192',
@@ -464,42 +466,54 @@ const server = http.createServer((req, res) => {
     return
   }
 
-  if (pathname === '/app-icon-192.png' || pathname === '/app-icon-512.png') {
-    const iconFile = findQuantZingIconPng()
-    if (iconFile) {
-      const stat = fs.statSync(iconFile)
-      res.writeHead(200, {
+  if (pathname === '/apple-touch-icon.png') {
+    const iosIcon = findIosTouchIconPng()
+    if (iosIcon) {
+      const stat = fs.statSync(iosIcon)
+      pipeFileStreamSafe(req, res, iosIcon, {
         'content-type': 'image/png',
         'content-length': stat.size,
         'cache-control': 'public, max-age=86400',
       })
-      fs.createReadStream(iconFile).pipe(res)
+      return
+    }
+  }
+
+  if (pathname === '/app-icon-192.png' || pathname === '/app-icon-512.png') {
+    const iconFile = findQuantZingIconPng()
+    if (iconFile) {
+      const stat = fs.statSync(iconFile)
+      pipeFileStreamSafe(req, res, iconFile, {
+        'content-type': 'image/png',
+        'content-length': stat.size,
+        'cache-control': 'public, max-age=86400',
+      })
       return
     }
   }
 
   if (pathname === '/api/quantzing/app-release') {
-    const apk = getAndroidApkMeta()
-    const payload = JSON.stringify({
-      ok: true,
-      appName: 'QuantZing',
-      version: apk.version,
-      pwaReady: true,
-      androidApkAvailable: apk.available,
-      androidApkUrl: apk.downloadUrl,
-      androidApkSizeBytes: apk.sizeBytes,
-      androidApkSha256: apk.sha256,
-      androidApkUpdatedAt: apk.updatedAt,
-      iosInstallMode: 'pwa',
-      playStoreStatus: 'upcoming',
-      appStoreStatus: 'upcoming',
-    })
+    const payload = JSON.stringify(getAppReleasePayload())
     res.writeHead(200, {
       'content-type': 'application/json; charset=utf-8',
       'content-length': Buffer.byteLength(payload),
       'cache-control': 'no-store',
     })
     res.end(payload)
+    return
+  }
+
+  if (pathname === '/download/quantzing-ios.mobileconfig') {
+    const xml = buildIosMobileconfigXml()
+    const buf = Buffer.from(xml, 'utf8')
+    res.writeHead(200, {
+      'content-type': 'application/x-apple-aspen-config; charset=utf-8',
+      'content-length': buf.length,
+      'content-disposition':
+        'attachment; filename="QuantZing-iOS.mobileconfig"',
+      'cache-control': 'no-cache',
+    })
+    res.end(buf)
     return
   }
 
@@ -520,13 +534,50 @@ const server = http.createServer((req, res) => {
       return
     }
     const stat = fs.statSync(apkPath)
-    res.writeHead(200, {
+    const baseHeaders = {
       'content-type': 'application/vnd.android.package-archive',
-      'content-length': stat.size,
+      'accept-ranges': 'bytes',
       'content-disposition': 'attachment; filename="QuantZing-Android.apk"',
       'cache-control': 'public, max-age=3600',
+    }
+    if (req.method === 'HEAD') {
+      res.writeHead(200, {...baseHeaders, 'content-length': stat.size})
+      res.end()
+      return
+    }
+    const rangeHeader = String(req.headers.range || '')
+    const rangeMatch = rangeHeader.match(/^bytes=(\d*)-(\d*)$/)
+    if (rangeMatch) {
+      const start = rangeMatch[1] ? Number(rangeMatch[1]) : 0
+      const end = rangeMatch[2]
+        ? Math.min(Number(rangeMatch[2]), stat.size - 1)
+        : stat.size - 1
+      if (
+        Number.isFinite(start) &&
+        Number.isFinite(end) &&
+        start >= 0 &&
+        start <= end &&
+        start < stat.size
+      ) {
+        const chunkLen = end - start + 1
+        const rs = fs.createReadStream(apkPath, {start, end})
+        rs.on('error', () => {
+          if (!res.writableEnded) res.end()
+        })
+        res.writeHead(206, {
+          ...baseHeaders,
+          'content-range': `bytes ${start}-${end}/${stat.size}`,
+          'content-length': chunkLen,
+        })
+        rs.pipe(res)
+        req.on('aborted', () => rs.destroy())
+        return
+      }
+    }
+    pipeFileStreamSafe(req, res, apkPath, {
+      ...baseHeaders,
+      'content-length': stat.size,
     })
-    fs.createReadStream(apkPath).pipe(res)
     return
   }
 
@@ -546,9 +597,22 @@ const server = http.createServer((req, res) => {
     return
   }
 
-  // Sovereign QuantZing ATProto PDS + Public AppView Hybrid (/xrpc/*, /blob/*, /api/quantzing/*)
+  // Sovereign QuantZing ATProto PDS + Public AppView + Quanty MCP (/xrpc/*, /blob/*, /api/quantzing/*, /mcp*)
   if (isQuantZingPdsRoute(urlPath)) {
-    void handleQuantZingPds(req, res)
+    handleQuantZingPds(req, res).catch(err => {
+      console.error('[QuantZing Server] Unhandled PDS error:', err)
+      if (!res.headersSent) {
+        res.writeHead(500, {'content-type': 'application/json; charset=utf-8'})
+      }
+      if (!res.writableEnded) {
+        res.end(
+          JSON.stringify({
+            error: 'InternalServerError',
+            message: 'Unhandled QuantZing PDS error',
+          }),
+        )
+      }
+    })
     return
   }
 
@@ -632,22 +696,35 @@ const server = http.createServer((req, res) => {
   }
 
   const acceptEncoding = String(req.headers['accept-encoding'] || '')
-  if (COMPRESSIBLE.has(ext) && acceptEncoding.includes('gzip')) {
-    headers['content-encoding'] = 'gzip'
-    res.writeHead(200, headers)
-    fs.createReadStream(filePath).pipe(zlib.createGzip()).pipe(res)
-  } else {
-    res.writeHead(200, headers)
-    fs.createReadStream(filePath).pipe(res)
-  }
+  const shouldCompress = COMPRESSIBLE.has(ext) && acceptEncoding.includes('gzip')
+  pipeFileStreamSafe(req, res, filePath, headers, shouldCompress)
 })
+
+// Defensive HTTP timeouts against slow-loris / stalled sockets (5 min for large APK downloads)
+server.requestTimeout = 300_000
+server.headersTimeout = 30_000
+server.keepAliveTimeout = 10_000
+
+function gracefulShutdown(signal) {
+  console.log(`[QuantZing] Received ${signal}, flushing SQLite WAL & closing...`)
+  try {
+    flushAndClosePdsStore()
+  } catch {}
+  server.close(() => {
+    process.exit(0)
+  })
+  setTimeout(() => process.exit(0), 3000).unref()
+}
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'))
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
 
 server.listen(port, host, () => {
   console.log(
     `[QuantZing] Live standalone ATProto web app running at http://localhost:${port}`,
   )
   console.log(
-    `[QuantZing] 100% Sovereign PDS + AppView active at /xrpc/*, /blob/*, /api/quantzing/* (zero external Bluesky calls)`,
+    `[QuantZing] 100% Sovereign PDS + AppView + SQLite WAL + Quanty MCP active at /xrpc/*, /blob/*, /api/quantzing/*, /mcp`,
   )
   console.log(
     `[QuantZing] Employee Ops Portal active at http://localhost:${port}/ops (and root / on ops.* / quantzing-ops.* hosts)`,

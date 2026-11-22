@@ -6,6 +6,7 @@ const withXcodeTarget = (
 ) => {
   return withXcodeProject(config, config => {
     let pbxProject = config.modResults
+    const developmentTeam = process.env.EXPO_APPLE_TEAM_ID || ''
 
     const target = pbxProject.addTarget(
       extensionName,
@@ -54,17 +55,21 @@ const withXcodeTarget = (
           buildSettingsObj.SWIFT_EMIT_LOC_STRINGS = 'YES'
           buildSettingsObj.SWIFT_VERSION = '5.0'
           buildSettingsObj.TARGETED_DEVICE_FAMILY = `"1,2"`
-          buildSettingsObj.DEVELOPMENT_TEAM = 'B3LX46C5HS'
+          if (developmentTeam) {
+            buildSettingsObj.DEVELOPMENT_TEAM = developmentTeam
+          }
         }
       }
     }
 
-    pbxProject.addTargetAttribute(
-      'DevelopmentTeam',
-      'B3LX46C5HS',
-      extensionName,
-    )
-    pbxProject.addTargetAttribute('DevelopmentTeam', 'B3LX46C5HS')
+    if (developmentTeam) {
+      pbxProject.addTargetAttribute(
+        'DevelopmentTeam',
+        developmentTeam,
+        extensionName,
+      )
+      pbxProject.addTargetAttribute('DevelopmentTeam', developmentTeam)
+    }
 
     return config
   })

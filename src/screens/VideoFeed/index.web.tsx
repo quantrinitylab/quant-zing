@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
-import {Pressable, View} from 'react-native'
+import {Pressable, useWindowDimensions, View} from 'react-native'
+import type Hls from 'hls.js'
 import {
   type AtIdentifierString,
   AtUri,
@@ -39,6 +40,7 @@ import {SpeakerVolumeFull_Stroke2_Corner0_Rounded as VolumeIcon} from '#/compone
 import {VerifiedCheck as VerifiedIcon} from '#/components/icons/brands/VerifiedCheck'
 import {VideoClip_Stroke2_Corner0_Rounded as VideoClipIcon} from '#/components/icons/VideoClip'
 import {Loader} from '#/components/Loader'
+import {loadHls} from '#/components/Post/Embed/VideoEmbed/VideoEmbedInner/loadHls'
 import * as Toast from '#/components/Toast'
 import {Text} from '#/components/Typography'
 import {app, com} from '#/lexicons'
@@ -96,9 +98,12 @@ export function VideoFeed() {
   const requireAuth = useRequireAuth()
   const {openComposer} = useOpenComposer()
   const {gtMobile} = useBreakpoints()
+  const {height: viewportHeight} = useWindowDimensions()
+  const isCompactHeight = viewportHeight > 0 && viewportHeight < 700
 
   const [reels, setReels] = useState<ReelItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [activeIndex, setActiveIndex] = useState(0)
   const [muted, setMuted] = useState(false)
   const scrollerRef = useRef<HTMLDivElement | null>(null)
@@ -106,6 +111,7 @@ export function VideoFeed() {
 
   const loadReels = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
       let feedPosts: app.bsky.feed.defs.PostView[] = []
       if (params?.type === 'author' && params.did) {
@@ -161,8 +167,12 @@ export function VideoFeed() {
 
       setReels(extracted)
       setActiveIndex(0)
-    } catch {
+    } catch (err: any) {
       setReels([])
+      setLoadError(
+        err?.message ||
+          'Unable to load Reels right now. Please check your connection and try again.',
+      )
     } finally {
       setLoading(false)
     }
@@ -273,7 +283,7 @@ export function VideoFeed() {
         display: 'flex',
         flexDirection: 'column',
         height: '100dvh',
-        width: '100vw',
+        width: '100%',
         overflow: 'hidden',
       }}>
       {/* Top Overlay Header */}
@@ -422,7 +432,7 @@ export function VideoFeed() {
         </div>
       )}
 
-      {/* Body: Loading / Empty / Vertical Snap Feed */}
+      {/* Body: Loading / Error / Empty / Vertical Snap Feed */}
       {loading ? (
         <div
           style={{
@@ -434,9 +444,72 @@ export function VideoFeed() {
             flexDirection: 'column',
           }}>
           <Loader size="xl" fill="#1D9BF0" />
-          <Text style={[a.text_sm, {color: '#71767B'}]}>
+          <Text style={[a.text_sm, {color: '#94A3B8'}]}>
             Loading QuantZing Reels...
           </Text>
+        </div>
+      ) : loadError ? (
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}>
+          <View
+            testID="reelsErrorState"
+            style={{
+              maxWidth: 360,
+              width: '100%',
+              padding: 28,
+              borderRadius: 20,
+              borderWidth: 1,
+              borderColor: '#2F3336',
+              backgroundColor: '#16181C',
+              alignItems: 'center',
+              gap: 14,
+            }}>
+            <VideoClipIcon width={42} fill="#F4212E" />
+            <Text
+              style={[
+                a.text_xl,
+                a.font_bold,
+                a.text_center,
+                {color: '#E7E9EA'},
+              ]}>
+              Could not load Reels
+            </Text>
+            <Text
+              style={[
+                a.text_sm,
+                a.text_center,
+                {color: '#94A3B8', lineHeight: 20},
+              ]}>
+              {loadError}
+            </Text>
+            <Pressable
+              testID="reelsRetryBtn"
+              onPress={() => void loadReels()}
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading Reels"
+              style={({pressed}) => [
+                a.rounded_full,
+                a.align_center,
+                a.justify_center,
+                {
+                  height: 44,
+                  paddingHorizontal: 24,
+                  backgroundColor: '#EFF3F4',
+                  opacity: pressed ? 0.85 : 1,
+                },
+                web({cursor: 'pointer'}),
+              ]}>
+              <Text style={[a.text_md, a.font_bold, {color: '#0F1419'}]}>
+                Retry
+              </Text>
+            </Pressable>
+          </View>
         </div>
       ) : reels.length === 0 ? (
         <div
@@ -473,7 +546,7 @@ export function VideoFeed() {
               style={[
                 a.text_sm,
                 a.text_center,
-                {color: '#71767B', lineHeight: 20},
+                {color: '#94A3B8', lineHeight: 20},
               ]}>
               Upload your first video Zing and it will appear right here in
               full-screen vertical Reels.
@@ -537,6 +610,7 @@ export function VideoFeed() {
                 onToggleMute={() => setMuted(m => !m)}
                 currentUserDid={currentAccount?.did}
                 gtMobile={gtMobile}
+                isCompactHeight={isCompactHeight}
               />
             </div>
           ))}
@@ -553,6 +627,7 @@ function ReelSlide({
   onToggleMute,
   currentUserDid,
   gtMobile,
+  isCompactHeight,
 }: {
   item: ReelItem
   isActive: boolean
@@ -560,6 +635,7 @@ function ReelSlide({
   onToggleMute: () => void
   currentUserDid?: string
   gtMobile: boolean
+  isCompactHeight: boolean
 }) {
   const {post} = item
   const queryClient = useQueryClient()
@@ -569,6 +645,12 @@ function ReelSlide({
   const navigation = useNavigation<NavigationProp>()
 
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const hlsRef = useRef<Hls | null>(null)
+  const isHlsPlaylist = useMemo(
+    () => /\.m3u8(?:$|\?)/i.test(item.playlist),
+    [item.playlist],
+  )
+  const [mediaReady, setMediaReady] = useState(!isHlsPlaylist)
   const [paused, setPaused] = useState(false)
   const [progress, setProgress] = useState(0)
 
@@ -585,6 +667,11 @@ function ReelSlide({
     post.author.viewer?.following,
   )
 
+  const likePendingRef = useRef(false)
+  const repostPendingRef = useRef(false)
+  const bookmarkPendingRef = useRef(false)
+  const followPendingRef = useRef(false)
+
   const isOwnPost = currentUserDid === post.author.did
   const recordText = String((post.record as any)?.text || '')
   const rkey = useMemo(() => {
@@ -594,6 +681,73 @@ function ReelSlide({
       return ''
     }
   }, [post.uri])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    if (!isHlsPlaylist) {
+      video.src = item.playlist
+      setMediaReady(true)
+      return () => {
+        video.removeAttribute('src')
+        video.load()
+      }
+    }
+
+    let cancelled = false
+    let instance: Hls | null = null
+    setMediaReady(false)
+
+    void loadHls()
+      .then(HlsClass => {
+        if (cancelled || !videoRef.current) return
+        if (HlsClass.isSupported()) {
+          instance = new HlsClass({
+            maxMaxBufferLength: 10,
+          })
+          hlsRef.current = instance
+          instance.attachMedia(videoRef.current)
+          instance.loadSource(item.playlist)
+          instance.on(HlsClass.Events.MANIFEST_PARSED, () => {
+            if (!cancelled) {
+              setMediaReady(true)
+            }
+          })
+          instance.on(HlsClass.Events.ERROR, (_event, data) => {
+            if (data.fatal && instance) {
+              if (data.type === HlsClass.ErrorTypes.NETWORK_ERROR) {
+                instance.startLoad()
+              } else if (data.type === HlsClass.ErrorTypes.MEDIA_ERROR) {
+                instance.recoverMediaError()
+              }
+            }
+          })
+        } else if (
+          videoRef.current.canPlayType('application/vnd.apple.mpegurl')
+        ) {
+          videoRef.current.src = item.playlist
+          setMediaReady(true)
+        }
+      })
+      .catch(() => {
+        if (!cancelled && videoRef.current) {
+          videoRef.current.src = item.playlist
+          setMediaReady(true)
+        }
+      })
+
+    return () => {
+      cancelled = true
+      if (instance) {
+        instance.detachMedia()
+        instance.destroy()
+        hlsRef.current = null
+      } else if (video) {
+        video.removeAttribute('src')
+        video.load()
+      }
+    }
+  }, [isHlsPlaylist, item.playlist])
 
   useEffect(() => {
     const v = videoRef.current
@@ -613,7 +767,7 @@ function ReelSlide({
   useEffect(() => {
     const v = videoRef.current
     if (!v) return
-    if (isActive && !paused) {
+    if (isActive && !paused && mediaReady) {
       const p = v.play()
       if (p && typeof p.catch === 'function') {
         p.catch(() => {
@@ -622,14 +776,14 @@ function ReelSlide({
           v.play().catch(() => {})
         })
       }
-    } else {
+    } else if (!isActive || paused) {
       v.pause()
       if (!isActive) {
         v.currentTime = 0
         setPaused(false)
       }
     }
-  }, [isActive, paused])
+  }, [isActive, mediaReady, paused])
 
   const onTogglePlay = useCallback(() => {
     const v = videoRef.current
@@ -645,13 +799,15 @@ function ReelSlide({
 
   const onToggleLike = useCallback(() => {
     requireAuth(async () => {
-      if (!currentUserDid) return
+      if (!currentUserDid || likePendingRef.current) return
+      likePendingRef.current = true
+      const prevUri = likeUri
+      const prevCount = likeCount
       try {
-        if (likeUri) {
-          const prev = likeUri
+        if (prevUri) {
           setLikeUri(undefined)
-          setLikeCount(c => Math.max(0, c - 1))
-          const parsed = new AtUri(prev)
+          setLikeCount(Math.max(0, prevCount - 1))
+          const parsed = new AtUri(prevUri)
           await client.call(com.atproto.repo.deleteRecord, {
             repo: currentUserDid as AtIdentifierString,
             collection: 'app.bsky.feed.like',
@@ -660,7 +816,7 @@ function ReelSlide({
           updatePostShadow(queryClient, post.uri, {likeUri: undefined})
           void queryClient.invalidateQueries({queryKey: ['liked-by', post.uri]})
         } else {
-          setLikeCount(c => c + 1)
+          setLikeCount(prevCount + 1)
           const res = await client.call(com.atproto.repo.createRecord, {
             repo: currentUserDid as AtIdentifierString,
             collection: 'app.bsky.feed.like',
@@ -675,29 +831,46 @@ function ReelSlide({
           void queryClient.invalidateQueries({queryKey: ['liked-by', post.uri]})
         }
       } catch {
+        setLikeUri(prevUri)
+        setLikeCount(prevCount)
         Toast.show('Could not update like', {type: 'error'})
+      } finally {
+        likePendingRef.current = false
       }
     })
-  }, [client, currentUserDid, likeUri, post.cid, post.uri, requireAuth])
+  }, [
+    client,
+    currentUserDid,
+    likeCount,
+    likeUri,
+    post.cid,
+    post.uri,
+    queryClient,
+    requireAuth,
+  ])
 
   const onToggleRepost = useCallback(() => {
     requireAuth(async () => {
-      if (!currentUserDid) return
+      if (!currentUserDid || repostPendingRef.current) return
+      repostPendingRef.current = true
+      const prevUri = repostUri
+      const prevCount = repostCount
       try {
-        if (repostUri) {
-          const prev = repostUri
+        if (prevUri) {
           setRepostUri(undefined)
-          setRepostCount(c => Math.max(0, c - 1))
-          const parsed = new AtUri(prev)
+          setRepostCount(Math.max(0, prevCount - 1))
+          const parsed = new AtUri(prevUri)
           await client.call(com.atproto.repo.deleteRecord, {
             repo: currentUserDid as AtIdentifierString,
             collection: 'app.bsky.feed.repost',
             rkey: parsed.rkey,
           })
           updatePostShadow(queryClient, post.uri, {repostUri: undefined})
-          void queryClient.invalidateQueries({queryKey: ['post-reposted-by', post.uri]})
+          void queryClient.invalidateQueries({
+            queryKey: ['post-reposted-by', post.uri],
+          })
         } else {
-          setRepostCount(c => c + 1)
+          setRepostCount(prevCount + 1)
           const res = await client.call(com.atproto.repo.createRecord, {
             repo: currentUserDid as AtIdentifierString,
             collection: 'app.bsky.feed.repost',
@@ -709,18 +882,36 @@ function ReelSlide({
           })
           setRepostUri(res.uri)
           updatePostShadow(queryClient, post.uri, {repostUri: res.uri})
-          void queryClient.invalidateQueries({queryKey: ['post-reposted-by', post.uri]})
+          void queryClient.invalidateQueries({
+            queryKey: ['post-reposted-by', post.uri],
+          })
         }
       } catch {
+        setRepostUri(prevUri)
+        setRepostCount(prevCount)
         Toast.show('Could not update Rezing', {type: 'error'})
+      } finally {
+        repostPendingRef.current = false
       }
     })
-  }, [client, currentUserDid, post.cid, post.uri, repostUri, requireAuth])
+  }, [
+    client,
+    currentUserDid,
+    post.cid,
+    post.uri,
+    queryClient,
+    repostCount,
+    repostUri,
+    requireAuth,
+  ])
 
   const onToggleBookmark = useCallback(() => {
     requireAuth(async () => {
+      if (bookmarkPendingRef.current) return
+      bookmarkPendingRef.current = true
+      const prevBookmarked = bookmarked
       try {
-        if (bookmarked) {
+        if (prevBookmarked) {
           setBookmarked(false)
           await client.call(app.bsky.bookmark.deleteBookmark, {uri: post.uri})
           updatePostShadow(queryClient, post.uri, {bookmarked: false})
@@ -734,19 +925,23 @@ function ReelSlide({
           Toast.show('Saved to Bookmarks', {type: 'success'})
         }
       } catch {
+        setBookmarked(prevBookmarked)
         Toast.show('Could not update bookmark', {type: 'error'})
+      } finally {
+        bookmarkPendingRef.current = false
       }
     })
-  }, [bookmarked, client, post.cid, post.uri, requireAuth])
+  }, [bookmarked, client, post.cid, post.uri, queryClient, requireAuth])
 
   const onToggleFollow = useCallback(() => {
     requireAuth(async () => {
-      if (!currentUserDid || isOwnPost) return
+      if (!currentUserDid || isOwnPost || followPendingRef.current) return
+      followPendingRef.current = true
+      const prevFollowUri = followUri
       try {
-        if (followUri) {
-          const prev = followUri
+        if (prevFollowUri) {
           setFollowUri(undefined)
-          const parsed = new AtUri(prev)
+          const parsed = new AtUri(prevFollowUri)
           await client.call(com.atproto.repo.deleteRecord, {
             repo: currentUserDid as AtIdentifierString,
             collection: 'app.bsky.graph.follow',
@@ -765,10 +960,20 @@ function ReelSlide({
           setFollowUri(res.uri)
         }
       } catch {
+        setFollowUri(prevFollowUri)
         Toast.show('Could not update follow', {type: 'error'})
+      } finally {
+        followPendingRef.current = false
       }
     })
-  }, [client, currentUserDid, followUri, isOwnPost, post.author.did, requireAuth])
+  }, [
+    client,
+    currentUserDid,
+    followUri,
+    isOwnPost,
+    post.author.did,
+    requireAuth,
+  ])
 
   const onReply = useCallback(() => {
     requireAuth(() => {
@@ -813,7 +1018,7 @@ function ReelSlide({
         position: 'relative',
         height: 'calc(100dvh - 24px)',
         maxHeight: 920,
-        width: 'min(520px, calc(100vw - 140px))',
+        width: 'min(520px, calc(100% - 140px))',
         borderRadius: 18,
         overflow: 'hidden',
         backgroundColor: '#0A0A0A',
@@ -825,7 +1030,7 @@ function ReelSlide({
     : {
         position: 'relative',
         height: '100dvh',
-        width: '100vw',
+        width: '100%',
         overflow: 'hidden',
         backgroundColor: '#000000',
         display: 'flex',
@@ -839,12 +1044,19 @@ function ReelSlide({
     <div style={frameStyle}>
       <video
         ref={videoRef}
-        src={item.playlist}
         poster={item.thumbnail}
         playsInline
         loop
         muted={muted}
         preload={isActive ? 'auto' : 'metadata'}
+        onEnded={e => {
+          const el = e.currentTarget
+          el.currentTime = 0
+          if (hlsRef.current) {
+            hlsRef.current.startLoad(0)
+          }
+          el.play().catch(() => {})
+        }}
         onClick={onTogglePlay}
         onTimeUpdate={e => {
           const el = e.currentTarget
@@ -894,15 +1106,22 @@ function ReelSlide({
         style={{
           position: 'absolute',
           right: 12,
-          bottom: 84,
+          bottom: isCompactHeight ? 54 : 84,
+          maxHeight: 'calc(100dvh - 124px)',
+          overflowY: 'auto',
+          scrollbarWidth: 'none',
           zIndex: 5,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: 16,
+          gap: isCompactHeight ? 8 : 16,
         }}>
         <Pressable onPress={onOpenProfile} accessibilityRole="button" accessibilityLabel="Open creator profile">
-          <UserAvatar avatar={post.author.avatar} size={42} type="user" />
+          <UserAvatar
+            avatar={post.author.avatar}
+            size={isCompactHeight ? 34 : 42}
+            type="user"
+          />
         </Pressable>
 
         <ReelActionButton
@@ -910,11 +1129,12 @@ function ReelSlide({
           label={formatCompact(likeCount)}
           ariaLabel="Like Reel"
           onPress={onToggleLike}
+          compact={isCompactHeight}
           icon={
             likeUri ? (
-              <HeartFilledIcon width={24} fill="#F91880" />
+              <HeartFilledIcon width={isCompactHeight ? 20 : 24} fill="#F91880" />
             ) : (
-              <HeartIcon width={24} fill="#FFFFFF" />
+              <HeartIcon width={isCompactHeight ? 20 : 24} fill="#FFFFFF" />
             )
           }
           activeColor={likeUri ? '#F91880' : undefined}
@@ -925,7 +1145,8 @@ function ReelSlide({
           label={formatCompact(post.replyCount ?? 0)}
           ariaLabel="Reply to Reel"
           onPress={onReply}
-          icon={<ReplyIcon width={24} fill="#FFFFFF" />}
+          compact={isCompactHeight}
+          icon={<ReplyIcon width={isCompactHeight ? 20 : 24} fill="#FFFFFF" />}
         />
 
         <ReelActionButton
@@ -933,9 +1154,10 @@ function ReelSlide({
           label={formatCompact(repostCount)}
           ariaLabel="Rezing Reel"
           onPress={onToggleRepost}
+          compact={isCompactHeight}
           icon={
             <RepostIcon
-              width={24}
+              width={isCompactHeight ? 20 : 24}
               fill={repostUri ? '#00BA7C' : '#FFFFFF'}
             />
           }
@@ -947,11 +1169,12 @@ function ReelSlide({
           label={bookmarked ? 'Saved' : 'Save'}
           ariaLabel="Bookmark Reel"
           onPress={onToggleBookmark}
+          compact={isCompactHeight}
           icon={
             bookmarked ? (
-              <BookmarkFilledIcon width={22} fill="#1D9BF0" />
+              <BookmarkFilledIcon width={isCompactHeight ? 18 : 22} fill="#1D9BF0" />
             ) : (
-              <BookmarkIcon width={22} fill="#FFFFFF" />
+              <BookmarkIcon width={isCompactHeight ? 18 : 22} fill="#FFFFFF" />
             )
           }
           activeColor={bookmarked ? '#1D9BF0' : undefined}
@@ -962,7 +1185,8 @@ function ReelSlide({
           label="Share"
           ariaLabel="Share Reel"
           onPress={() => void onShare()}
-          icon={<ShareIcon width={22} fill="#FFFFFF" />}
+          compact={isCompactHeight}
+          icon={<ShareIcon width={isCompactHeight ? 18 : 22} fill="#FFFFFF" />}
         />
 
         <ReelActionButton
@@ -970,11 +1194,12 @@ function ReelSlide({
           label={muted ? 'Muted' : 'Sound'}
           ariaLabel={muted ? 'Unmute Reel' : 'Mute Reel'}
           onPress={onToggleMute}
+          compact={isCompactHeight}
           icon={
             muted ? (
-              <MuteIcon width={22} fill="#FFFFFF" />
+              <MuteIcon width={isCompactHeight ? 18 : 22} fill="#FFFFFF" />
             ) : (
-              <VolumeIcon width={22} fill="#FFFFFF" />
+              <VolumeIcon width={isCompactHeight ? 18 : 22} fill="#FFFFFF" />
             )
           }
         />
@@ -1091,6 +1316,7 @@ function ReelActionButton({
   ariaLabel,
   onPress,
   activeColor,
+  compact,
 }: {
   testID?: string
   icon: React.ReactNode
@@ -1098,7 +1324,9 @@ function ReelActionButton({
   ariaLabel: string
   onPress: () => void
   activeColor?: string
+  compact?: boolean
 }) {
+  const circleSize = compact ? 36 : 44
   return (
     <Pressable
       testID={testID}
@@ -1107,7 +1335,7 @@ function ReelActionButton({
       accessibilityLabel={ariaLabel}
       style={({pressed}) => [
         a.align_center,
-        {gap: 4, opacity: pressed ? 0.75 : 1},
+        {gap: compact ? 2 : 4, opacity: pressed ? 0.75 : 1},
         web({cursor: 'pointer'}),
       ]}>
       <View
@@ -1116,8 +1344,8 @@ function ReelActionButton({
           a.justify_center,
           a.rounded_full,
           {
-            width: 44,
-            height: 44,
+            width: circleSize,
+            height: circleSize,
             backgroundColor: 'rgba(15, 20, 25, 0.62)',
             borderWidth: 1,
             borderColor: 'rgba(255, 255, 255, 0.14)',

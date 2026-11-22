@@ -1,11 +1,10 @@
-import {useMemo, useRef, useState} from 'react'
+import {useRef, useState} from 'react'
 import {Keyboard, type TextInput, View} from 'react-native'
 import {LexAuthFactorError} from '@atproto/lex-password-session'
 import {Trans, useLingui} from '@lingui/react/macro'
 
 import {HITSLOP_10} from '#/lib/constants'
 import {useRequestNotificationsPermission} from '#/lib/notifications/notifications'
-import {getQuantZingColors} from '#/lib/quantos/client'
 import {cleanError, isNetworkError} from '#/lib/strings/errors'
 import {createFullHandle} from '#/lib/strings/handles'
 import {checkAndFormatResetCode} from '#/lib/strings/password'
@@ -24,7 +23,7 @@ import {Envelope_Stroke2_Corner0_Rounded as EmailIcon} from '#/components/icons/
 import {createStaticClick, InlineLinkText} from '#/components/Link'
 import {Loader} from '#/components/Loader'
 import {Text} from '#/components/Typography'
-import {IS_IOS} from '#/env'
+import {IS_IOS, IS_WEB} from '#/env'
 import {type com} from '#/lexicons'
 import {FormContainer} from './FormContainer'
 
@@ -60,10 +59,10 @@ export const LoginForm = ({
   onPressCreateAccount: () => void
 }) => {
   const t = useTheme()
-  const colors = useMemo(
-    () => getQuantZingColors(t.scheme === 'dark'),
-    [t.scheme],
-  )
+  const isLight = t.scheme === 'light'
+  const ctaBg = isLight ? '#0F1419' : '#EFF3F4'
+  const ctaText = isLight ? '#FFFFFF' : '#0F1419'
+  const linkColor = isLight ? t.palette.primary_700 : t.palette.primary_500
   const [isProcessing, setIsProcessing] = useState(false)
   const [errorField, setErrorField] = useState<
     'none' | 'identifier' | 'password' | '2fa'
@@ -188,7 +187,7 @@ export const LoginForm = ({
     <FormContainer testID="loginForm" titleText="Sign in to QuantZing">
       {gtMobile && (
         <View style={[a.pb_sm]}>
-          <Text style={[a.text_3xl, a.font_bold, {color: colors.text}]}>
+          <Text style={[a.text_3xl, a.font_bold, t.atoms.text]}>
             Sign in to QuantZing
           </Text>
         </View>
@@ -313,26 +312,25 @@ export const LoginForm = ({
       <View
         style={[
           a.pt_md,
-          gtMobile
+          IS_WEB || gtMobile
             ? [a.justify_between, a.flex_row, a.align_center, a.gap_sm]
             : [a.gap_sm],
         ]}>
-        {gtMobile && (
+        {(IS_WEB || gtMobile) && (
           <Button
+            testID="loginBackButton"
             label={l`Back`}
             color="secondary"
             size="large"
             shape="default"
             style={[
               a.rounded_full,
-              {
-                backgroundColor: colors.card,
-                borderWidth: 1,
-                borderColor: colors.border,
-              },
+              t.atoms.bg_contrast_25,
+              t.atoms.border_contrast_low,
+              {borderWidth: 1},
             ]}
             onPress={onPressBack}>
-            <ButtonText style={{color: colors.text}}>
+            <ButtonText style={[t.atoms.text]}>
               <Trans>Back</Trans>
             </ButtonText>
           </Button>
@@ -372,12 +370,12 @@ export const LoginForm = ({
             style={[
               a.rounded_full,
               {
-                backgroundColor: colors.ctaBg,
+                backgroundColor: ctaBg,
                 paddingHorizontal: 28,
               },
             ]}
             onPress={() => void onPressNext()}>
-            <ButtonText style={[a.font_bold, {color: colors.ctaText}]}>
+            <ButtonText style={[a.font_bold, {color: ctaText}]}>
               <Trans>Sign in</Trans>
             </ButtonText>
             {isProcessing && <ButtonIcon icon={Loader} />}
@@ -390,12 +388,12 @@ export const LoginForm = ({
           a.text_sm,
           a.mt_md,
           !gtMobile && a.text_center,
-          {color: colors.muted},
+          t.atoms.text_contrast_medium,
         ]}>
         New to QuantZing?{' '}
         <InlineLinkText
           label="Create a QuantZing account"
-          style={[a.text_sm, a.font_semi_bold, {color: colors.accent}]}
+          style={[a.text_sm, a.font_semi_bold, {color: linkColor}]}
           {...createStaticClick(() => onPressCreateAccount())}>
           Create account
         </InlineLinkText>

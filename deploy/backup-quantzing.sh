@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# QuantZing Sovereign Data Backup Script (Atomic db.json + blobs/)
-# - Stages an atomic copy of db.json before archiving to prevent torn reads
+# QuantZing Sovereign Data Backup Script (Atomic SQLite WAL Snapshot + blobs/ + releases/)
+# - Snapshots quantzing.sqlite online using Node node:sqlite DatabaseSync VACUUM INTO
+# - Also includes blobs/, releases/, and any legacy db.json archive if present
 # - Verifies gzip & tar archive integrity before committing final .tar.gz
 # - Prunes local backups older than RETENTION_DAYS (default: 14)
 # - Optionally uploads archive to OCI Object Storage when OCI_BACKUP_BUCKET is set
@@ -34,12 +35,14 @@ if ! [[ "${RETENTION_DAYS}" =~ ^[0-9]+$ ]]; then
 fi
 
 SOURCE_DIR="${DATA_DIR}"
-if [[ ! -f "${SOURCE_DIR}/db.json" && -f "${SOURCE_DIR}/.quantzing-data/db.json" ]]; then
-  SOURCE_DIR="${SOURCE_DIR}/.quantzing-data"
+if [[ ! -f "${SOURCE_DIR}/quantzing.sqlite" && ! -f "${SOURCE_DIR}/db.json" ]]; then
+  if [[ -f "${SOURCE_DIR}/.quantzing-data/quantzing.sqlite" || -f "${SOURCE_DIR}/.quantzing-data/db.json" ]]; then
+    SOURCE_DIR="${SOURCE_DIR}/.quantzing-data"
+  fi
 fi
 
-if [[ ! -f "${SOURCE_DIR}/db.json" ]]; then
-  log "ERROR" "Source db.json not found in '${DATA_DIR}' (checked '${SOURCE_DIR}/db.json')"
+if [[ ! -f "${SOURCE_DIR}/quantzing.sqlite" && ! -f "${SOURCE_DIR}/db.json" ]]; then
+  log "ERROR" "Neither quantzing.sqlite nor db.json found in '${DATA_DIR}' (checked '${SOURCE_DIR}')"
   exit 1
 fi
 
@@ -60,22 +63,57 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Copy db.json to staging file first so live writes cannot tear the archive
-cp -p "${SOURCE_DIR}/db.json" "${STAGE_DIR}/db.json"
-if [[ ! -s "${STAGE_DIR}/db.json" ]]; then
-  log "ERROR" "Staged db.json is empty; aborting backup"
-  exit 1
+STAGED_ITEMS=()
+
+# 1. Atomic online WAL snapshot of quantzing.sqlite via Node v24+ node:sqlite VACUUM INTO
+if [[ -f "${SOURCE_DIR}/quantzing.sqlite" ]]; then
+  node --input-type=module -e "
+    import {DatabaseSync} from 'node:sqlite';
+    const src = process.argv[1];
+    const dst = process.argv[2];
+    const db = new DatabaseSync(src);
+    db.exec('PRAGMA busy_timeout = 10000;');
+    db.prepare('VACUUM INTO ?').run(dst);
+    db.close();
+  " "${SOURCE_DIR}/quantzing.sqlite" "${STAGE_DIR}/quantzing.sqlite"
+
+  if [[ ! -s "${STAGE_DIR}/quantzing.sqlite" ]]; then
+    log "ERROR" "Staged quantzing.sqlite snapshot is empty; aborting backup"
+    exit 1
+  fi
+  STAGED_ITEMS+=("quantzing.sqlite")
+fi
+
+# 2. Preserve legacy db.json or founder credentials if present
+if [[ -f "${SOURCE_DIR}/db.json" ]]; then
+  cp -p "${SOURCE_DIR}/db.json" "${STAGE_DIR}/db.json"
+  if [[ -s "${STAGE_DIR}/db.json" ]]; then
+    STAGED_ITEMS+=("db.json")
+  fi
+fi
+
+if [[ -f "${SOURCE_DIR}/founder-admin.credentials.json" ]]; then
+  cp -p "${SOURCE_DIR}/founder-admin.credentials.json" "${STAGE_DIR}/founder-admin.credentials.json"
+  STAGED_ITEMS+=("founder-admin.credentials.json")
 fi
 
 BLOB_COUNT=0
-TAR_RC=0
+TAR_ARGS=(-czf "${TMP_ARCHIVE}" -C "${STAGE_DIR}" "${STAGED_ITEMS[@]}")
+
 if [[ -d "${SOURCE_DIR}/blobs" ]]; then
   BLOB_COUNT="$(find "${SOURCE_DIR}/blobs" -type f | wc -l | tr -d ' ')"
-  tar -czf "${TMP_ARCHIVE}" -C "${STAGE_DIR}" db.json -C "${SOURCE_DIR}" blobs || TAR_RC=$?
+  TAR_ARGS+=(-C "${SOURCE_DIR}" blobs)
 else
   mkdir -p "${STAGE_DIR}/blobs"
-  tar -czf "${TMP_ARCHIVE}" -C "${STAGE_DIR}" db.json blobs || TAR_RC=$?
+  TAR_ARGS+=(-C "${STAGE_DIR}" blobs)
 fi
+
+if [[ -d "${SOURCE_DIR}/releases" ]]; then
+  TAR_ARGS+=(-C "${SOURCE_DIR}" releases)
+fi
+
+TAR_RC=0
+tar "${TAR_ARGS[@]}" || TAR_RC=$?
 
 # GNU tar returns 1 if a blob was concurrently added during archive; >=2 is fatal
 if [[ "${TAR_RC}" -ne 0 && "${TAR_RC}" -ne 1 ]]; then
@@ -133,4 +171,4 @@ ARCHIVE_BYTES="$(wc -c < "${ARCHIVE}" | tr -d ' ')"
 ARCHIVE_HUMAN="$(du -h "${ARCHIVE}" | awk '{print $1}')"
 ELAPSED_SEC=$(( $(date +%s) - START_EPOCH ))
 
-log "INFO" "Backup OK file=${ARCHIVE} size=${ARCHIVE_HUMAN} (${ARCHIVE_BYTES}B) source=${SOURCE_DIR} blobs=${BLOB_COUNT} gzip_verified=ok pruned=${PRUNED_COUNT} kept=${LOCAL_COUNT} retention_days=${RETENTION_DAYS} oci=${OCI_STATUS} duration=${ELAPSED_SEC}s"
+log "INFO" "Backup OK file=${ARCHIVE} size=${ARCHIVE_HUMAN} (${ARCHIVE_BYTES}B) source=${SOURCE_DIR} items=${STAGED_ITEMS[*]} blobs=${BLOB_COUNT} gzip_verified=ok pruned=${PRUNED_COUNT} kept=${LOCAL_COUNT} retention_days=${RETENTION_DAYS} oci=${OCI_STATUS} duration=${ELAPSED_SEC}s"

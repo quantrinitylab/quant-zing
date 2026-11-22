@@ -669,7 +669,7 @@ function BackdatedPostIndicator({post}: {post: app.bsky.feed.defs.PostView}) {
               <RNText style={[a.font_semi_bold]}>
                 {niceDate(i18n, createdAt)}
               </RNText>
-              , but was first seen by Bluesky on{' '}
+              , but was first seen by QuantZing on{' '}
               <RNText style={[a.font_semi_bold]}>
                 {niceDate(i18n, indexedAt)}
               </RNText>
@@ -678,7 +678,7 @@ function BackdatedPostIndicator({post}: {post: app.bsky.feed.defs.PostView}) {
           </Prompt.DescriptionText>
           <Prompt.DescriptionText>
             <Trans>
-              Bluesky cannot confirm the authenticity of the claimed date.
+              QuantZing cannot confirm the authenticity of the claimed date.
             </Trans>
           </Prompt.DescriptionText>
         </Prompt.Content>

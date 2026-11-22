@@ -4,13 +4,13 @@ const fs = require('fs')
 
 const withExtensionViewController = (
   config,
-  {controllerName, extensionName},
+  {controllerName, extensionName, sourceDir},
 ) => {
   return withXcodeProject(config, config => {
     const controllerPath = path.join(
       config.modRequest.projectRoot,
       'modules',
-      extensionName,
+      sourceDir || extensionName,
       `${controllerName}.swift`,
     )
 

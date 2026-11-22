@@ -3,12 +3,12 @@ const plist = require('@expo/plist')
 const path = require('path')
 const fs = require('fs')
 
-const withExtensionInfoPlist = (config, {extensionName}) => {
+const withExtensionInfoPlist = (config, {extensionName, sourceDir}) => {
   return withInfoPlist(config, config => {
     const plistPath = path.join(
       config.modRequest.projectRoot,
       'modules',
-      extensionName,
+      sourceDir || extensionName,
       'Info.plist',
     )
     const targetPath = path.join(
@@ -21,7 +21,7 @@ const withExtensionInfoPlist = (config, {extensionName}) => {
 
     extPlist.MainAppScheme = config.scheme
     extPlist.CFBundleName = '$(PRODUCT_NAME)'
-    extPlist.CFBundleDisplayName = 'Bluesky Notifications'
+    extPlist.CFBundleDisplayName = 'QuantZing Notifications'
     extPlist.CFBundleIdentifier = '$(PRODUCT_BUNDLE_IDENTIFIER)'
     extPlist.CFBundleVersion = '$(CURRENT_PROJECT_VERSION)'
     extPlist.CFBundleExecutable = '$(EXECUTABLE_NAME)'

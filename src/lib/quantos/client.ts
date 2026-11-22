@@ -1,4 +1,8 @@
-import {PUBLIC_BSKY_SERVICE} from '#/lib/constants'
+import {
+  DISCOVER_FEED_URI,
+  PUBLIC_BSKY_SERVICE,
+  QUANTZING_SERVICE,
+} from '#/lib/constants'
 import {IS_WEB} from '#/env'
 
 export type QuantyMode = 'ask' | 'deepsearch' | 'drafter' | 'pulse'
@@ -122,7 +126,11 @@ export interface QuantZingCheckoutResult {
   planId: QuantZingPlanId
 }
 
+export type QuantZingThemeName = 'light' | 'dim' | 'dark'
+
 export interface QuantZingColorPalette {
+  mode: QuantZingThemeName
+  isLight: boolean
   bg: string
   card: string
   surface: string
@@ -130,53 +138,102 @@ export interface QuantZingColorPalette {
   text: string
   muted: string
   accent: string
+  accentText: string
   accentSubtle: string
   ctaBg: string
   ctaText: string
   like: string
   rezing: string
+  rezingText: string
   rezingSubtle: string
   danger: string
+  dangerText: string
 }
 
 /**
- * X.com-grade True Dark / Light palette for QuantZing screens.
+ * X.com-grade Light / Dim / Dark palette for QuantZing screens.
+ * Backwards-compatible with boolean callers (true = dark, false = light)
+ * and accepts 'light' | 'dim' | 'dark' directly from useTheme().name.
  * Strictly zero orange/amber tokens anywhere.
  */
-export function getQuantZingColors(isDark: boolean): QuantZingColorPalette {
-  if (isDark) {
+export function getQuantZingColors(
+  themeInput: boolean | QuantZingThemeName,
+): QuantZingColorPalette {
+  const mode: QuantZingThemeName =
+    typeof themeInput === 'boolean'
+      ? themeInput
+        ? 'dark'
+        : 'light'
+      : themeInput
+
+  if (mode === 'dim') {
     return {
+      mode: 'dim',
+      isLight: false,
+      bg: '#15202B',
+      card: '#192734',
+      surface: '#1E2732',
+      border: '#38444D',
+      text: '#F7F9F9',
+      muted: '#8B98A5',
+      accent: '#1D9BF0',
+      accentText: '#4DB5F7',
+      accentSubtle: 'rgba(29, 155, 240, 0.16)',
+      ctaBg: '#EFF3F4',
+      ctaText: '#0F1419',
+      like: '#F91880',
+      rezing: '#00BA7C',
+      rezingText: '#00D18B',
+      rezingSubtle: 'rgba(0, 186, 124, 0.16)',
+      danger: '#F4212E',
+      dangerText: '#FF5A65',
+    }
+  }
+
+  if (mode === 'dark') {
+    return {
+      mode: 'dark',
+      isLight: false,
       bg: '#000000',
       card: '#16181C',
       surface: '#202327',
       border: '#2F3336',
       text: '#E7E9EA',
-      muted: '#71767B',
+      muted: '#8B98A5',
       accent: '#1D9BF0',
+      accentText: '#4DB5F7',
       accentSubtle: 'rgba(29, 155, 240, 0.14)',
       ctaBg: '#EFF3F4',
       ctaText: '#0F1419',
       like: '#F91880',
       rezing: '#00BA7C',
+      rezingText: '#00D18B',
       rezingSubtle: 'rgba(0, 186, 124, 0.14)',
       danger: '#F4212E',
+      dangerText: '#FF5A65',
     }
   }
+
   return {
+    mode: 'light',
+    isLight: true,
     bg: '#FFFFFF',
     card: '#F7F9F9',
     surface: '#EFF3F4',
-    border: '#EFF3F4',
+    border: '#CFD9DE',
     text: '#0F1419',
     muted: '#536471',
     accent: '#1D9BF0',
+    accentText: '#0F6CB2',
     accentSubtle: 'rgba(29, 155, 240, 0.12)',
     ctaBg: '#0F1419',
     ctaText: '#FFFFFF',
     like: '#F91880',
-    rezing: '#00BA7C',
-    rezingSubtle: 'rgba(0, 186, 124, 0.12)',
-    danger: '#F4212E',
+    rezing: '#00875A',
+    rezingText: '#006B47',
+    rezingSubtle: 'rgba(0, 135, 90, 0.12)',
+    danger: '#DC1E29',
+    dangerText: '#C41620',
   }
 }
 
@@ -198,6 +255,13 @@ export function stripEmojisAndSymbols(text: string): string {
     .trim()
 }
 
+export function getQuantZingApiOrigin(): string {
+  if (IS_WEB && typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin.replace(/\/+$/, '')
+  }
+  return QUANTZING_SERVICE.replace(/\/+$/, '')
+}
+
 export function getQuantOsBaseUrls() {
   if (IS_WEB) {
     return {
@@ -206,10 +270,11 @@ export function getQuantOsBaseUrls() {
       pay: '/api/quant-pay',
     }
   }
+  const base = QUANTZING_SERVICE.replace(/\/+$/, '')
   return {
-    ai: 'http://127.0.0.1:4240',
-    router: 'http://127.0.0.1:4003',
-    pay: 'http://127.0.0.1:4002',
+    ai: `${base}/api/quant-ai`,
+    router: `${base}/api/quant-router`,
+    pay: `${base}/api/quant-pay`,
   }
 }
 
@@ -361,14 +426,24 @@ interface RawPostThreadResponse {
   thread?: RawThreadNode
 }
 
-const PUBLIC_DISCOVER_FEED_URI =
-  'at://did:plc:quantzingofficialaaaaaaa/app.bsky.feed.generator/whats-hot'
-
 export function trendLinkToFeedUri(link?: string): string | undefined {
   if (!link) return undefined
   const match = link.match(/^\/profile\/([^/]+)\/feed\/([^/?#]+)/i)
   if (!match) return undefined
   return `at://${match[1]}/app.bsky.feed.generator/${match[2]}`
+}
+
+export function trendLinkToSearchQuery(link?: string): string | undefined {
+  if (!link) return undefined
+  const match = link.match(/^\/search\?(.+)/i)
+  if (!match) return undefined
+  try {
+    const params = new URLSearchParams(match[1])
+    const q = params.get('q')?.trim()
+    return q || undefined
+  } catch {
+    return undefined
+  }
 }
 
 function extractDomainFromUrl(rawUrl?: string): string | undefined {
@@ -396,7 +471,7 @@ function mapRawPostToCitation(
   const combinedText = textClean || (titleClean ? titleClean : '')
   if (!combinedText) return null
 
-  const handle = p.author?.handle || 'member.quantzing.com'
+  const handle = p.author?.handle?.trim() || 'unknown'
   const cleanDisplayName = stripEmojisAndSymbols(p.author?.displayName || '')
 
   return {
@@ -673,7 +748,7 @@ async function fetchPublicFallbackZings(
     const topTrendUri = trendLinkToFeedUri(trends[0].link)
     if (topTrendUri) candidateFeeds.push(topTrendUri)
   }
-  candidateFeeds.push(PUBLIC_DISCOVER_FEED_URI)
+  candidateFeeds.push(DISCOVER_FEED_URI)
 
   const batches = await Promise.all(
     candidateFeeds.map((uri, idx) =>
@@ -1724,32 +1799,124 @@ function buildLocalGroundedResponse(
   }
 }
 
+function extractRoutingMeta(
+  data: unknown,
+  res: Response,
+): {provider?: string; billingMode?: string} {
+  const obj =
+    data && typeof data === 'object'
+      ? (data as Record<string, unknown>)
+      : undefined
+  const routing =
+    obj?.routing && typeof obj.routing === 'object'
+      ? (obj.routing as Record<string, unknown>)
+      : undefined
+
+  const provider =
+    (typeof routing?.provider === 'string' && routing.provider.trim()) ||
+    (typeof obj?.provider === 'string' && obj.provider.trim()) ||
+    res.headers.get('x-quant-provider') ||
+    undefined
+
+  const billingMode =
+    (typeof routing?.billingMode === 'string' && routing.billingMode.trim()) ||
+    (typeof obj?.billingMode === 'string' && obj.billingMode.trim()) ||
+    res.headers.get('x-quant-billing-mode') ||
+    undefined
+
+  return {provider, billingMode}
+}
+
 export async function fetchLiveNetworkBriefing(
   providedTrends?: QuantyTrendItem[],
 ): Promise<LiveNetworkBriefing> {
+  // 1. Primary path: real Sovereign PDS News Briefing endpoint
+  try {
+    const serverBriefing = await fetchQuantZingNewsBriefing(8)
+    if (serverBriefing.ok && serverBriefing.topics.length > 0) {
+      const allTopZings: QuantySourceCitation[] = []
+      const seenUris = new Set<string>()
+      const stories: LiveNetworkBriefingStory[] = serverBriefing.topics.map(
+        (topic, idx) => {
+          const mappedSamples: QuantySourceCitation[] = (
+            topic.samplePosts || []
+          ).map(sp => {
+            const cleanText = stripEmojisAndSymbols(sp.text || '')
+            const cite: QuantySourceCitation = {
+              uri: sp.uri,
+              handle: sp.authorHandle,
+              displayName: sp.authorHandle,
+              text: cleanText,
+              likeCount: Number(sp.likeCount || 0),
+              repostCount: 0,
+              replyCount: 0,
+            }
+            if (!seenUris.has(cite.uri)) {
+              seenUris.add(cite.uri)
+              allTopZings.push(cite)
+            }
+            return cite
+          })
+          const topZing = mappedSamples[0]
+          const totalEngagement = mappedSamples.reduce(
+            (sum, z) => sum + z.likeCount,
+            0,
+          )
+          const headline =
+            stripEmojisAndSymbols(topic.topic) || topic.topic || 'Topic'
+          const summary = stripEmojisAndSymbols(topic.summary || '')
+          return {
+            id: topic.id || `${headline}_${idx}`,
+            headline,
+            description: summary || undefined,
+            postCount: Number(topic.postCount || mappedSamples.length),
+            topZing,
+            zingCount: Number(topic.postCount || mappedSamples.length),
+            totalEngagement,
+            summary,
+            prompt: `Explain what is happening with "${headline}" — key developments, leading voices, and context`,
+          }
+        },
+      )
+
+      const topHeadlines = stories
+        .slice(0, 3)
+        .map(s => s.headline)
+        .join(' · ')
+
+      return {
+        generatedAt: serverBriefing.generatedAt || new Date().toISOString(),
+        headline: topHeadlines || "Today's News",
+        overview: `Tracking ${stories.length} active stories from real QuantZing activity.`,
+        stories,
+        topZings: allTopZings
+          .sort((a, b) => b.likeCount - a.likeCount)
+          .slice(0, 5),
+      }
+    }
+  } catch {
+    // Fall through cleanly to real public trends (never hardcoded fake topics)
+  }
+
+  // 2. Fallback: real Sovereign PDS public trends ONLY (zero hardcoded seed topics)
   let trends =
     providedTrends && providedTrends.length > 0 ? providedTrends.slice(0, 6) : []
 
-  const needsPublicHydration =
-    trends.length === 0 || !trends.some(t => Boolean(t.link || t.description))
-  if (needsPublicHydration) {
-    const publicTrends = await fetchPublicTrends(6)
-    if (publicTrends.length > 0) {
-      trends = publicTrends
+  if (trends.length === 0) {
+    trends = await fetchPublicTrends(6)
+  }
+
+  if (trends.length === 0) {
+    return {
+      generatedAt: new Date().toISOString(),
+      headline: "Today's News",
+      overview: 'No trending topics on the network yet.',
+      stories: [],
+      topZings: [],
     }
   }
 
-  const seedTopics: QuantyTrendItem[] =
-    trends.length > 0
-      ? trends
-      : [
-          {topic: 'AI', displayName: 'AI & Frontier Tech', category: 'Technology'},
-          {topic: 'breaking news', displayName: 'World News', category: 'News'},
-          {topic: 'open source', displayName: 'Open Source & Engineering', category: 'Tech'},
-          {topic: 'markets economy', displayName: 'Markets & Economy', category: 'Business'},
-        ]
-
-  const activeTopics = seedTopics.slice(0, 5)
+  const activeTopics = trends.slice(0, 5)
   const searchResults = await Promise.all(
     activeTopics.map(async t => {
       const feedUri = trendLinkToFeedUri(t.link)
@@ -1757,7 +1924,8 @@ export async function fetchLiveNetworkBriefing(
         const feedZings = await fetchFeedZings(feedUri, 4)
         if (feedZings.length > 0) return feedZings
       }
-      return searchLiveZings(t.displayName || t.topic, 3, 'top')
+      const query = trendLinkToSearchQuery(t.link) || t.displayName || t.topic
+      return searchLiveZings(query, 3, 'top')
     }),
   )
 
@@ -1790,7 +1958,7 @@ export async function fetchLiveNetworkBriefing(
       cleanDescription ||
       (topSnippet
         ? `${topSnippet}${topZing && topZing.text.length > 120 ? '...' : ''}`
-        : `Trending discussion around ${headline}.`)
+        : '')
 
     return {
       id: `${trend.topic}_${idx}`,
@@ -1816,10 +1984,7 @@ export async function fetchLiveNetworkBriefing(
   return {
     generatedAt: new Date().toISOString(),
     headline: topHeadlines || "Today's News",
-    overview:
-      stories.length > 0
-        ? `Tracking ${stories.length} active stories right now.`
-        : 'Scanning current stories.',
+    overview: `Tracking ${stories.length} active stories right now.`,
     stories,
     topZings: allTopZings
       .sort((a, b) => b.likeCount - a.likeCount)
@@ -1832,7 +1997,11 @@ export async function askQuanty(
 ): Promise<QuantyAskResponse> {
   const started = Date.now()
   const urls = getQuantOsBaseUrls()
-  const ownerId = req.ownerId || 'quantzing-guest'
+  const ownerId = req.ownerId?.trim() || 'anonymous'
+  const routerModel =
+    req.mode === 'deepsearch' || req.mode === 'pulse'
+      ? 'quant/auto-pro'
+      : 'quant/auto-fast'
 
   let searchQuery = ''
   if (req.postContext?.text) {
@@ -1867,7 +2036,10 @@ export async function askQuanty(
     }
   }
   if (!searchQuery && resolvedTrends.length > 0) {
-    searchQuery = resolvedTrends[0].displayName || resolvedTrends[0].topic
+    searchQuery =
+      trendLinkToSearchQuery(resolvedTrends[0].link) ||
+      resolvedTrends[0].displayName ||
+      resolvedTrends[0].topic
   }
 
   const enrichedReq: QuantyAskRequest = {
@@ -1958,6 +2130,7 @@ export async function askQuanty(
         },
         body: JSON.stringify({
           ownerId,
+          model: routerModel,
           messages,
           includeMemoryContext: true,
           includeSkillContext: true,
@@ -1969,6 +2142,7 @@ export async function askQuanty(
       const data = await res.json().catch(() => null)
       const content = extractChatContent(data)
       if (content) {
+        const meta = extractRoutingMeta(data, res)
         const fallbackDraft = synthesizeDraftFromContext(
           req.prompt,
           req.postContext,
@@ -1978,6 +2152,8 @@ export async function askQuanty(
         return {
           answer: content,
           origin: 'quant-ai',
+          provider: meta.provider,
+          billingMode: meta.billingMode,
           citations,
           suggestedZingDraft: extractSuggestedDraftFromLlmAnswer(
             content,
@@ -2003,7 +2179,7 @@ export async function askQuanty(
           'x-quant-owner-id': ownerId,
         },
         body: JSON.stringify({
-          model: 'quant/auto',
+          model: routerModel,
           ownerId,
           messages,
           temperature,
@@ -2016,6 +2192,7 @@ export async function askQuanty(
       const data = await res.json().catch(() => null)
       const content = extractChatContent(data)
       if (content) {
+        const meta = extractRoutingMeta(data, res)
         const fallbackDraft = synthesizeDraftFromContext(
           req.prompt,
           req.postContext,
@@ -2025,8 +2202,8 @@ export async function askQuanty(
         return {
           answer: content,
           origin: 'quant-router',
-          provider: res.headers.get('x-quant-provider') || undefined,
-          billingMode: res.headers.get('x-quant-billing-mode') || undefined,
+          provider: meta.provider,
+          billingMode: meta.billingMode,
           citations,
           suggestedZingDraft: extractSuggestedDraftFromLlmAnswer(
             content,
@@ -2040,7 +2217,7 @@ export async function askQuanty(
     // Fall through cleanly to live network synthesis
   }
 
-  // 3. Smooth live network synthesis fallback
+  // 3. Live network synthesis fallback (explicitly tagged as 'live-network')
   const local = buildLocalGroundedResponse(enrichedReq, citations, searchQuery)
   return {
     answer: local.answer,
@@ -2051,127 +2228,834 @@ export async function askQuanty(
   }
 }
 
-const PLAN_PRICING: Record<
-  QuantZingPlanId,
-  {label: string; monthlyMinor: number; annualMinor: number; credits: number}
-> = {
-  'zing-basic': {
-    label: 'Zing Basic',
-    monthlyMinor: 300,
-    annualMinor: 3000,
-    credits: 500,
-  },
-  'zing-pro': {
-    label: 'Zing Pro',
-    monthlyMinor: 800,
-    annualMinor: 8000,
-    credits: 2000,
-  },
-  'zing-pro-plus': {
-    label: 'Zing Pro+',
-    monthlyMinor: 1600,
-    annualMinor: 16000,
-    credits: 6000,
-  },
+// ============================================================================
+// Sovereign PDS REST API Clients (100% Real Persistence per CONTRACT.md)
+// ============================================================================
+
+async function quantzingApiFetch<T>(
+  path: string,
+  options: {
+    method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+    accessJwt?: string
+    body?: unknown
+    timeoutMs?: number
+  } = {},
+): Promise<T> {
+  const origin = getQuantZingApiOrigin()
+  const headers: Record<string, string> = {
+    accept: 'application/json',
+  }
+  if (options.accessJwt) {
+    headers.authorization = `Bearer ${options.accessJwt}`
+  }
+  if (options.body !== undefined) {
+    headers['content-type'] = 'application/json'
+  }
+  const res = await fetchWithTimeout(
+    `${origin}${path}`,
+    {
+      method: options.method || 'GET',
+      headers,
+      body:
+        options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    },
+    options.timeoutMs ?? 8000,
+  )
+  const payload = (await res.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null
+  if (!res.ok) {
+    const errMessage =
+      (typeof payload?.message === 'string' && payload.message) ||
+      (typeof payload?.error === 'string' && payload.error) ||
+      (typeof (payload?.error as Record<string, unknown> | undefined)
+        ?.message === 'string' &&
+        String((payload?.error as Record<string, unknown>).message)) ||
+      `Request failed (HTTP ${res.status})`
+    throw new Error(errMessage)
+  }
+  return payload as T
 }
 
-export async function createQuantZingProCheckout(
-  req: QuantZingCheckoutRequest,
-): Promise<QuantZingCheckoutResult> {
-  const urls = getQuantOsBaseUrls()
-  const plan = PLAN_PRICING[req.planId]
-  const cycle = req.billingCycle || 'monthly'
-  const amountMinor =
-    cycle === 'annual' ? plan.annualMinor : plan.monthlyMinor
-  const ownerId = (req.emailOrHandle || 'quantzing-member').trim()
-  const returnUrl =
-    IS_WEB && typeof window !== 'undefined'
-      ? `${window.location.origin}/pro?checkout=complete&plan=${req.planId}`
-      : 'https://quantzing.com/pro'
+export function buildQuantZingBlobUrl(did: string, cid: string): string {
+  const origin = getQuantZingApiOrigin()
+  return `${origin}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(
+    did,
+  )}&cid=${encodeURIComponent(cid)}`
+}
 
-  try {
-    const res = await fetchWithTimeout(
-      `${urls.pay}/v1/checkout/session`,
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          accept: 'application/json',
-        },
-        body: JSON.stringify({
-          ownerId,
-          amountMinor,
-          currency: 'USD',
-          credits: plan.credits,
-          idempotencyKey: `qz_${req.planId}_${cycle}_${Date.now()}`,
-          returnUrl,
-          description: `QuantZing ${plan.label} (${cycle})`,
-          metadata: {
-            product: 'quant-zing',
-            planId: req.planId,
-            billingCycle: cycle,
-          },
-        }),
+// --- A. Articles (/api/quantzing/articles) ---
+
+export interface QuantZingArticleRecord {
+  id: string
+  uri: string
+  authorDid: string
+  authorHandle: string
+  authorDisplayName: string
+  authorAvatar?: string
+  title: string
+  subtitle: string
+  body: string
+  tags: string[]
+  coverUrl?: string
+  status: 'draft' | 'published'
+  readTimeMinutes: number
+  viewsCount: number
+  createdAt: string
+  updatedAt: string
+  publishedAt?: string
+}
+
+export async function fetchQuantZingArticles(params?: {
+  actor?: string
+  status?: 'all' | 'published' | 'draft'
+  limit?: number
+  accessJwt?: string
+}): Promise<QuantZingArticleRecord[]> {
+  const qs = new URLSearchParams()
+  if (params?.actor) qs.set('actor', params.actor)
+  if (params?.status) qs.set('status', params.status)
+  if (params?.limit) qs.set('limit', String(params.limit))
+  const suffix = qs.toString() ? `?${qs.toString()}` : ''
+  const data = await quantzingApiFetch<{
+    ok: boolean
+    articles?: QuantZingArticleRecord[]
+  }>(`/api/quantzing/articles${suffix}`, {
+    method: 'GET',
+    accessJwt: params?.accessJwt,
+  })
+  return Array.isArray(data?.articles) ? data.articles : []
+}
+
+export async function fetchQuantZingArticle(
+  id: string,
+  accessJwt?: string,
+): Promise<QuantZingArticleRecord | null> {
+  const data = await quantzingApiFetch<{
+    ok: boolean
+    article?: QuantZingArticleRecord
+  }>(`/api/quantzing/articles/${encodeURIComponent(id)}`, {
+    method: 'GET',
+    accessJwt,
+  })
+  return data?.article ?? null
+}
+
+export async function saveQuantZingArticle(
+  payload: {
+    id?: string
+    title: string
+    subtitle?: string
+    body: string
+    tags?: string[]
+    coverUrl?: string
+    status?: 'draft' | 'published'
+    shareToFeed?: boolean
+  },
+  accessJwt: string,
+): Promise<{ok: boolean; article: QuantZingArticleRecord; postUri?: string}> {
+  if (payload.id && !payload.shareToFeed) {
+    return quantzingApiFetch<{
+      ok: boolean
+      article: QuantZingArticleRecord
+      postUri?: string
+    }>(`/api/quantzing/articles/${encodeURIComponent(payload.id)}`, {
+      method: 'PUT',
+      accessJwt,
+      body: payload,
+    })
+  }
+  return quantzingApiFetch<{
+    ok: boolean
+    article: QuantZingArticleRecord
+    postUri?: string
+  }>('/api/quantzing/articles', {
+    method: 'POST',
+    accessJwt,
+    body: payload,
+  })
+}
+
+export async function deleteQuantZingArticle(
+  id: string,
+  accessJwt: string,
+): Promise<{ok: boolean; deleted: boolean}> {
+  return quantzingApiFetch<{ok: boolean; deleted: boolean}>(
+    `/api/quantzing/articles/${encodeURIComponent(id)}`,
+    {
+      method: 'DELETE',
+      accessJwt,
+    },
+  )
+}
+
+// --- B. Creator Studio (/api/quantzing/creator/*) ---
+
+export interface CreatorAnalyticsTotals {
+  postsCount: number
+  followersCount: number
+  followingCount: number
+  impressions: number
+  likes: number
+  rezings: number
+  replies: number
+  quotes: number
+  bookmarks: number
+  engagementRate: number
+}
+
+export interface CreatorAnalyticsDailyPoint {
+  date: string
+  impressions: number
+  engagements: number
+  posts: number
+}
+
+export interface CreatorAnalyticsTopPost {
+  uri: string
+  cid: string
+  text: string
+  createdAt: string
+  viewCount: number
+  likeCount: number
+  repostCount: number
+  replyCount: number
+  quoteCount: number
+  bookmarkCount: number
+  engagementRate: number
+}
+
+export interface CreatorAnalyticsResponse {
+  ok: boolean
+  windowDays: number
+  totals: CreatorAnalyticsTotals
+  daily: CreatorAnalyticsDailyPoint[]
+  topPosts: CreatorAnalyticsTopPost[]
+}
+
+export interface CreatorMonetizationStatus {
+  ok?: boolean
+  enrolled: boolean
+  status: 'not_enrolled' | 'pending_eligibility' | 'eligible' | 'active'
+  enrolledAt?: string
+  payoutMethod?: string
+  eligibility: {
+    followersCount: number
+    followersRequired: number
+    postsCount: number
+    postsRequired: number
+    impressions30d: number
+    impressionsRequired: number
+    isPro: boolean
+  }
+  wallet: {
+    online: boolean
+    balanceCredits: number
+    currency: string
+  }
+}
+
+export async function fetchCreatorAnalytics(
+  windowDays: number,
+  accessJwt: string,
+): Promise<CreatorAnalyticsResponse> {
+  return quantzingApiFetch<CreatorAnalyticsResponse>(
+    `/api/quantzing/creator/analytics?windowDays=${encodeURIComponent(
+      String(windowDays),
+    )}`,
+    {method: 'GET', accessJwt},
+  )
+}
+
+export async function fetchCreatorMonetization(
+  accessJwt: string,
+): Promise<CreatorMonetizationStatus> {
+  return quantzingApiFetch<CreatorMonetizationStatus>(
+    '/api/quantzing/creator/monetization',
+    {method: 'GET', accessJwt},
+  )
+}
+
+export async function enrollCreatorMonetization(
+  accessJwt: string,
+  payoutMethod?: string,
+): Promise<{ok: boolean; monetization: CreatorMonetizationStatus}> {
+  return quantzingApiFetch<{
+    ok: boolean
+    monetization: CreatorMonetizationStatus
+  }>('/api/quantzing/creator/monetization/enroll', {
+    method: 'POST',
+    accessJwt,
+    body: payoutMethod ? {payoutMethod} : {},
+  })
+}
+
+// --- C. ZingSpaces (/api/quantzing/spaces*) ---
+
+export type QuantZingSpaceReactionKind =
+  | 'applause'
+  | 'fire'
+  | 'insight'
+  | 'heart'
+  | 'wave'
+
+export interface QuantZingSpaceParticipant {
+  did: string
+  handle: string
+  displayName: string
+  avatar?: string
+  role: 'host' | 'speaker' | 'listener'
+  handRaised: boolean
+  joinedAt: string
+}
+
+export interface QuantZingSpaceReaction {
+  id: string
+  did: string
+  handle: string
+  kind: QuantZingSpaceReactionKind
+  createdAt: string
+}
+
+export interface QuantZingSpace {
+  id: string
+  slug: string
+  title: string
+  topic: string
+  hostDid: string
+  hostHandle: string
+  hostDisplayName: string
+  hostAvatar?: string
+  status: 'live' | 'scheduled' | 'ended'
+  startedAt: string
+  scheduledFor?: string
+  endedAt?: string
+  audioMode: 'text_stage_ready' | 'webrtc_signaling'
+  listenerCount: number
+  speakerCount: number
+  participants: QuantZingSpaceParticipant[]
+  recentReactions: QuantZingSpaceReaction[]
+}
+
+export async function fetchZingSpaces(
+  status: 'all' | 'live' | 'scheduled' | 'ended' = 'all',
+  accessJwt?: string,
+): Promise<QuantZingSpace[]> {
+  const data = await quantzingApiFetch<{
+    ok: boolean
+    spaces?: QuantZingSpace[]
+  }>(`/api/quantzing/spaces?status=${encodeURIComponent(status)}`, {
+    method: 'GET',
+    accessJwt,
+  })
+  return Array.isArray(data?.spaces) ? data.spaces : []
+}
+
+export async function fetchZingSpace(
+  slug: string,
+  accessJwt?: string,
+): Promise<QuantZingSpace | null> {
+  const data = await quantzingApiFetch<{
+    ok: boolean
+    space?: QuantZingSpace
+  }>(`/api/quantzing/spaces/${encodeURIComponent(slug)}`, {
+    method: 'GET',
+    accessJwt,
+  })
+  return data?.space ?? null
+}
+
+export async function createZingSpace(
+  payload: {
+    title: string
+    topic?: string
+    status?: 'live' | 'scheduled'
+    scheduledFor?: string
+  },
+  accessJwt: string,
+): Promise<QuantZingSpace> {
+  const data = await quantzingApiFetch<{ok: boolean; space: QuantZingSpace}>(
+    '/api/quantzing/spaces',
+    {
+      method: 'POST',
+      accessJwt,
+      body: payload,
+    },
+  )
+  return data.space
+}
+
+export async function updateZingSpace(
+  slug: string,
+  payload: {
+    title?: string
+    topic?: string
+    status?: 'live' | 'ended'
+    promoteDid?: string
+    demoteDid?: string
+  },
+  accessJwt: string,
+): Promise<QuantZingSpace> {
+  const data = await quantzingApiFetch<{ok: boolean; space: QuantZingSpace}>(
+    `/api/quantzing/spaces/${encodeURIComponent(slug)}`,
+    {
+      method: 'PATCH',
+      accessJwt,
+      body: payload,
+    },
+  )
+  return data.space
+}
+
+export async function deleteZingSpace(
+  slug: string,
+  accessJwt: string,
+): Promise<{ok: boolean; deleted: boolean}> {
+  return quantzingApiFetch<{ok: boolean; deleted: boolean}>(
+    `/api/quantzing/spaces/${encodeURIComponent(slug)}`,
+    {
+      method: 'DELETE',
+      accessJwt,
+    },
+  )
+}
+
+export async function joinZingSpace(
+  slug: string,
+  accessJwt: string,
+): Promise<QuantZingSpace> {
+  const data = await quantzingApiFetch<{ok: boolean; space: QuantZingSpace}>(
+    `/api/quantzing/spaces/${encodeURIComponent(slug)}/join`,
+    {
+      method: 'POST',
+      accessJwt,
+      body: {},
+    },
+  )
+  return data.space
+}
+
+export async function leaveZingSpace(
+  slug: string,
+  accessJwt: string,
+): Promise<QuantZingSpace> {
+  const data = await quantzingApiFetch<{ok: boolean; space: QuantZingSpace}>(
+    `/api/quantzing/spaces/${encodeURIComponent(slug)}/leave`,
+    {
+      method: 'POST',
+      accessJwt,
+      body: {},
+    },
+  )
+  return data.space
+}
+
+export async function setSpaceHand(
+  slug: string,
+  raised: boolean,
+  accessJwt: string,
+): Promise<QuantZingSpace> {
+  const data = await quantzingApiFetch<{ok: boolean; space: QuantZingSpace}>(
+    `/api/quantzing/spaces/${encodeURIComponent(slug)}/hand`,
+    {
+      method: 'POST',
+      accessJwt,
+      body: {raised},
+    },
+  )
+  return data.space
+}
+
+export async function sendSpaceReaction(
+  slug: string,
+  kind: QuantZingSpaceReactionKind,
+  accessJwt: string,
+): Promise<QuantZingSpace> {
+  const data = await quantzingApiFetch<{ok: boolean; space: QuantZingSpace}>(
+    `/api/quantzing/spaces/${encodeURIComponent(slug)}/react`,
+    {
+      method: 'POST',
+      accessJwt,
+      body: {kind},
+    },
+  )
+  return data.space
+}
+
+export function getSpaceEventsUrl(slug: string): string {
+  const origin = getQuantZingApiOrigin()
+  return `${origin}/api/quantzing/spaces/${encodeURIComponent(slug)}/events`
+}
+
+// --- D. QuantZing Pro (/api/quantzing/pro/*) ---
+
+export type ProPlanId =
+  | 'free'
+  | 'pro_monthly'
+  | 'pro_annual'
+  | 'creator_studio'
+
+export interface ProPlan {
+  id: ProPlanId | string
+  name: string
+  priceInr: number
+  priceUsd: number
+  billingCycle: string
+  features: string[]
+  badge?: string
+}
+
+export interface ProSubscription {
+  planId: string
+  status: 'free' | 'pending' | 'active' | 'cancelled'
+  activatedAt?: string
+  expiresAt?: string
+  verifiedBadge: boolean
+  orderId?: string
+}
+
+export interface ProCheckoutResponse {
+  ok: boolean
+  orderId?: string
+  planId: string
+  status: 'pending' | 'active'
+  checkoutUrl?: string
+  quantPayOnline: boolean
+  message: string
+}
+
+export async function fetchProPlans(): Promise<ProPlan[]> {
+  const data = await quantzingApiFetch<{ok: boolean; plans?: ProPlan[]}>(
+    '/api/quantzing/pro/plans',
+    {method: 'GET'},
+  )
+  return Array.isArray(data?.plans) ? data.plans : []
+}
+
+export async function fetchProSubscription(
+  accessJwt: string,
+): Promise<ProSubscription> {
+  const data = await quantzingApiFetch<{
+    ok: boolean
+    subscription: ProSubscription
+  }>('/api/quantzing/pro/subscription', {
+    method: 'GET',
+    accessJwt,
+  })
+  return data.subscription
+}
+
+export async function createProCheckout(
+  payload: {planId: string; returnUrl?: string},
+  accessJwt: string,
+): Promise<ProCheckoutResponse> {
+  return quantzingApiFetch<ProCheckoutResponse>('/api/quantzing/pro/checkout', {
+    method: 'POST',
+    accessJwt,
+    body: payload,
+  })
+}
+
+export async function confirmProCheckout(
+  payload: {orderId: string; planId?: string},
+  accessJwt: string,
+): Promise<ProSubscription> {
+  const data = await quantzingApiFetch<{
+    ok: boolean
+    subscription: ProSubscription
+  }>('/api/quantzing/pro/confirm', {
+    method: 'POST',
+    accessJwt,
+    body: payload,
+  })
+  return data.subscription
+}
+
+export async function cancelProSubscription(
+  accessJwt: string,
+): Promise<ProSubscription> {
+  const data = await quantzingApiFetch<{
+    ok: boolean
+    subscription: ProSubscription
+  }>('/api/quantzing/pro/cancel', {
+    method: 'POST',
+    accessJwt,
+    body: {},
+  })
+  return data.subscription
+}
+
+// --- E. Interactive Polls (/api/quantzing/polls*) ---
+
+export interface QuantZingPollOptionView {
+  id: string
+  text: string
+  votesCount: number
+  percent: number
+}
+
+export interface QuantZingPollView {
+  $type?: 'com.quantzing.embed.poll#view'
+  uri: string
+  question?: string
+  options: QuantZingPollOptionView[]
+  totalVotes: number
+  expiresAt: string
+  isExpired: boolean
+  viewerVoteOptionId: string | null
+}
+
+export async function voteQuantZingPoll(
+  postUri: string,
+  optionId: string,
+  accessJwt: string,
+): Promise<QuantZingPollView> {
+  const data = await quantzingApiFetch<{ok: boolean; poll: QuantZingPollView}>(
+    '/api/quantzing/polls/vote',
+    {
+      method: 'POST',
+      accessJwt,
+      body: {postUri, optionId},
+    },
+  )
+  return data.poll
+}
+
+export async function fetchQuantZingPoll(
+  postUri: string,
+  accessJwt?: string,
+): Promise<QuantZingPollView | null> {
+  const data = await quantzingApiFetch<{
+    ok: boolean
+    poll?: QuantZingPollView
+  }>(`/api/quantzing/polls?uri=${encodeURIComponent(postUri)}`, {
+    method: 'GET',
+    accessJwt,
+  })
+  return data?.poll ?? null
+}
+
+export interface CreateQuantZingPollEmbedInput {
+  question?: string
+  options: Array<{id: string; text: string}>
+  durationHours: number
+  expiresAt: string
+}
+
+export async function createQuantZingPostRecord(
+  payload: {
+    repo: string
+    text: string
+    facets?: unknown[]
+    langs?: string[]
+    poll?: CreateQuantZingPollEmbedInput
+  },
+  accessJwt: string,
+): Promise<{uri: string; cid: string}> {
+  const record: Record<string, unknown> = {
+    $type: 'app.bsky.feed.post',
+    text: payload.text,
+    createdAt: new Date().toISOString(),
+  }
+  if (Array.isArray(payload.facets) && payload.facets.length > 0) {
+    record.facets = payload.facets
+  }
+  if (Array.isArray(payload.langs) && payload.langs.length > 0) {
+    record.langs = payload.langs
+  }
+  if (payload.poll && payload.poll.options.length >= 2) {
+    record.embed = {
+      $type: 'com.quantzing.embed.poll',
+      question: payload.poll.question || payload.text || undefined,
+      options: payload.poll.options,
+      durationHours: payload.poll.durationHours,
+      expiresAt: payload.poll.expiresAt,
+    }
+  }
+  return quantzingApiFetch<{uri: string; cid: string}>(
+    '/xrpc/com.atproto.repo.createRecord',
+    {
+      method: 'POST',
+      accessJwt,
+      body: {
+        repo: payload.repo,
+        collection: 'app.bsky.feed.post',
+        record,
       },
-      4500,
-    )
+    },
+  )
+}
 
-    const payload = (await res.json().catch(() => null)) as Record<
-      string,
-      unknown
-    > | null
+// --- F. Support Tickets, News Briefing & App Release ---
 
-    if (payload?.offline || res.status === 503) {
-      return {
-        ok: false,
-        offline: true,
-        planId: req.planId,
-        message:
-          'Checkout is temporarily unavailable. Please try again in a moment.',
-      }
-    }
+export interface SupportTicket {
+  id: string
+  category: string
+  subject: string
+  message?: string
+  status: string
+  createdAt: string
+}
 
-    const errObj = payload?.error as Record<string, unknown> | undefined
-    if (!res.ok) {
-      const code = typeof errObj?.code === 'string' ? errObj.code : ''
-      if (code === 'PROVIDER_NOT_CONFIGURED') {
-        return {
-          ok: false,
-          unconfigured: true,
-          planId: req.planId,
-          message:
-            'Checkout is currently in preview mode. Billing will open soon.',
-        }
-      }
-      return {
-        ok: false,
-        planId: req.planId,
-        message:
-          (typeof errObj?.message === 'string' && errObj.message) ||
-          'Unable to start checkout right now. Please try again.',
-      }
-    }
+export async function submitSupportTicket(
+  payload: {
+    category: string
+    subject: string
+    message: string
+    email?: string
+  },
+  accessJwt?: string,
+): Promise<SupportTicket> {
+  const data = await quantzingApiFetch<{ok: boolean; ticket: SupportTicket}>(
+    '/api/quantzing/support/tickets',
+    {
+      method: 'POST',
+      accessJwt,
+      body: payload,
+    },
+  )
+  return data.ticket
+}
 
-    const session = payload?.session as Record<string, unknown> | undefined
-    return {
-      ok: true,
-      planId: req.planId,
-      sessionId: typeof session?.id === 'string' ? session.id : undefined,
-      checkoutUrl:
-        typeof session?.checkoutUrl === 'string'
-          ? session.checkoutUrl
-          : typeof session?.url === 'string'
-            ? session.url
-            : undefined,
-      message: `Checkout session ready for ${plan.label}.`,
-    }
+export async function fetchSupportTickets(
+  accessJwt: string,
+): Promise<SupportTicket[]> {
+  const data = await quantzingApiFetch<{
+    ok: boolean
+    tickets?: SupportTicket[]
+  }>('/api/quantzing/support/tickets', {
+    method: 'GET',
+    accessJwt,
+  })
+  return Array.isArray(data?.tickets) ? data.tickets : []
+}
+
+export interface QuantZingNewsBriefingSamplePost {
+  uri: string
+  authorHandle: string
+  text: string
+  viewCount: number
+  likeCount: number
+}
+
+export interface QuantZingNewsBriefingTopic {
+  id: string
+  topic: string
+  summary: string
+  postCount: number
+  samplePosts: QuantZingNewsBriefingSamplePost[]
+}
+
+export interface QuantZingNewsBriefingResponse {
+  ok: boolean
+  generatedAt: string
+  topics: QuantZingNewsBriefingTopic[]
+}
+
+export async function fetchQuantZingNewsBriefing(
+  limit = 8,
+): Promise<QuantZingNewsBriefingResponse> {
+  return quantzingApiFetch<QuantZingNewsBriefingResponse>(
+    `/api/quantzing/news/briefing?limit=${encodeURIComponent(String(limit))}`,
+    {method: 'GET', timeoutMs: 5000},
+  )
+}
+
+export interface QuantZingAppRelease {
+  ok: boolean
+  version: string
+  domain: string
+  pwaReady: boolean
+  android: {
+    available: boolean
+    sizeBytes: number
+    sizeLabel: string
+    sha256: string | null
+    downloadUrl: string
+    updatedAt: string | null
+  }
+  ios: {
+    mobileconfigUrl: string
+    pwaSupported: boolean
+    appStoreStatus: string
+  }
+}
+
+function formatApkSize(bytes: number): string {
+  if (!bytes || bytes <= 0) return ''
+  const mb = bytes / (1024 * 1024)
+  return `${mb.toFixed(1)} MB`
+}
+
+export async function fetchQuantZingAppRelease(): Promise<QuantZingAppRelease> {
+  const raw = await quantzingApiFetch<Record<string, any>>(
+    '/api/quantzing/app-release',
+    {method: 'GET', timeoutMs: 5000},
+  )
+
+  const androidRaw =
+    raw?.android && typeof raw.android === 'object' ? raw.android : {}
+  const iosRaw = raw?.ios && typeof raw.ios === 'object' ? raw.ios : {}
+
+  const sizeBytes = Number(
+    androidRaw.sizeBytes ?? raw?.sizeBytes ?? raw?.androidApkSizeBytes ?? 0,
+  )
+  const sizeLabel =
+    (typeof androidRaw.sizeLabel === 'string' && androidRaw.sizeLabel) ||
+    (typeof raw?.sizeLabel === 'string' && raw.sizeLabel) ||
+    (typeof raw?.androidApkSizeLabel === 'string' && raw.androidApkSizeLabel) ||
+    formatApkSize(sizeBytes)
+
+  const available = Boolean(
+    androidRaw.available ?? raw?.available ?? raw?.androidApkAvailable ?? false,
+  )
+  const downloadUrl =
+    (typeof androidRaw.downloadUrl === 'string' && androidRaw.downloadUrl) ||
+    (typeof raw?.downloadUrl === 'string' && raw.downloadUrl) ||
+    (typeof raw?.androidApkUrl === 'string' && raw.androidApkUrl) ||
+    '/download/quantzing-android.apk'
+  const sha256 =
+    (typeof androidRaw.sha256 === 'string' && androidRaw.sha256) ||
+    (typeof raw?.sha256 === 'string' && raw.sha256) ||
+    (typeof raw?.androidApkSha256 === 'string' && raw.androidApkSha256) ||
+    null
+  const updatedAt =
+    (typeof androidRaw.updatedAt === 'string' && androidRaw.updatedAt) ||
+    (typeof raw?.updatedAt === 'string' && raw.updatedAt) ||
+    (typeof raw?.androidApkUpdatedAt === 'string' && raw.androidApkUpdatedAt) ||
+    null
+
+  let fallbackHost = ''
+  try {
+    fallbackHost = new URL(getQuantZingApiOrigin()).host
   } catch {
-    return {
-      ok: false,
-      offline: true,
-      planId: req.planId,
-      message:
-        'Checkout is temporarily unavailable. Please try again in a moment.',
-    }
+    fallbackHost = ''
+  }
+
+  return {
+    ok: Boolean(raw?.ok ?? true),
+    version: typeof raw?.version === 'string' ? raw.version : '',
+    domain:
+      (typeof raw?.domain === 'string' && raw.domain) || fallbackHost || '',
+    pwaReady: Boolean(raw?.pwaReady ?? true),
+    android: {
+      available,
+      sizeBytes,
+      sizeLabel,
+      sha256,
+      downloadUrl,
+      updatedAt,
+    },
+    ios: {
+      mobileconfigUrl:
+        (typeof iosRaw.mobileconfigUrl === 'string' &&
+          iosRaw.mobileconfigUrl) ||
+        '/download/quantzing-ios.mobileconfig',
+      pwaSupported: Boolean(iosRaw.pwaSupported ?? true),
+      appStoreStatus:
+        (typeof iosRaw.appStoreStatus === 'string' && iosRaw.appStoreStatus) ||
+        'pending_macos_ipa_submission',
+    },
   }
 }

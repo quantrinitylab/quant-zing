@@ -5,6 +5,7 @@ const BUILD_PHASE_FILES = ['AppDelegate.swift', 'ViewController.swift']
 const withXcodeTarget = (config, {targetName}) => {
   return withXcodeProject(config, config => {
     const pbxProject = config.modResults
+    const developmentTeam = process.env.EXPO_APPLE_TEAM_ID || ''
 
     const target = pbxProject.addTarget(targetName, 'application', targetName)
     target.pbxNativeTarget.productType = `"com.apple.product-type.application.on-demand-install-capable"`
@@ -55,7 +56,9 @@ const withXcodeTarget = (config, {targetName}) => {
           buildSettingsObj.CODE_SIGN_ENTITLEMENTS = `"${targetName}/${targetName}.entitlements"`
           buildSettingsObj.CODE_SIGN_STYLE = 'Automatic'
           buildSettingsObj.CURRENT_PROJECT_VERSION = `"${
-            process.env.BSKY_IOS_BUILD_NUMBER ?? '1'
+            process.env.QUANTZING_IOS_BUILD_NUMBER ??
+            process.env.BSKY_IOS_BUILD_NUMBER ??
+            '1'
           }"`
           buildSettingsObj.GENERATE_INFOPLIST_FILE = 'YES'
           buildSettingsObj.MARKETING_VERSION = `"${config.version}"`
@@ -67,14 +70,22 @@ const withXcodeTarget = (config, {targetName}) => {
             IOSConfig.DeviceFamily.formatDeviceFamilies(
               IOSConfig.DeviceFamily.getDeviceFamilies(config),
             )
-          buildSettingsObj.DEVELOPMENT_TEAM = 'B3LX46C5HS'
+          if (developmentTeam) {
+            buildSettingsObj.DEVELOPMENT_TEAM = developmentTeam
+          }
           buildSettingsObj.IPHONEOS_DEPLOYMENT_TARGET = '16.4'
           buildSettingsObj.ASSETCATALOG_COMPILER_APPICON_NAME = 'AppIcon'
         }
       }
     }
 
-    pbxProject.addTargetAttribute('DevelopmentTeam', 'B3LX46C5HS', targetName)
+    if (developmentTeam) {
+      pbxProject.addTargetAttribute(
+        'DevelopmentTeam',
+        developmentTeam,
+        targetName,
+      )
+    }
 
     if (!pbxProject.hash.project.objects.PBXTargetDependency) {
       pbxProject.hash.project.objects.PBXTargetDependency = {}

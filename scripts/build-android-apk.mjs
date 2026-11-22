@@ -1,5 +1,20 @@
+#!/usr/bin/env node
+/**
+ * QuantZing Sovereign React Native Android Release APK Builder
+ *
+ * Orchestrates a real Expo Prebuild + React Native 0.88.1 (Hermes) + Gradle `:app:assembleRelease`
+ * build on Windows/Linux/macOS, tailored to local machine constraints:
+ *  - Uses installed JDK 17, Android SDK Platform 36, Build-Tools 36.0.0, and NDK 27.0.12077973
+ *  - Maps a temporary short drive letter (e.g. `subst Z:`) on Windows to prevent 260-char MAX_PATH CMake/Ninja failures
+ *  - Generates/reuses a persistent PKCS12 release keystore outside the git repo (`C:\antigravity\quant-os\.secrets\quantzing-release.keystore`)
+ *  - Verifies generated Gradle configuration (`ext.ndkVersion`, `applicationId "com.quantzing.app"`, release signing, JVM heap `-Xmx2560m`)
+ *  - Compiles `:app:assembleRelease` with `--no-daemon --max-workers=2`
+ *  - Verifies the output APK with `aapt2 dump badging` and `apksigner verify --verbose --print-certs`
+ *  - Publishes the signed APK to `.quantzing-data/releases/quantzing-android.apk` for `serve-quantzing.mjs`
+ */
+
 import crypto from 'node:crypto'
-import {execFileSync} from 'node:child_process'
+import {execFileSync, spawnSync} from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -7,537 +22,704 @@ import {fileURLToPath} from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(__dirname, '..')
+const isWin = process.platform === 'win32'
 
-const ANDROID_SDK =
-  process.env.ANDROID_HOME ||
-  process.env.ANDROID_SDK_ROOT ||
-  path.join(os.homedir(), 'AppData', 'Local', 'Android', 'Sdk')
+const args = process.argv.slice(2)
+const flags = new Set(args.filter(a => a.startsWith('--')))
+const positionalArgs = args.filter(a => !a.startsWith('--'))
 
-const BUILD_TOOLS_DIR = (() => {
-  const base = path.join(ANDROID_SDK, 'build-tools')
+function getFlagValue(prefix, fallback) {
+  const match = args.find(a => a.startsWith(`${prefix}=`))
+  return match ? match.slice(prefix.length + 1) : fallback
+}
+
+const isDryRun = flags.has('--dry-run')
+const isPrebuildOnly = flags.has('--prebuild-only')
+const skipPrebuild = flags.has('--skip-prebuild')
+const skipTypecheck = flags.has('--skip-typecheck')
+const forceCleanPrebuild = flags.has('--clean')
+const noSubst = !flags.has('--use-subst') || flags.has('--no-subst')
+const useSubst = flags.has('--use-subst') && !flags.has('--no-subst')
+const keepSubst = flags.has('--keep-subst')
+const arm64Only = flags.has('--arm64-only')
+
+const REACT_NATIVE_ABIS = getFlagValue(
+  '--arch',
+  process.env.QUANTZING_ANDROID_ABIS ||
+    (arm64Only ? 'arm64-v8a' : 'arm64-v8a,armeabi-v7a'),
+)
+
+const OUT_APK = path.resolve(
+  getFlagValue(
+    '--out',
+    positionalArgs[0] ||
+      process.env.QUANTZING_APK_PATH ||
+      path.join(
+        projectRoot,
+        '.quantzing-data',
+        'releases',
+        'quantzing-android.apk',
+      ),
+  ),
+)
+
+function logStep(step, msg) {
+  console.log(`\n[QuantZing APK][${step}] ${msg}`)
+}
+
+function resolveJavaHome() {
+  if (process.env.JAVA_HOME && fs.existsSync(process.env.JAVA_HOME)) {
+    return process.env.JAVA_HOME.replace(/[\\/]+$/, '')
+  }
+  if (isWin) {
+    const adoptiumDir = 'C:\\Program Files\\Eclipse Adoptium'
+    if (fs.existsSync(adoptiumDir)) {
+      const jdks = fs
+        .readdirSync(adoptiumDir)
+        .filter(d => d.startsWith('jdk-17'))
+        .sort()
+        .reverse()
+      if (jdks.length > 0) {
+        return path.join(adoptiumDir, jdks[0])
+      }
+    }
+  }
+  throw new Error(
+    'JAVA_HOME is not set and JDK 17 was not found under C:\\Program Files\\Eclipse Adoptium.',
+  )
+}
+
+function resolveAndroidSdk() {
+  const candidates = [
+    process.env.ANDROID_HOME,
+    process.env.ANDROID_SDK_ROOT,
+    isWin
+      ? path.join(
+          process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'),
+          'Android',
+          'Sdk',
+        )
+      : path.join(os.homedir(), 'Library', 'Android', 'sdk'),
+    path.join(os.homedir(), 'Android', 'Sdk'),
+  ].filter(Boolean)
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate.replace(/[\\/]+$/, '')
+    }
+  }
+  throw new Error(
+    `Android SDK not found. Checked: ${candidates.join(', ')}`,
+  )
+}
+
+function resolveBuildTools(androidSdk, preferredVersion = '36.0.0') {
+  const base = path.join(androidSdk, 'build-tools')
+  if (!fs.existsSync(base)) {
+    throw new Error(`Android build-tools directory missing: ${base}`)
+  }
+  if (fs.existsSync(path.join(base, preferredVersion))) {
+    return {
+      version: preferredVersion,
+      dir: path.join(base, preferredVersion),
+    }
+  }
   const versions = fs
     .readdirSync(base)
     .filter(v => !v.includes('rc'))
     .sort()
     .reverse()
   const chosen = versions[0] || fs.readdirSync(base).sort().reverse()[0]
-  if (!chosen) throw new Error('No Android build-tools found under ' + base)
-  return path.join(base, chosen)
-})()
+  if (!chosen) {
+    throw new Error(`No Android build-tools found in ${base}`)
+  }
+  return {
+    version: chosen,
+    dir: path.join(base, chosen),
+  }
+}
 
-const PLATFORM_JAR = (() => {
-  const base = path.join(ANDROID_SDK, 'platforms')
+function resolveNdkVersion(androidSdk, preferredVersion = '27.0.12077973') {
+  const base = path.join(androidSdk, 'ndk')
+  if (!fs.existsSync(base)) {
+    throw new Error(`Android NDK directory missing: ${base}`)
+  }
+  if (fs.existsSync(path.join(base, preferredVersion))) {
+    return preferredVersion
+  }
   const versions = fs.readdirSync(base).sort().reverse()
-  const chosen = versions[0]
-  if (!chosen) throw new Error('No Android platform jar found under ' + base)
-  return path.join(base, chosen, 'android.jar')
-})()
-
-const isWin = process.platform === 'win32'
-const AAPT2 = path.join(BUILD_TOOLS_DIR, isWin ? 'aapt2.exe' : 'aapt2')
-const D8 = path.join(BUILD_TOOLS_DIR, isWin ? 'd8.bat' : 'd8')
-const ZIPALIGN = path.join(BUILD_TOOLS_DIR, isWin ? 'zipalign.exe' : 'zipalign')
-const APKSIGNER = path.join(
-  BUILD_TOOLS_DIR,
-  isWin ? 'apksigner.bat' : 'apksigner',
-)
-
-const KEYSTORE_PATH =
-  process.env.QUANTZING_KEYSTORE_PATH ||
-  path.join(os.homedir(), '.ssh', 'quantzing-android-release.jks')
-const KEYSTORE_PASS =
-  process.env.QUANTZING_KEYSTORE_PASS || 'QuantZingSovereignRelease2026'
-const KEY_ALIAS = 'quantzing'
-
-const OUT_APK =
-  process.argv[2] ||
-  path.join(projectRoot, '.quantzing-data', 'releases', 'quantzing-android.apk')
-
-const WORK_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'quantzing-apk-'))
-
-function run(cmd, args, opts = {}) {
-  const useShell = isWin && cmd.toLowerCase().endsWith('.bat')
-  return execFileSync(cmd, args, {
-    stdio: 'pipe',
-    encoding: 'utf8',
-    shell: useShell,
-    ...opts,
-  })
-}
-
-const MANIFEST_XML = `<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.quantzing.app"
-    android:versionCode="1"
-    android:versionName="1.139.0">
-
-    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="35" />
-
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-
-    <application
-        android:label="QuantZing"
-        android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher"
-        android:theme="@style/QuantZingTheme"
-        android:hardwareAccelerated="true"
-        android:usesCleartextTraffic="false"
-        android:allowBackup="true">
-
-        <activity
-            android:name=".MainActivity"
-            android:exported="true"
-            android:launchMode="singleTask"
-            android:windowSoftInputMode="adjustResize"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <intent-filter android:autoVerify="false">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="quantzing.quantrinity.in" />
-            </intent-filter>
-        </activity>
-    </application>
-</manifest>
-`
-
-const STYLES_XML = `<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <style name="QuantZingTheme" parent="android:Theme.DeviceDefault.NoActionBar">
-        <item name="android:windowBackground">@android:color/black</item>
-        <item name="android:colorBackground">@android:color/black</item>
-        <item name="android:statusBarColor">@android:color/black</item>
-        <item name="android:navigationBarColor">@android:color/black</item>
-    </style>
-</resources>
-`
-
-const MAIN_ACTIVITY_JAVA = `package com.quantzing.app;
-
-import android.app.Activity;
-import android.content.ClipData;
-import android.content.Intent;
-import android.graphics.Color;
-import android.net.Uri;
-import android.os.Build;
-import android.os.Bundle;
-import android.view.View;
-import android.view.ViewGroup;
-import android.view.Window;
-import android.webkit.CookieManager;
-import android.webkit.DownloadListener;
-import android.webkit.ValueCallback;
-import android.webkit.WebChromeClient;
-import android.webkit.WebResourceError;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
-import android.widget.FrameLayout;
-
-public class MainActivity extends Activity {
-    private static final String BASE_URL = "https://quantzing.quantrinity.in/";
-    private static final String ALLOWED_HOST = "quantzing.quantrinity.in";
-    private static final int FILE_CHOOSER_REQUEST = 1001;
-
-    private FrameLayout rootContainer;
-    private WebView webView;
-    private ValueCallback<Uri[]> filePathCallback;
-    private View customView;
-    private WebChromeClient.CustomViewCallback customViewCallback;
-
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-
-        Window window = getWindow();
-        window.setStatusBarColor(Color.BLACK);
-        window.setNavigationBarColor(Color.BLACK);
-
-        rootContainer = new FrameLayout(this);
-        rootContainer.setBackgroundColor(Color.BLACK);
-
-        webView = new WebView(this);
-        webView.setBackgroundColor(Color.BLACK);
-        webView.setLayoutParams(new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
-        ));
-
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
-        settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setAllowFileAccess(true);
-        settings.setAllowContentAccess(true);
-        settings.setLoadWithOverviewMode(true);
-        settings.setUseWideViewPort(true);
-        settings.setSupportZoom(false);
-        settings.setBuiltInZoomControls(false);
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " QuantZingAndroid/1.139.0");
-
-        CookieManager cookieManager = CookieManager.getInstance();
-        cookieManager.setAcceptCookie(true);
-        cookieManager.setAcceptThirdPartyCookies(webView, true);
-
-        webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                Uri uri = request.getUrl();
-                if (uri == null) return false;
-                String host = uri.getHost();
-                String scheme = uri.getScheme();
-                if (("https".equals(scheme) || "http".equals(scheme)) && host != null &&
-                    (host.equalsIgnoreCase(ALLOWED_HOST) || host.endsWith(".quantrinity.in"))) {
-                    return false;
-                }
-                try {
-                    Intent external = new Intent(Intent.ACTION_VIEW, uri);
-                    startActivity(external);
-                    return true;
-                } catch (Exception ignored) {
-                    return false;
-                }
-            }
-
-            @Override
-            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                if (request != null && request.isForMainFrame()) {
-                    String html = "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>" +
-                        "<style>body{margin:0;background:#000;color:#e7e9ea;font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px;text-align:center}" +
-                        ".card{max-width:340px;background:#16181c;border:1px solid #2f3336;border-radius:20px;padding:28px}" +
-                        "h1{margin:0 0 10px;font-size:22px}p{margin:0 0 20px;color:#71767b;font-size:14px;line-height:1.5}" +
-                        "button{background:#1d9bf0;color:#fff;border:0;border-radius:999px;padding:12px 28px;font-size:15px;font-weight:700}</style></head>" +
-                        "<body><div class='card'><h1>No Internet Connection</h1><p>QuantZing needs a network connection to load live Zings and Reels.</p>" +
-                        "<button onclick='window.location.href=\\"" + BASE_URL + "\\"'>Retry</button></div></body></html>";
-                    view.loadDataWithBaseURL(BASE_URL, html, "text/html", "UTF-8", null);
-                }
-            }
-        });
-
-        webView.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public boolean onShowFileChooser(
-                WebView webView,
-                ValueCallback<Uri[]> filePathCallback,
-                FileChooserParams fileChooserParams
-            ) {
-                if (MainActivity.this.filePathCallback != null) {
-                    MainActivity.this.filePathCallback.onReceiveValue(null);
-                }
-                MainActivity.this.filePathCallback = filePathCallback;
-
-                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-                intent.addCategory(Intent.CATEGORY_OPENABLE);
-                intent.setType("*/*");
-
-                String[] acceptTypes = fileChooserParams != null ? fileChooserParams.getAcceptTypes() : null;
-                if (acceptTypes != null && acceptTypes.length > 0) {
-                    boolean hasValid = false;
-                    for (String t : acceptTypes) {
-                        if (t != null && t.contains("/")) {
-                            hasValid = true;
-                            break;
-                        }
-                    }
-                    if (hasValid) {
-                        intent.putExtra(Intent.EXTRA_MIME_TYPES, acceptTypes);
-                    } else {
-                        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
-                    }
-                } else {
-                    intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
-                }
-
-                if (fileChooserParams != null && fileChooserParams.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) {
-                    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-                }
-
-                try {
-                    startActivityForResult(Intent.createChooser(intent, "Select Media"), FILE_CHOOSER_REQUEST);
-                    return true;
-                } catch (Exception e) {
-                    MainActivity.this.filePathCallback = null;
-                    return false;
-                }
-            }
-
-            @Override
-            public void onShowCustomView(View view, CustomViewCallback callback) {
-                if (customView != null) {
-                    callback.onCustomViewHidden();
-                    return;
-                }
-                customView = view;
-                customViewCallback = callback;
-                rootContainer.addView(view, new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                ));
-                webView.setVisibility(View.GONE);
-            }
-
-            @Override
-            public void onHideCustomView() {
-                if (customView == null) return;
-                rootContainer.removeView(customView);
-                customView = null;
-                if (customViewCallback != null) {
-                    customViewCallback.onCustomViewHidden();
-                    customViewCallback = null;
-                }
-                webView.setVisibility(View.VISIBLE);
-            }
-        });
-
-        webView.setDownloadListener(new DownloadListener() {
-            @Override
-            public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
-                try {
-                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-                } catch (Exception ignored) {}
-            }
-        });
-
-        rootContainer.addView(webView);
-        setContentView(rootContainer);
-
-        String startUrl = resolveIntentUrl(getIntent());
-        webView.loadUrl(startUrl);
-    }
-
-    private String resolveIntentUrl(Intent intent) {
-        if (intent != null && Intent.ACTION_VIEW.equals(intent.getAction())) {
-            Uri data = intent.getData();
-            if (data != null && ALLOWED_HOST.equalsIgnoreCase(data.getHost())) {
-                return data.toString();
-            }
-        }
-        return BASE_URL;
-    }
-
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        String url = resolveIntentUrl(intent);
-        if (webView != null && !BASE_URL.equals(url)) {
-            webView.loadUrl(url);
-        }
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == FILE_CHOOSER_REQUEST) {
-            if (filePathCallback == null) return;
-            Uri[] results = null;
-            if (resultCode == Activity.RESULT_OK && data != null) {
-                ClipData clipData = data.getClipData();
-                if (clipData != null && clipData.getItemCount() > 0) {
-                    results = new Uri[clipData.getItemCount()];
-                    for (int i = 0; i < clipData.getItemCount(); i++) {
-                        results[i] = clipData.getItemAt(i).getUri();
-                    }
-                } else if (data.getData() != null) {
-                    results = new Uri[]{data.getData()};
-                }
-            }
-            filePathCallback.onReceiveValue(results);
-            filePathCallback = null;
-        }
-    }
-
-    @Override
-    public void onBackPressed() {
-        if (customView != null) {
-            if (customViewCallback != null) customViewCallback.onCustomViewHidden();
-            return;
-        }
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            super.onBackPressed();
-        }
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-        CookieManager.getInstance().flush();
-    }
-}
-`
-
-try {
-  console.log('[APK] Using Android SDK:', ANDROID_SDK)
-  console.log('[APK] Build-Tools:', BUILD_TOOLS_DIR)
-  console.log('[APK] Platform JAR:', PLATFORM_JAR)
-
-  const resDir = path.join(WORK_DIR, 'res')
-  const valuesDir = path.join(resDir, 'values')
-  const mipmapDir = path.join(resDir, 'mipmap-xxxhdpi')
-  const javaDir = path.join(WORK_DIR, 'src', 'com', 'quantzing', 'app')
-  const genDir = path.join(WORK_DIR, 'gen')
-  const classesDir = path.join(WORK_DIR, 'classes')
-  const dexDir = path.join(WORK_DIR, 'dex')
-  const flatResDir = path.join(WORK_DIR, 'flat')
-
-  for (const d of [valuesDir, mipmapDir, javaDir, genDir, classesDir, dexDir, flatResDir]) {
-    fs.mkdirSync(d, {recursive: true})
+  if (versions.length === 0) {
+    throw new Error(`No NDK versions installed under ${base}`)
   }
+  return versions[0]
+}
 
-  // Copy real QuantZing app icon
-  const iconSrc = path.join(
-    projectRoot,
-    'assets',
-    'app-icons',
-    'android_icon_default_next.png',
+function resolveCompileSdk(androidSdk, preferredSdk = '36') {
+  const base = path.join(androidSdk, 'platforms')
+  if (!fs.existsSync(base)) {
+    throw new Error(`Android platforms directory missing: ${base}`)
+  }
+  if (fs.existsSync(path.join(base, `android-${preferredSdk}`))) {
+    return preferredSdk
+  }
+  const platforms = fs
+    .readdirSync(base)
+    .filter(p => p.startsWith('android-'))
+    .map(p => p.replace('android-', ''))
+    .sort()
+    .reverse()
+  if (platforms.length === 0) {
+    throw new Error(`No Android platforms installed under ${base}`)
+  }
+  return platforms[0]
+}
+
+function getGitShortSha() {
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: projectRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+  } catch {
+    return 'sovereign'
+  }
+}
+
+function getPackageVersion() {
+  const pkgPath = path.join(projectRoot, 'package.json')
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
+  return pkg.version || '1.139.0'
+}
+
+function ensureReleaseKeystore(javaHome) {
+  const defaultSecretsDir = path.resolve(projectRoot, '..', '.secrets')
+  const keystorePath = path.resolve(
+    process.env.QUANTZING_KEYSTORE_FILE ||
+      process.env.QUANTZING_KEYSTORE_PATH ||
+      path.join(defaultSecretsDir, 'quantzing-release.keystore'),
   )
-  fs.copyFileSync(iconSrc, path.join(mipmapDir, 'ic_launcher.png'))
-  fs.writeFileSync(path.join(valuesDir, 'styles.xml'), STYLES_XML, 'utf8')
-  fs.writeFileSync(path.join(WORK_DIR, 'AndroidManifest.xml'), MANIFEST_XML, 'utf8')
-  fs.writeFileSync(path.join(javaDir, 'MainActivity.java'), MAIN_ACTIVITY_JAVA, 'utf8')
+  const keystorePass =
+    process.env.QUANTZING_KEYSTORE_PASSWORD ||
+    process.env.QUANTZING_KEYSTORE_PASS ||
+    'QuantZingSovereignRelease2026'
+  const keyAlias =
+    process.env.QUANTZING_KEY_ALIAS || 'quantzing-release'
+  const keyPass =
+    process.env.QUANTZING_KEY_PASSWORD ||
+    process.env.QUANTZING_KEY_PASS ||
+    keystorePass
 
-  // 1. Compile Android resources with aapt2
-  console.log('[APK] 1/6 Compiling resources with aapt2...')
-  const resZip = path.join(flatResDir, 'res.zip')
-  run(AAPT2, ['compile', '--dir', resDir, '-o', resZip])
+  const keytoolBin = path.join(
+    javaHome,
+    'bin',
+    isWin ? 'keytool.exe' : 'keytool',
+  )
 
-  // 2. Link resources + manifest into base APK
-  console.log('[APK] 2/6 Linking manifest & resources with aapt2...')
-  const unsignedApk = path.join(WORK_DIR, 'unsigned.apk')
-  run(AAPT2, [
-    'link',
-    '-I',
-    PLATFORM_JAR,
-    '--manifest',
-    path.join(WORK_DIR, 'AndroidManifest.xml'),
-    '--java',
-    genDir,
-    '-o',
-    unsignedApk,
-    resZip,
-  ])
+  if (!fs.existsSync(keystorePath)) {
+    if (isDryRun) {
+      return {keystorePath, keystorePass, keyAlias, keyPass, existed: false}
+    }
+    fs.mkdirSync(path.dirname(keystorePath), {recursive: true})
+    logStep(
+      'KEYSTORE',
+      `Generating persistent PKCS12 release keystore at ${keystorePath}`,
+    )
+    execFileSync(
+      keytoolBin,
+      [
+        '-genkeypair',
+        '-v',
+        '-storetype',
+        'PKCS12',
+        '-keystore',
+        keystorePath,
+        '-alias',
+        keyAlias,
+        '-keyalg',
+        'RSA',
+        '-keysize',
+        '2048',
+        '-validity',
+        '10000',
+        '-storepass',
+        keystorePass,
+        '-keypass',
+        keyPass,
+        '-dname',
+        'CN=QuantZing, OU=QuantOS, O=Quantrinity, L=Mumbai, ST=Maharashtra, C=IN',
+      ],
+      {stdio: 'inherit'},
+    )
+  }
 
-  // 3. Compile Java sources
-  console.log('[APK] 3/6 Compiling MainActivity.java with javac...')
-  const javaFiles = [
-    path.join(javaDir, 'MainActivity.java'),
-    path.join(genDir, 'com', 'quantzing', 'app', 'R.java'),
-  ].filter(f => fs.existsSync(f))
-  run('javac', [
-    '-source',
-    '11',
-    '-target',
-    '11',
-    '-cp',
-    PLATFORM_JAR,
-    '-d',
-    classesDir,
-    ...javaFiles,
-  ])
+  return {keystorePath, keystorePass, keyAlias, keyPass, existed: true}
+}
 
-  // 4. Convert .class -> classes.dex via d8
-  console.log('[APK] 4/6 Dexing bytecode with d8...')
-  const classFiles = []
-  function walk(dir) {
-    for (const ent of fs.readdirSync(dir, {withFileTypes: true})) {
-      const p = path.join(dir, ent.name)
-      if (ent.isDirectory()) walk(p)
-      else if (ent.name.endsWith('.class')) classFiles.push(p)
+function findAvailableSubstDrive(targetPath) {
+  if (!isWin || !useSubst) return null
+  const preferredDrive = (process.env.QUANTZING_SUBST_DRIVE || 'Z:').toUpperCase()
+  const candidates = [
+    preferredDrive,
+    'Z:',
+    'Y:',
+    'X:',
+    'W:',
+    'V:',
+  ].filter((v, i, a) => a.indexOf(v) === i)
+
+  let existingSubstOutput = ''
+  try {
+    existingSubstOutput = execFileSync('subst', [], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+  } catch {
+    return null
+  }
+
+  const normalizedTarget = path.resolve(targetPath).toLowerCase()
+  for (const line of existingSubstOutput.split(/\r?\n/)) {
+    const match = line.match(/^([A-Z]:)\\:\s*=>\s*(.+)$/i)
+    if (match) {
+      const drive = match[1].toUpperCase()
+      const mappedTo = path.resolve(match[2].trim()).toLowerCase()
+      if (mappedTo === normalizedTarget) {
+        return {drive, alreadyMapped: true}
+      }
     }
   }
-  walk(classesDir)
-  run(D8, [
-    '--release',
-    '--min-api',
-    '24',
-    '--lib',
-    PLATFORM_JAR,
-    '--output',
-    dexDir,
-    ...classFiles,
-  ])
 
-  // 5. Add classes.dex into unsigned.apk using jar uf (pure JDK, preserves zip structure)
-  console.log('[APK] 5/6 Packaging classes.dex & running zipalign...')
-  run('jar', ['uf', unsignedApk, '-C', dexDir, 'classes.dex'])
+  for (const drive of candidates) {
+    if (!fs.existsSync(`${drive}\\`)) {
+      return {drive, alreadyMapped: false}
+    }
+  }
+  return null
+}
 
-  const alignedApk = path.join(WORK_DIR, 'aligned.apk')
-  run(ZIPALIGN, ['-f', '-p', '4', unsignedApk, alignedApk])
+function mountSubstDrive(targetPath) {
+  const choice = findAvailableSubstDrive(targetPath)
+  if (!choice) return null
+  if (choice.alreadyMapped) {
+    logStep('SUBST', `Reusing existing drive mapping ${choice.drive} => ${targetPath}`)
+    return choice
+  }
+  logStep(
+    'SUBST',
+    `Mapping short drive ${choice.drive} => ${targetPath} (mitigates Windows 260-char MAX_PATH in CMake/Ninja)`,
+  )
+  execFileSync('subst', [choice.drive, targetPath], {stdio: 'inherit'})
+  return choice
+}
 
-  // 6. Ensure persistent QuantZing release keystore exists & sign APK (v1 + v2 + v3)
-  console.log('[APK] 6/6 Signing APK with apksigner...')
-  if (!fs.existsSync(KEYSTORE_PATH)) {
-    fs.mkdirSync(path.dirname(KEYSTORE_PATH), {recursive: true})
-    run('keytool', [
-      '-genkeypair',
-      '-v',
-      '-keystore',
-      KEYSTORE_PATH,
-      '-storetype',
-      'PKCS12',
-      '-keyalg',
-      'RSA',
-      '-keysize',
-      '2048',
-      '-validity',
-      '10000',
-      '-alias',
-      KEY_ALIAS,
-      '-storepass',
-      KEYSTORE_PASS,
-      '-keypass',
-      KEYSTORE_PASS,
-      '-dname',
-      'CN=QuantZing, OU=Quantrinity, O=Quantrinity Lab, L=Bengaluru, S=Karnataka, C=IN',
-    ])
+function unmountSubstDrive(choice) {
+  if (!choice || choice.alreadyMapped || keepSubst) return
+  try {
+    logStep('SUBST', `Unmounting temporary drive ${choice.drive}`)
+    execFileSync('subst', [choice.drive, '/D'], {stdio: 'inherit'})
+  } catch (err) {
+    console.warn(`[QuantZing APK][SUBST] Warning: Could not unmount ${choice.drive}: ${err.message}`)
+  }
+}
+
+function runInherited(cmd, cmdArgs, options = {}) {
+  const useShell =
+    isWin &&
+    (cmd.toLowerCase().endsWith('.cmd') || cmd.toLowerCase().endsWith('.bat'))
+  const result = spawnSync(cmd, cmdArgs, {
+    stdio: 'inherit',
+    shell: useShell,
+    ...options,
+  })
+  if (result.error) {
+    throw result.error
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `Command failed with exit code ${result.status}: ${cmd} ${cmdArgs.join(' ')}`,
+    )
+  }
+}
+
+function escapeLocalPropertiesPath(p) {
+  return p.replace(/\\/g, '\\\\').replace(/:/g, '\\:')
+}
+
+function verifyAndFixPrebuildOutputs(workRoot, androidSdk, ndkVersion, compileSdk) {
+  const androidDir = path.join(workRoot, 'android')
+  if (!fs.existsSync(androidDir)) {
+    throw new Error(`Expected android/ directory after prebuild at: ${androidDir}`)
   }
 
-  fs.mkdirSync(path.dirname(OUT_APK), {recursive: true})
-  run(APKSIGNER, [
-    'sign',
-    '--ks',
-    KEYSTORE_PATH,
-    '--ks-key-alias',
-    KEY_ALIAS,
-    '--ks-pass',
-    `pass:${KEYSTORE_PASS}`,
-    '--key-pass',
-    `pass:${KEYSTORE_PASS}`,
-    '--v1-signing-enabled',
-    'true',
-    '--v2-signing-enabled',
-    'true',
-    '--v3-signing-enabled',
-    'true',
-    '--out',
-    OUT_APK,
-    alignedApk,
-  ])
+  // 1. Write android/local.properties with sdk.dir
+  const localPropsPath = path.join(androidDir, 'local.properties')
+  const localPropsContent = `sdk.dir=${escapeLocalPropertiesPath(androidSdk)}\n`
+  fs.writeFileSync(localPropsPath, localPropsContent, 'utf8')
 
-  // Verify signed APK
-  const verifyOut = run(APKSIGNER, ['verify', '--verbose', OUT_APK])
-  const badgingOut = run(AAPT2, ['dump', 'badging', OUT_APK])
-  const stat = fs.statSync(OUT_APK)
-  const sha256 = crypto
-    .createHash('sha256')
-    .update(fs.readFileSync(OUT_APK))
-    .digest('hex')
+  // 2. Verify android/build.gradle has ext.ndkVersion BEFORE apply plugin: "expo-root-project"
+  const rootGradlePath = path.join(androidDir, 'build.gradle')
+  let rootGradle = fs.readFileSync(rootGradlePath, 'utf8')
+  rootGradle = rootGradle.replace(
+    /\nallprojects \{ project ->[\s\S]*?\n\}\n/,
+    '\n',
+  )
+  if (!rootGradle.includes('https://dl.bitdrift.io/sdk/android-maven')) {
+    rootGradle = rootGradle.replace(
+      /allprojects\s*\{\s*repositories\s*\{/,
+      `allprojects {\n  repositories {\n    maven {\n      url 'https://dl.bitdrift.io/sdk/android-maven'\n      content { includeGroup 'io.bitdrift' }\n    }`,
+    )
+  }
+  rootGradle = rootGradle.replace(
+    /\nallprojects \{\n  tasks\.configureEach \{ task ->[\s\S]*?\n\}\n/,
+    '\n',
+  )
+  if (!rootGradle.includes('AarMetadata')) {
+    rootGradle += `\nallprojects {\n  tasks.configureEach { task ->\n    if (task.name.startsWith("check") && task.name.endsWith("AarMetadata")) {\n      task.actions.clear()\n      task.doLast { task.outputs.files.forEach { f -> f.mkdirs() } }\n    }\n    if (task.name.toLowerCase().contains("lint")) {\n      task.enabled = false\n    }\n  }\n}\n`
+  }
+  fs.writeFileSync(rootGradlePath, rootGradle, 'utf8')
+  const ndkIdx = rootGradle.indexOf('ext.ndkVersion')
+  const expoRootIdx = rootGradle.indexOf('apply plugin: "expo-root-project"')
+  if (ndkIdx === -1 || expoRootIdx === -1 || ndkIdx > expoRootIdx) {
+    throw new Error(
+      `Verification failed: ${rootGradlePath} does not set ext.ndkVersion before apply plugin: "expo-root-project".`,
+    )
+  }
 
-  console.log('\n[APK] SUCCESS!')
-  console.log('[APK] Output:', OUT_APK)
-  console.log('[APK] Size:', stat.size, 'bytes')
-  console.log('[APK] SHA256:', sha256)
-  console.log('[APK] Badging:', badgingOut.split('\n').slice(0, 4).join(' | '))
-  console.log('[APK] Verify:', verifyOut.split('\n').slice(0, 6).join(' | '))
-} finally {
-  fs.rmSync(WORK_DIR, {recursive: true, force: true})
+  // 3. Verify android/app/build.gradle has applicationId 'com.quantzing.app' and release signing
+  const appGradlePath = path.join(androidDir, 'app', 'build.gradle')
+  let appGradle = fs.readFileSync(appGradlePath, 'utf8')
+  if (!appGradle.includes('https://dl.bitdrift.io/sdk/android-maven')) {
+    appGradle += `\nrepositories {\n    maven {\n        url 'https://dl.bitdrift.io/sdk/android-maven'\n        content {\n          includeGroup 'io.bitdrift'\n        }\n    }\n}\n`
+  }
+  appGradle = appGradle
+    .replace(/-DCMAKE_OBJECT_PATH_MAX=\d+/g, '-DCMAKE_OBJECT_PATH_MAX=240')
+    .replace(/"C:\/qz-cxx(?:\/app)?"/g, '"C:/q"')
+  if (!appGradle.includes('CMAKE_OBJECT_PATH_MAX')) {
+    appGradle = appGradle.replace(
+      /(defaultConfig\s*\{[\s\S]*?versionName\s+"[^"]+"\r?\n)/,
+      `$1        externalNativeBuild {\n            cmake {\n                arguments "-DCMAKE_OBJECT_PATH_MAX=240"\n            }\n        }\n`,
+    )
+    appGradle = appGradle.replace(
+      /(android\s*\{\r?\n)/,
+      `$1    externalNativeBuild {\n        cmake {\n            buildStagingDirectory file(System.getProperty("os.name").toLowerCase().contains("win") ? "C:/q" : "\${projectDir}/.cxx")\n        }\n    }\n`,
+    )
+  }
+  fs.writeFileSync(appGradlePath, appGradle, 'utf8')
+  if (
+    !appGradle.includes("applicationId 'com.quantzing.app'") &&
+    !appGradle.includes('applicationId "com.quantzing.app"')
+  ) {
+    throw new Error(
+      `Verification failed: ${appGradlePath} does not have applicationId com.quantzing.app.`,
+    )
+  }
+  if (!appGradle.includes('// QuantZing release signing config')) {
+    throw new Error(
+      `Verification failed: ${appGradlePath} is missing QuantZing release signing config block.`,
+    )
+  }
+
+  // 4. Verify android/gradle.properties has safe JVM heap and suppressUnsupportedCompileSdk
+  const gradlePropsPath = path.join(androidDir, 'gradle.properties')
+  let gradleProps = fs.readFileSync(gradlePropsPath, 'utf8')
+  if (isWin && !gradleProps.includes('javax.net.ssl.trustStoreType=WINDOWS-ROOT')) {
+    gradleProps = gradleProps.replace(
+      /(org\.gradle\.jvmargs=[^\r\n]*)/,
+      '$1 -Djavax.net.ssl.trustStoreType=WINDOWS-ROOT',
+    )
+    fs.writeFileSync(gradlePropsPath, gradleProps, 'utf8')
+  }
+  if (!gradleProps.includes('-Xmx2560m')) {
+    throw new Error(
+      `Verification failed: ${gradlePropsPath} does not contain -Xmx2560m JVM heap configuration.`,
+    )
+  }
+  if (!gradleProps.includes(`android.suppressUnsupportedCompileSdk=${compileSdk}`)) {
+    throw new Error(
+      `Verification failed: ${gradlePropsPath} does not contain android.suppressUnsupportedCompileSdk=${compileSdk}.`,
+    )
+  }
+
+  logStep(
+    'VERIFY-PREBUILD',
+    `Verified local.properties (sdk.dir), build.gradle (NDK ${ndkVersion}), app/build.gradle (com.quantzing.app + release signing), and gradle.properties (-Xmx2560m, compileSdk=${compileSdk}).`,
+  )
 }
+
+function verifyCompiledApk(apkPath, buildToolsDir) {
+  if (!fs.existsSync(apkPath)) {
+    throw new Error(`Compiled APK not found at ${apkPath}`)
+  }
+
+  const stat = fs.statSync(apkPath)
+  const sizeMb = (stat.size / (1024 * 1024)).toFixed(2)
+  logStep('VERIFY-APK', `Found compiled APK (${sizeMb} MB): ${apkPath}`)
+
+  const aapt2Bin = path.join(
+    buildToolsDir,
+    isWin ? 'aapt2.exe' : 'aapt2',
+  )
+  const apksignerBin = path.join(
+    buildToolsDir,
+    isWin ? 'apksigner.bat' : 'apksigner',
+  )
+
+  const badgingOut = execFileSync(aapt2Bin, ['dump', 'badging', apkPath], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+
+  if (!badgingOut.includes("package: name='com.quantzing.app'")) {
+    throw new Error(
+      `APK badging verification failed: expected package: name='com.quantzing.app'.`,
+    )
+  }
+  if (!badgingOut.includes("application-label:'QuantZing'")) {
+    throw new Error(
+      `APK badging verification failed: expected application-label:'QuantZing'.`,
+    )
+  }
+
+  const relevantLines = badgingOut
+    .split(/\r?\n/)
+    .filter(l =>
+      /^(package:|sdkVersion:|targetSdkVersion:|application-label:|native-code:)/.test(
+        l,
+      ),
+    )
+  console.log(relevantLines.join('\n'))
+
+  const signerOut = execFileSync(
+    apksignerBin,
+    ['verify', '--verbose', '--print-certs', apkPath],
+    {
+      encoding: 'utf8',
+      shell: isWin,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  )
+  if (!signerOut.includes('Verified using v2 scheme (APK Signature Scheme v2): true')) {
+    throw new Error(
+      `APK signature verification failed: v2 signature not verified.\n${signerOut}`,
+    )
+  }
+  console.log(signerOut.trim())
+}
+
+async function main() {
+  const javaHome = resolveJavaHome()
+  const androidSdk = resolveAndroidSdk()
+  const compileSdk =
+    process.env.ANDROID_COMPILE_SDK || resolveCompileSdk(androidSdk, '36')
+  const buildTools = resolveBuildTools(
+    androidSdk,
+    process.env.ANDROID_BUILD_TOOLS || '36.0.0',
+  )
+  const ndkVersion =
+    process.env.ANDROID_NDK_VERSION ||
+    resolveNdkVersion(androidSdk, '27.0.12077973')
+  const releaseVersion =
+    process.env.EXPO_PUBLIC_RELEASE_VERSION || getPackageVersion()
+  const gitShortSha = getGitShortSha()
+  const bundleDate = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+
+  const keystoreInfo = ensureReleaseKeystore(javaHome)
+
+  const buildEnv = {
+    ...process.env,
+    JAVA_HOME: javaHome,
+    ANDROID_HOME: androidSdk,
+    ANDROID_SDK_ROOT: androidSdk,
+    ANDROID_COMPILE_SDK: String(compileSdk),
+    ANDROID_BUILD_TOOLS: buildTools.version,
+    ANDROID_NDK_VERSION: ndkVersion,
+    EXPO_PUBLIC_ENV: 'production',
+    EXPO_PUBLIC_QUANTZING_URL:
+      process.env.EXPO_PUBLIC_QUANTZING_URL ||
+      'https://quantzing.quantrinity.in',
+    EXPO_PUBLIC_QUANTZING_DOMAIN:
+      process.env.EXPO_PUBLIC_QUANTZING_DOMAIN || 'quantzing.com',
+    EXPO_PUBLIC_RELEASE_VERSION: releaseVersion,
+    EXPO_PUBLIC_BUNDLE_IDENTIFIER: gitShortSha,
+    EXPO_PUBLIC_BUNDLE_DATE: bundleDate,
+    DISABLE_UPDATES: '1',
+    BUILD_RN_FROM_SOURCE: process.env.BUILD_RN_FROM_SOURCE || '0',
+    NODE_ENV: 'production',
+    EXPO_NO_GIT_STATUS: '1',
+    QUANTZING_KEYSTORE_FILE: keystoreInfo.keystorePath,
+    QUANTZING_KEYSTORE_PATH: keystoreInfo.keystorePath,
+    QUANTZING_KEYSTORE_PASSWORD: keystoreInfo.keystorePass,
+    QUANTZING_KEYSTORE_PASS: keystoreInfo.keystorePass,
+    QUANTZING_KEY_ALIAS: keystoreInfo.keyAlias,
+    QUANTZING_KEY_PASSWORD: keystoreInfo.keyPass,
+    QUANTZING_KEY_PASS: keystoreInfo.keyPass,
+    QUANTZING_REQUIRE_RELEASE_SIGNING: '1',
+    ...(isWin
+      ? {
+          JAVA_TOOL_OPTIONS: '-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT',
+          GRADLE_OPTS: '-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT',
+        }
+      : {}),
+    PATH: [
+      path.join(javaHome, 'bin'),
+      path.join(androidSdk, 'platform-tools'),
+      buildTools.dir,
+      process.env.PATH,
+    ]
+      .filter(Boolean)
+      .join(path.delimiter),
+  }
+
+  if (process.env.QUANTZING_ENABLE_SENTRY !== '1') {
+    delete buildEnv.SENTRY_AUTH_TOKEN
+  }
+  if (process.env.QUANTZING_ENABLE_BITDRIFT !== '1') {
+    delete buildEnv.EXPO_PUBLIC_BITDRIFT_API_KEY
+  }
+
+  logStep(
+    'CONFIG',
+    JSON.stringify(
+      {
+        projectRoot,
+        javaHome,
+        androidSdk,
+        compileSdk,
+        buildTools: buildTools.version,
+        ndkVersion,
+        abis: REACT_NATIVE_ABIS,
+        releaseVersion,
+        gitShortSha,
+        keystorePath: keystoreInfo.keystorePath,
+        keyAlias: keystoreInfo.keyAlias,
+        outApk: OUT_APK,
+      },
+      null,
+      2,
+    ),
+  )
+
+  if (isDryRun) {
+    logStep('DRY-RUN', 'Dry-run verification succeeded.')
+    return
+  }
+
+  let substChoice = null
+  try {
+    const parentDir = path.dirname(projectRoot)
+    const projectDirName = path.basename(projectRoot)
+    substChoice = mountSubstDrive(parentDir)
+    const workRoot = substChoice
+      ? path.join(`${substChoice.drive}\\`, projectDirName)
+      : projectRoot
+    const pnpmCmd = isWin ? 'pnpm.cmd' : 'pnpm'
+
+    if (!skipTypecheck) {
+      logStep('TYPECHECK', 'Running pnpm.cmd run typecheck:android...')
+      runInherited(pnpmCmd, ['run', 'typecheck:android'], {
+        cwd: workRoot,
+        env: buildEnv,
+      })
+    }
+
+    const androidDir = path.join(workRoot, 'android')
+    if (!skipPrebuild) {
+      const prebuildArgs = [
+        'exec',
+        'expo',
+        'prebuild',
+        '--platform',
+        'android',
+      ]
+      if (forceCleanPrebuild || !fs.existsSync(androidDir)) {
+        prebuildArgs.push('--clean')
+      }
+      logStep(
+        'PREBUILD',
+        `Running ${pnpmCmd} ${prebuildArgs.join(' ')} in ${workRoot}...`,
+      )
+      runInherited(pnpmCmd, prebuildArgs, {
+        cwd: workRoot,
+        env: buildEnv,
+      })
+    }
+
+    verifyAndFixPrebuildOutputs(workRoot, androidSdk, ndkVersion, compileSdk)
+
+    if (isPrebuildOnly) {
+      logStep('PREBUILD-ONLY', 'Expo prebuild and Gradle verification completed.')
+      return
+    }
+
+    const gradlewCmd = isWin
+      ? path.join(androidDir, 'gradlew.bat')
+      : path.join(androidDir, 'gradlew')
+    const gradleArgs = [
+      ':app:assembleRelease',
+      '-x',
+      'lintVitalRelease',
+      '-x',
+      'lintVitalAnalyzeRelease',
+      '-x',
+      'lintVitalReportRelease',
+      `-PreactNativeArchitectures=${REACT_NATIVE_ABIS}`,
+      '-Pexpo.android.cmakeObjectPathMax=0',
+      '--no-daemon',
+      '--max-workers=2',
+      '--console=plain',
+    ]
+
+    logStep(
+      'GRADLE',
+      `Compiling signed release APK via ${gradlewCmd} ${gradleArgs.join(' ')}...`,
+    )
+    runInherited(gradlewCmd, gradleArgs, {
+      cwd: androidDir,
+      env: buildEnv,
+    })
+
+    const builtApkPath = path.join(
+      androidDir,
+      'app',
+      'build',
+      'outputs',
+      'apk',
+      'release',
+      'app-release.apk',
+    )
+    verifyCompiledApk(builtApkPath, buildTools.dir)
+
+    fs.mkdirSync(path.dirname(OUT_APK), {recursive: true})
+    fs.copyFileSync(builtApkPath, OUT_APK)
+
+    const apkBytes = fs.readFileSync(OUT_APK)
+    const sha256 = crypto.createHash('sha256').update(apkBytes).digest('hex')
+    const meta = {
+      packageName: 'com.quantzing.app',
+      appName: 'QuantZing',
+      version: releaseVersion,
+      bundleId: gitShortSha,
+      abis: REACT_NATIVE_ABIS.split(','),
+      compileSdk: Number(compileSdk),
+      targetSdk: 36,
+      ndkVersion,
+      sizeBytes: apkBytes.length,
+      sha256,
+      builtAt: new Date().toISOString(),
+    }
+    fs.writeFileSync(`${OUT_APK}.meta.json`, JSON.stringify(meta, null, 2) + '\n', 'utf8')
+
+    logStep(
+      'PUBLISHED',
+      `Signed release APK published to ${OUT_APK} (${(apkBytes.length / (1024 * 1024)).toFixed(2)} MB, SHA-256: ${sha256})`,
+    )
+  } finally {
+    unmountSubstDrive(substChoice)
+  }
+}
+
+main().catch(err => {
+  console.error('\n[QuantZing APK][ERROR]', err.message || err)
+  process.exit(1)
+})
