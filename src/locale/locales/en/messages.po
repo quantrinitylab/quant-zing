@@ -202,7 +202,7 @@ msgstr ""
 #. placeholder {0}: numUnreadNotifications ?? 0
 #: src/view/shell/bottom-bar/BottomBar.tsx:255
 #: src/view/shell/bottom-bar/BottomBar.tsx:287
-#: src/view/shell/Drawer.tsx:624
+#: src/view/shell/Drawer.tsx:671
 msgid "{0, plural, one {# unread item} other {# unread items}}"
 msgstr ""
 
@@ -257,10 +257,10 @@ msgstr "{0, plural, one {Zing} other {Zings}}"
 msgid "{0, plural, one {Rule violated:} other {Rules violated:}}"
 msgstr "{0, plural, one {Rule violated:} other {Rules violated:}}"
 
-#. Number of users (always at least 25) who have joined Bluesky using a specific Starter Pack
+#. Number of users (always at least 25) who have joined QuantZing using a specific Starter Pack
 #. placeholder {0}: starterPack.joinedAllTimeCount || 0
 #: src/screens/StarterPack/StarterPackScreen.tsx:494
-msgid "{0, plural, other {# people have}} joined Bluesky via this Starter Pack!"
+msgid "{0, plural, other {# people have}} joined QuantZing via this Starter Pack!"
 msgstr "{0, plural, other {# people have}} joined QuantZing via this Starter Pack!"
 
 #. placeholder {0}: starterPack.list.listItemCount - 4
@@ -269,7 +269,7 @@ msgid "{0, plural, other {+# more}}"
 msgstr ""
 
 #. placeholder {0}: aaRegionConfig.minAccessAge
-#: src/screens/Signup/StepInfo/index.tsx:329
+#: src/screens/Signup/StepInfo/index.tsx:323
 msgid "{0, plural, other {You must be # years of age or older to create an account in your region.}}"
 msgstr ""
 
@@ -333,8 +333,8 @@ msgstr "{0} is blocking you"
 msgid "{0} is live"
 msgstr ""
 
-#. placeholder {0}: createFullHandle(draftValue, state.userDomain)
-#: src/screens/Signup/StepHandle/index.tsx:220
+#. placeholder {0}: createFullHandle(draftValue, userDomain)
+#: src/screens/Signup/StepHandle/index.tsx:240
 msgid "{0} is not available"
 msgstr ""
 
@@ -449,8 +449,8 @@ msgstr ""
 
 #. placeholder {0}: sanitizeDisplayName( profile.displayName || sanitizeHandle(profile.handle), )
 #. placeholder {0}: sanitizeDisplayName( profile.displayName || sanitizeHandle(profile.handle), )
-#: src/view/com/util/UserAvatar.tsx:601
-#: src/view/com/util/UserAvatar.tsx:621
+#: src/view/com/util/UserAvatar.tsx:631
+#: src/view/com/util/UserAvatar.tsx:651
 msgid "{0}'s avatar"
 msgstr ""
 
@@ -490,8 +490,8 @@ msgstr "{0}/{imageCount}"
 #. placeholder {0}: i18n.number(UNREAD_NOTIFICATION_CAP - 1)
 #: src/screens/Messages/components/InboxRequests.tsx:55
 #: src/screens/Settings/components/SettingsList.tsx:328
-#: src/view/shell/desktop/LeftNav.tsx:698
-#: src/view/shell/Drawer.tsx:756
+#: src/view/shell/desktop/LeftNav.tsx:824
+#: src/view/shell/Drawer.tsx:803
 msgid "{0}+"
 msgstr "{0}+"
 
@@ -625,7 +625,7 @@ msgstr "{count, plural, one {# new join request} other {# new join requests}}"
 msgid "{count, plural, one {# request} other {# requests}}"
 msgstr "{count, plural, one {# request} other {# requests}}"
 
-#: src/view/shell/desktop/LeftNav.tsx:546
+#: src/view/shell/desktop/LeftNav.tsx:614
 msgid "{count, plural, one {# unread item} other {# unread items}}"
 msgstr ""
 
@@ -727,8 +727,8 @@ msgctxt "post-number-in-thread"
 msgid "{index}/{count}"
 msgstr "{index}/{count}"
 
-#: src/view/com/pager/TabBar.tsx:452
-#: src/view/com/pager/TabBar.web.tsx:132
+#: src/view/com/pager/TabBar.tsx:453
+#: src/view/com/pager/TabBar.web.tsx:139
 msgid "{item}, unread"
 msgstr "{item}, unread"
 
@@ -747,8 +747,7 @@ msgstr "{JOIN_REQUESTS_THRESHOLD}+ new join requests"
 msgid "{joinedAllTimeCount, plural, other {# users have}} joined!"
 msgstr ""
 
-#: src/view/shell/desktop/LeftNav.tsx:454
-#: src/view/shell/Drawer.tsx:794
+#: src/view/shell/Drawer.tsx:885
 msgid "{label}, Beta"
 msgstr "{label}, Beta"
 
@@ -922,7 +921,7 @@ msgstr "{name}'s favorite feeds and people - join me!"
 msgid "{name}’s Starter Pack"
 msgstr "{name}’s Starter Pack"
 
-#: src/view/shell/bottom-bar/BottomBarWeb.tsx:342
+#: src/view/shell/bottom-bar/BottomBarWeb.tsx:402
 msgid "{notificationCount, plural, one {# unread item} other {# unread items}}"
 msgstr ""
 
@@ -949,19 +948,19 @@ msgid "{policyLabel} – {duration}, now expired"
 msgstr "{policyLabel} – {duration}, now expired"
 
 #: src/components/dialogs/NewskieDialog/utils.ts:49
-msgid "{profileName} joined Bluesky {timeAgoString} ago"
+msgid "{profileName} joined QuantZing {timeAgoString} ago"
 msgstr "{profileName} joined QuantZing {timeAgoString} ago"
 
 #: src/components/dialogs/NewskieDialog/utils.ts:32
-msgid "{profileName} joined Bluesky just now"
+msgid "{profileName} joined QuantZing just now"
 msgstr "{profileName} joined QuantZing just now"
 
 #: src/components/dialogs/NewskieDialog/utils.ts:47
-msgid "{profileName} joined Bluesky using a Starter Pack {timeAgoString} ago"
+msgid "{profileName} joined QuantZing using a Starter Pack {timeAgoString} ago"
 msgstr "{profileName} joined QuantZing using a Starter Pack {timeAgoString} ago"
 
 #: src/components/dialogs/NewskieDialog/utils.ts:31
-msgid "{profileName} joined Bluesky using a Starter Pack just now"
+msgid "{profileName} joined QuantZing using a Starter Pack just now"
 msgstr "{profileName} joined QuantZing using a Starter Pack just now"
 
 #. The trending topic rank, i.e. "1. March Madness", "2. The Bachelor"
@@ -1012,7 +1011,7 @@ msgid "{total, plural, one {# photo} other {# photos}}"
 msgstr "{total, plural, one {# photo} other {# photos}}"
 
 #: src/screens/Settings/Settings.tsx:205
-#: src/view/shell/Drawer.tsx:771
+#: src/view/shell/Drawer.tsx:818
 msgid "{unreadCount, plural, one {# unread update} other {# unread updates}}"
 msgstr "{unreadCount, plural, one {# unread update} other {# unread updates}}"
 
@@ -1242,7 +1241,7 @@ msgstr "<0>{displayName}</0><1/><2> added you</2>"
 
 #: src/screens/Hashtag.tsx:232
 #: src/screens/Search/SearchResults.tsx:398
-msgid "<0>Sign in</0><1> or </1><2>create an account</2><3> </3><4>to search for news, sports, politics, and everything else happening on Bluesky.</4>"
+msgid "<0>Sign in</0><1> or </1><2>create an account</2><3> </3><4>to search for news, sports, politics, and everything else happening on QuantZing.</4>"
 msgstr "<0>Sign in</0><1> or </1><2>create an account</2><3> </3><4>to search for news, sports, politics, and everything else happening on QuantZing.</4>"
 
 #: src/components/ageAssurance/AgeAssuranceAccountCard.tsx:251
@@ -1265,7 +1264,7 @@ msgstr ""
 msgid "24 hours"
 msgstr ""
 
-#: src/screens/Login/LoginForm.tsx:421
+#: src/screens/Login/LoginForm.tsx:283
 msgid "2FA Confirmation"
 msgstr ""
 
@@ -1282,7 +1281,7 @@ msgid "7 days"
 msgstr ""
 
 #: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:27
-msgid "A collection of popular feeds you can find on Bluesky, including News, Booksky, Game Dev, Blacksky, and Fountain Pens"
+msgid "A collection of popular feeds you can find on QuantZing, including News, Booksky, Game Dev, Blacksky, and Fountain Pens"
 msgstr "A collection of popular feeds you can find on QuantZing, including News, Booksky, Game Dev, Blacksky, and Fountain Pens"
 
 #: src/components/Gallery/Storybook.tsx:46
@@ -1369,8 +1368,8 @@ msgstr "A reply to a message sent before you joined"
 
 #. Contains a post that originally appeared in English. Consider translating the post text if it makes sense in your language, and noting that the post was translated from English.
 #: src/components/dialogs/nuxs/LiveNowBetaDialog.tsx:147
-msgid "A screenshot of a post from @esb.lol, showing the user is currently livestreaming content on Twitch. The post reads: \"Hello! I'm live on Twitch, and I'm testing Bluesky's latest feature too!\""
-msgstr "A screenshot of a Zing from @esb.lol, showing the user is currently livestreaming content on Twitch. The Zing reads: \"Hello! I'm live on Twitch, and I'm testing QuantZing's latest feature too!\""
+msgid "A screenshot of a post from @esb.lol, showing the user is currently livestreaming content on Twitch. The post reads: \"Hello! I'm live on Twitch, and I'm testing QuantZing's latest feature too!\""
+msgstr "A screenshot of a post from @esb.lol, showing the user is currently livestreaming content on Twitch. The post reads: \"Hello! I'm live on Twitch, and I'm testing QuantZing's latest feature too!\""
 
 #. Contains a post that originally appeared in English. Consider translating the post text if it makes sense in your language, and noting that the post was translated from English.
 #: src/components/dialogs/nuxs/BookmarksAnnouncement.tsx:121
@@ -1395,8 +1394,8 @@ msgstr "A selected recipient is not followed by the sender."
 msgid "A small kawaii scene with no ratio on record"
 msgstr "A small kawaii scene with no ratio on record"
 
-#: src/Navigation.tsx:534
-#: src/screens/Settings/AboutSettings.tsx:83
+#: src/Navigation.tsx:543
+#: src/screens/Settings/AboutSettings.tsx:82
 #: src/screens/Settings/Settings.tsx:285
 #: src/screens/Settings/Settings.tsx:288
 msgid "About"
@@ -1444,11 +1443,11 @@ msgstr "Access requested! The group owner will review your request."
 msgid "Accessibility"
 msgstr ""
 
-#: src/Navigation.tsx:441
+#: src/Navigation.tsx:450
 msgid "Accessibility Settings"
 msgstr ""
 
-#: src/Navigation.tsx:457
+#: src/Navigation.tsx:466
 #: src/screens/ModerationInbox/components/hooks/useSubjectPreviewProfile.ts:22
 #: src/screens/ModerationInbox/components/hooks/useSubjectPreviewProfile.ts:23
 #: src/screens/ModerationInbox/components/ReportSubjectPreview/AccountSubjectPreview.tsx:74
@@ -1560,7 +1559,7 @@ msgid "Account unmuted"
 msgstr ""
 
 #: src/components/verification/VerifierDialog.tsx:101
-msgid "Accounts with a scalloped blue check mark <0><1/></0> can verify others. These trusted verifiers are selected by Bluesky."
+msgid "Accounts with a scalloped blue check mark <0><1/></0> can verify others. These trusted verifiers are selected by QuantZing."
 msgstr "Accounts with a scalloped blue check mark <0><1/></0> can verify others. These trusted verifiers are selected by QuantZing."
 
 #: src/screens/ModerationInbox/components/AccountActionTimeline.tsx:107
@@ -1579,7 +1578,7 @@ msgstr "Action taken"
 msgid "Active index {0} (from {1}), {2} user navigation events"
 msgstr "Active index {0} (from {1}), {2} user navigation events"
 
-#: src/Navigation.tsx:200
+#: src/Navigation.tsx:209
 #: src/screens/Atmosphere/ActivityList/index.tsx:55
 msgid "Activity"
 msgstr "Activity"
@@ -1590,7 +1589,7 @@ msgstr "Activity"
 msgid "Activity from others"
 msgstr ""
 
-#: src/Navigation.tsx:510
+#: src/Navigation.tsx:519
 msgid "Activity notifications"
 msgstr "Activity notifications"
 
@@ -1650,16 +1649,16 @@ msgstr ""
 
 #: src/screens/Settings/Settings.tsx:607
 #: src/screens/Settings/Settings.tsx:610
-#: src/view/shell/desktop/LeftNav.tsx:388
-#: src/view/shell/desktop/LeftNav.tsx:391
+#: src/view/shell/desktop/LeftNav.tsx:437
+#: src/view/shell/desktop/LeftNav.tsx:440
 msgid "Add another account"
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:1629
+#: src/view/com/composer/Composer.tsx:1630
 msgid "Add another post"
 msgstr "Add another Zing"
 
-#: src/view/com/composer/Composer.tsx:2302
+#: src/view/com/composer/Composer.tsx:2303
 msgid "Add another post to thread"
 msgstr "Add another Zing to thread"
 
@@ -1696,10 +1695,6 @@ msgstr "Add filter"
 #: src/components/dms/AddMembersFlow.tsx:492
 msgid "Add group chat members"
 msgstr "Add group chat members"
-
-#: src/view/com/feeds/ComposerPrompt.tsx:237
-msgid "Add image"
-msgstr ""
 
 #: src/features/profileLinks/components/LinkFormDialog.tsx:404
 #: src/features/profileLinks/components/LinkFormDialog.tsx:423
@@ -1863,7 +1858,7 @@ msgid "Adult Content"
 msgstr ""
 
 #: src/screens/Moderation/index.tsx:465
-msgid "Adult content can only be enabled via the Web at <0>bsky.app</0>."
+msgid "Adult content can only be enabled via the Web at <0>quantzing.com</0>."
 msgstr "Adult content can only be enabled via the Web at <0>quantzing.com</0>."
 
 #: src/components/moderation/LabelPreference.tsx:252
@@ -2017,7 +2012,7 @@ msgstr ""
 msgid "Already have a code?"
 msgstr ""
 
-#: src/components/WelcomeModal.tsx:191
+#: src/components/WelcomeModal.tsx:178
 msgid "Already have an account?"
 msgstr ""
 
@@ -2110,7 +2105,7 @@ msgstr ""
 msgid "An error occurred while loading the video. Please try again later."
 msgstr ""
 
-#: src/components/Post/Embed/VideoEmbed/index.web.tsx:400
+#: src/components/Post/Embed/VideoEmbed/index.web.tsx:445
 msgid "An error occurred while loading the video. Please try again."
 msgstr ""
 
@@ -2146,21 +2141,24 @@ msgid "An error occurred. {0}"
 msgstr ""
 
 #: src/components/contacts/components/HeroImage.tsx:28
-#: src/components/dialogs/nuxs/FindContactsAnnouncement.tsx:79
 msgid "An illustration depicting user avatars flowing from a contact book into the Bluesky app"
 msgstr "An illustration depicting user avatars flowing from a contact book into the QuantZing app"
 
+#: src/components/dialogs/nuxs/FindContactsAnnouncement.tsx:79
+msgid "An illustration depicting user avatars flowing from a contact book into the QuantZing app"
+msgstr "An illustration depicting user avatars flowing from a contact book into the QuantZing app"
+
 #: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:45
-msgid "An illustration of several Bluesky posts alongside repost, like, and comment icons"
-msgstr "An illustration of several QuantZing Zings alongside rezing, like, and comment icons"
+msgid "An illustration of several QuantZing Zings alongside Rezing, like, and comment icons"
+msgstr "An illustration of several QuantZing Zings alongside Rezing, like, and comment icons"
 
 #: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:111
-msgid "An illustration of the Bluesky app with a paper airplane flying out of it, representing inviting friends"
+msgid "An illustration of the QuantZing app with a paper airplane flying out of it, representing inviting friends"
 msgstr "An illustration of the QuantZing app with a paper airplane flying out of it, representing inviting friends"
 
 #: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:87
 #: src/components/verification/VerifierDialog.tsx:89
-msgid "An illustration showing that Bluesky selects trusted verifiers, and trusted verifiers in turn verify individual user accounts."
+msgid "An illustration showing that QuantZing selects trusted verifiers, and trusted verifiers in turn verify individual user accounts."
 msgstr "An illustration showing that QuantZing selects trusted verifiers, and trusted verifiers in turn verify individual user accounts."
 
 #: src/screens/Messages/components/InviteLinkDialog.tsx:196
@@ -2190,7 +2188,7 @@ msgid "An issue occurred, please try again."
 msgstr ""
 
 #: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:122
-msgid "An mockup of a iPhone showing the Bluesky app open to the profile of a verified user with a blue checkmark next to their display name."
+msgid "An mockup of a iPhone showing the QuantZing app open to the profile of a verified user with a blue checkmark next to their display name."
 msgstr "An mockup of a iPhone showing the QuantZing app open to the profile of a verified user with a blue checkmark next to their display name."
 
 #: src/components/moderation/ModerationDetailsDialog.tsx:154
@@ -2223,7 +2221,7 @@ msgid "Announcement"
 msgstr ""
 
 #: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:39
-msgid "Announcing verification on Bluesky"
+msgid "Announcing verification on QuantZing"
 msgstr "Announcing verification on QuantZing"
 
 #. Placeholder text for a date picker
@@ -2263,11 +2261,11 @@ msgstr "Anyone can request to join"
 msgid "Anyone who follows me"
 msgstr ""
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:476
+#: src/screens/Messages/components/InviteLinkDialog.tsx:477
 msgid "Anyone who has it will no longer be able to join or request to join. You can always create a new one."
 msgstr "Anyone who has it will no longer be able to join or request to join. You can always create a new one."
 
-#: src/Navigation.tsx:542
+#: src/Navigation.tsx:551
 #: src/screens/Settings/AppIconSettings/index.tsx:65
 #: src/screens/Settings/AppIconSettings/SettingsListItem.tsx:19
 #: src/screens/Settings/AppIconSettings/SettingsListItem.tsx:24
@@ -2305,7 +2303,7 @@ msgstr ""
 msgid "App passwords"
 msgstr ""
 
-#: src/Navigation.tsx:409
+#: src/Navigation.tsx:418
 #: src/screens/Settings/AppPasswords.tsx:52
 msgid "App Passwords"
 msgstr ""
@@ -2386,7 +2384,7 @@ msgstr "Appeal this label"
 msgid "Appeal under review"
 msgstr "Appeal under review"
 
-#: src/Navigation.tsx:449
+#: src/Navigation.tsx:458
 #: src/screens/Settings/AppearanceSettings.tsx:71
 #: src/screens/Settings/Settings.tsx:247
 #: src/screens/Settings/Settings.tsx:250
@@ -2487,7 +2485,7 @@ msgstr ""
 msgid "Are you sure you want to rescind your request to join {0}?"
 msgstr "Are you sure you want to rescind your request to join {0}?"
 
-#: src/view/com/composer/Composer.tsx:1767
+#: src/view/com/composer/Composer.tsx:1768
 msgid "Are you sure you'd like to discard this post?"
 msgstr "Are you sure you'd like to discard this Zing?"
 
@@ -2546,10 +2544,9 @@ msgstr ""
 msgid "AT Protocol FAQ"
 msgstr "AT Protocol FAQ"
 
-#: src/Navigation.tsx:195
+#: src/Navigation.tsx:204
 #: src/screens/Atmosphere/index.tsx:78
-#: src/view/shell/desktop/LeftNav.tsx:774
-#: src/view/shell/Drawer.tsx:649
+#: src/view/shell/Drawer.tsx:696
 msgid "Atmosphere"
 msgstr "Atmosphere"
 
@@ -2582,7 +2579,7 @@ msgstr "Automatic"
 msgid "Automation label"
 msgstr "Automation label"
 
-#: src/Navigation.tsx:473
+#: src/Navigation.tsx:482
 #: src/screens/Settings/AutomationLabelSettings.tsx:104
 msgid "Automation Label"
 msgstr "Automation Label"
@@ -2619,8 +2616,8 @@ msgstr "Awaiting review"
 #: src/screens/Login/ChooseAccountForm.tsx:99
 #: src/screens/Login/ForgotPasswordForm.tsx:123
 #: src/screens/Login/ForgotPasswordForm.tsx:128
-#: src/screens/Login/LoginForm.tsx:488
-#: src/screens/Login/LoginForm.tsx:493
+#: src/screens/Login/LoginForm.tsx:322
+#: src/screens/Login/LoginForm.tsx:336
 #: src/screens/Login/SetNewPasswordForm.tsx:136
 #: src/screens/Login/SetNewPasswordForm.tsx:142
 #: src/screens/Messages/components/ChatDisabled.tsx:161
@@ -2723,7 +2720,7 @@ msgstr "Beta"
 msgid "Beta Feature"
 msgstr ""
 
-#: src/Navigation.tsx:465
+#: src/Navigation.tsx:474
 #: src/screens/Settings/BetaFeaturesSettings.tsx:118
 #: src/screens/Settings/Settings.tsx:269
 #: src/screens/Settings/Settings.tsx:272
@@ -2843,7 +2840,7 @@ msgstr ""
 msgid "Blocked accounts"
 msgstr ""
 
-#: src/Navigation.tsx:245
+#: src/Navigation.tsx:254
 #: src/view/screens/ModerationBlockedAccounts.tsx:94
 msgid "Blocked Accounts"
 msgstr ""
@@ -2868,10 +2865,6 @@ msgstr ""
 msgid "Blocking will not prevent labels from being applied on your account, but it will stop this account from replying in your threads or interacting with you."
 msgstr ""
 
-#: src/view/com/auth/SplashScreen.web.tsx:174
-msgid "Blog"
-msgstr ""
-
 #: src/screens/Atmosphere/components/appCategories.ts:9
 msgid "Blogging"
 msgstr "Blogging"
@@ -2881,8 +2874,6 @@ msgstr "Blogging"
 msgid "bloomscrolling booksky"
 msgstr "bloomscrolling booksky"
 
-#: src/components/dialogs/ServerInput.tsx:144
-#: src/components/dialogs/ServerInput.tsx:146
 #: src/screens/CustomFeed/components/CustomFeedHeader.tsx:557
 msgid "Bluesky"
 msgstr "QuantZing"
@@ -2896,34 +2887,13 @@ msgctxt "Name of app icon variant"
 msgid "Bluesky Classic™"
 msgstr "QuantZing Classic™"
 
-#: src/components/contacts/screens/GetContacts.tsx:237
-msgid "Bluesky helps friends find each other by creating an encoded digital fingerprint, called a \"hash\", and then looking for matching hashes."
-msgstr "QuantZing helps friends find each other by creating an encoded digital fingerprint, called a \"hash\", and then looking for matching hashes."
-
-#: src/components/dialogs/ServerInput.tsx:214
 #: src/screens/Login/components/HostingProviderDialog.tsx:236
 msgid "Bluesky is an open network where you can choose your hosting provider. If you're a developer, you can host your own server."
 msgstr "QuantZing is an open network where you can choose your hosting provider. If you're a developer, you can host your own server."
 
-#: src/components/dialogs/ServerInput.tsx:162
-msgid "Bluesky is an open network where you can choose your own provider. If you're new here, we recommend sticking with the default Bluesky Social option."
-msgstr "QuantZing is an open network where you can choose your own provider. If you're new here, we recommend sticking with the default QuantZing option."
-
-#: src/components/ProgressGuide/List.tsx:115
-msgid "Bluesky is better with friends!"
-msgstr "QuantZing is better with friends!"
-
 #: src/screens/Onboarding/StepFindContactsIntro/index.tsx:43
 msgid "Bluesky is more fun with friends"
 msgstr "QuantZing is more fun with friends"
-
-#: src/components/dialogs/nuxs/FindContactsAnnouncement.tsx:108
-msgid "Bluesky is more fun with friends! Import your contacts to see who’s already here."
-msgstr "QuantZing is more fun with friends! Import your contacts to see who’s already here."
-
-#: src/components/contacts/screens/ViewMatches.tsx:323
-msgid "Bluesky is more fun with friends. Do you want to invite some of yours? <0/>"
-msgstr "QuantZing is more fun with friends. Do you want to invite some of yours? <0/>"
 
 #: src/screens/Atmosphere/components/AtmosphereNux.tsx:106
 msgid "Bluesky is part of an open ecosystem of hundreds of apps and integrations. Your account unlocks them all."
@@ -2938,10 +2908,6 @@ msgstr "QuantZing Moderation Service"
 msgid "Bluesky needs camera access to scan QR codes from other profiles."
 msgstr "QuantZing needs camera access to scan QR codes from other profiles."
 
-#: src/screens/Takendown.tsx:213
-msgid "Bluesky Social Terms of Service"
-msgstr "QuantZing Terms of Service"
-
 #: src/screens/Settings/FindContactsSettings.tsx:582
 msgid "Bluesky stores your contacts as encoded data. Removing your contacts will immediately delete this data."
 msgstr "QuantZing stores your contacts as encoded data. Removing your contacts will immediately delete this data."
@@ -2953,10 +2919,6 @@ msgstr "QuantZing will choose a set of recommended accounts from people in your 
 #: src/screens/Settings/components/PwiOptOut.tsx:102
 msgid "Bluesky will not show your account to logged-out users and will ask other apps to do the same. Other apps may not honor this request. It doesn't make your account private."
 msgstr "QuantZing will not show your account to logged-out users and will ask other apps to do the same. Other apps may not honor this request. It doesn't make your account private."
-
-#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:137
-msgid "Bluesky will proactively verify notable and authentic accounts."
-msgstr "QuantZing will proactively verify notable and authentic accounts."
 
 #: src/screens/Settings/AppIconSettings/index.tsx:97
 msgid "Bluesky+"
@@ -3035,10 +2997,6 @@ msgstr ""
 msgid "Browse topic {displayName}"
 msgstr ""
 
-#: src/view/com/auth/SplashScreen.web.tsx:169
-msgid "Business"
-msgstr ""
-
 #: src/screens/Bookmarks.tsx:297
 msgid "Button to go back to the home timeline"
 msgstr ""
@@ -3095,18 +3053,6 @@ msgstr ""
 msgid "By continuing, you consent to this use. You may change your mind any time by visiting settings. <0>Learn more</0>"
 msgstr ""
 
-#: src/screens/Signup/StepInfo/Policies.tsx:76
-msgid "By creating an account you agree to the <0>Privacy Policy</0>."
-msgstr ""
-
-#: src/screens/Signup/StepInfo/Policies.tsx:43
-msgid "By creating an account you agree to the <0>Terms of Service</0> and <1>Privacy Policy</1>."
-msgstr ""
-
-#: src/screens/Signup/StepInfo/Policies.tsx:63
-msgid "By creating an account you agree to the <0>Terms of Service</0>."
-msgstr ""
-
 #: src/screens/Search/components/StarterPackCard.tsx:113
 msgid "By you"
 msgstr ""
@@ -3138,7 +3084,6 @@ msgstr "Camera access needed"
 #: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:181
 #: src/components/Menu/index.tsx:386
 #: src/components/moderation/BlockDialog.tsx:233
-#: src/components/PostControls/RepostButton.tsx:211
 #: src/components/Prompt.tsx:152
 #: src/components/Prompt.tsx:154
 #: src/components/SendErrorReportDialog.tsx:98
@@ -3148,8 +3093,8 @@ msgstr "Camera access needed"
 #: src/features/profileLinks/components/LinkFormDialog.tsx:273
 #: src/lib/media/picker.tsx:38
 #: src/screens/Deactivated.tsx:154
-#: src/screens/Messages/components/InviteLinkDialog.tsx:498
-#: src/screens/Messages/components/InviteLinkDialog.tsx:502
+#: src/screens/Messages/components/InviteLinkDialog.tsx:499
+#: src/screens/Messages/components/InviteLinkDialog.tsx:503
 #: src/screens/Messages/ConversationSettings/prompts.tsx:100
 #: src/screens/Messages/ConversationSettings/prompts.tsx:124
 #: src/screens/Messages/ConversationSettings/prompts.tsx:148
@@ -3171,21 +3116,17 @@ msgstr "Camera access needed"
 #: src/screens/Settings/Settings.tsx:330
 #: src/screens/Takendown.tsx:102
 #: src/screens/Takendown.tsx:105
-#: src/view/com/composer/Composer.tsx:1845
-#: src/view/com/composer/Composer.tsx:1856
+#: src/view/com/composer/Composer.tsx:1846
+#: src/view/com/composer/Composer.tsx:1857
 #: src/view/com/composer/photos/EditImageDialog.web.tsx:44
 #: src/view/com/composer/photos/EditImageDialog.web.tsx:53
-#: src/view/shell/desktop/LeftNav.tsx:267
+#: src/view/shell/desktop/LeftNav.tsx:316
 msgid "Cancel"
 msgstr ""
 
 #: src/screens/ModerationInbox/Notice.tsx:416
 msgid "Cancel appeal"
 msgstr "Cancel appeal"
-
-#: src/components/PostControls/RepostButton.tsx:206
-msgid "Cancel quote post"
-msgstr "Cancel quote Zing"
 
 #: src/screens/Deactivated.tsx:148
 msgid "Cancel reactivation and sign out"
@@ -3203,9 +3144,9 @@ msgstr ""
 msgid "Cancels signing in so you can check your username"
 msgstr "Cancels signing in so you can check your username"
 
-#: src/components/PostControls/index.tsx:98
-#: src/components/PostControls/index.tsx:124
-#: src/components/PostControls/index.tsx:148
+#: src/components/PostControls/index.tsx:110
+#: src/components/PostControls/index.tsx:136
+#: src/components/PostControls/index.tsx:160
 #: src/components/PostControls/PostMenu/PostMenuControlItems.tsx:69
 #: src/state/shell/composer/index.tsx:128
 msgid "Cannot interact with a blocked user"
@@ -3292,10 +3233,6 @@ msgstr ""
 msgid "Change Handle"
 msgstr ""
 
-#: src/screens/Login/LoginForm.tsx:582
-msgid "Change hosting provider"
-msgstr "Change hosting provider"
-
 #: src/components/moderation/ReportDialog/index.tsx:534
 msgid "Change moderation service"
 msgstr ""
@@ -3360,10 +3297,9 @@ msgid "Channel"
 msgstr "Channel"
 
 #: src/lib/hooks/useNotificationHandler.ts:134
-#: src/Navigation.tsx:560
+#: src/Navigation.tsx:569
 #: src/view/shell/bottom-bar/BottomBar.tsx:246
-#: src/view/shell/desktop/LeftNav.tsx:761
-#: src/view/shell/Drawer.tsx:593
+#: src/view/shell/Drawer.tsx:640
 msgid "Chat"
 msgstr ""
 
@@ -3420,7 +3356,7 @@ msgstr "Chat owners cannot leave a group chat."
 msgid "Chat recipient is not followed by the sender."
 msgstr "Chat recipient is not followed by the sender."
 
-#: src/Navigation.tsx:580
+#: src/Navigation.tsx:589
 msgid "Chat request inbox"
 msgstr ""
 
@@ -3430,7 +3366,7 @@ msgid "Chat requests"
 msgstr ""
 
 #: src/components/dms/ConvoMenu.tsx:88
-#: src/Navigation.tsx:575
+#: src/Navigation.tsx:584
 #: src/screens/Messages/ChatList.tsx:97
 #: src/screens/Messages/ChatList.tsx:101
 #: src/screens/Messages/ChatList.tsx:671
@@ -3561,11 +3497,11 @@ msgstr "Choose your hosting provider"
 msgid "Choose your own timeline! Feeds built by the community help you find content you love."
 msgstr ""
 
-#: src/screens/Signup/StepInfo/index.tsx:284
+#: src/screens/Signup/StepInfo/index.tsx:278
 msgid "Choose your password"
 msgstr ""
 
-#: src/screens/Signup/index.tsx:193
+#: src/screens/Signup/index.tsx:204
 msgid "Choose your username"
 msgstr ""
 
@@ -3610,21 +3546,17 @@ msgstr "Clear date"
 msgid "Clear GIF search"
 msgstr "Clear GIF search"
 
-#: src/screens/Settings/AboutSettings.tsx:132
-#: src/screens/Settings/AboutSettings.tsx:136
+#: src/screens/Settings/AboutSettings.tsx:127
+#: src/screens/Settings/AboutSettings.tsx:131
 msgid "Clear image cache"
 msgstr ""
 
-#: src/components/forms/SearchInput.tsx:93
+#: src/components/forms/SearchInput.tsx:95
 msgid "Clear search query"
 msgstr ""
 
 #: src/view/com/feeds/MissingFeed.tsx:88
 msgid "Click for information"
-msgstr ""
-
-#: src/view/screens/Support.tsx:35
-msgid "click here"
 msgstr ""
 
 #: src/screens/Messages/components/MessagesListGroupInfoPanel.tsx:130
@@ -3726,8 +3658,8 @@ msgstr ""
 #: src/features/liveNow/components/EditLiveDialog.tsx:218
 #: src/screens/Atmosphere/components/PhotoDialog/index.tsx:232
 #: src/screens/Atmosphere/components/PhotoDialog/index.tsx:238
-#: src/screens/Messages/components/InviteLinkDialog.tsx:522
-#: src/screens/Messages/components/InviteLinkDialog.tsx:527
+#: src/screens/Messages/components/InviteLinkDialog.tsx:523
+#: src/screens/Messages/components/InviteLinkDialog.tsx:528
 #: src/screens/Profile/Header/PronounsDialog.tsx:104
 #: src/view/com/feeds/MissingFeed.tsx:211
 #: src/view/com/feeds/MissingFeed.tsx:218
@@ -3797,7 +3729,7 @@ msgstr "Close the incoming requests banner"
 msgid "Close this dialog"
 msgstr ""
 
-#: src/components/WelcomeModal.tsx:216
+#: src/components/WelcomeModal.tsx:203
 msgid "Close welcome modal"
 msgstr ""
 
@@ -3805,7 +3737,7 @@ msgstr ""
 msgid "Closes password update alert"
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:1854
+#: src/view/com/composer/Composer.tsx:1855
 msgid "Closes post composer and discards post draft"
 msgstr "Closes Zing composer and discards Zing draft"
 
@@ -3844,8 +3776,7 @@ msgid "Communication sent"
 msgstr "Communication sent"
 
 #: src/components/PolicyUpdateOverlay/updates/202508/index.tsx:46
-#: src/Navigation.tsx:399
-#: src/view/screens/CommunityGuidelines.tsx:28
+#: src/Navigation.tsx:408
 msgid "Community Guidelines"
 msgstr ""
 
@@ -3853,18 +3784,16 @@ msgstr ""
 msgid "Complete onboarding and start using your account"
 msgstr ""
 
-#: src/screens/Signup/index.tsx:195
+#: src/screens/Signup/index.tsx:206
 msgid "Complete the challenge"
 msgstr ""
 
 #: src/lib/hotkeys/index.tsx:66
-#: src/view/com/feeds/ComposerPrompt.tsx:161
-#: src/view/shell/desktop/LeftNav.tsx:653
 msgid "Compose new post"
 msgstr "Compose new Zing"
 
 #. placeholder {0}: MAX_GRAPHEME_LENGTH || 0
-#: src/view/com/composer/Composer.tsx:1729
+#: src/view/com/composer/Composer.tsx:1730
 msgid "Compose posts up to {0, plural, other {# characters}} in length"
 msgstr "Compose Zings up to {0, plural, other {# characters}} in length"
 
@@ -3872,11 +3801,11 @@ msgstr "Compose Zings up to {0, plural, other {# characters}} in length"
 msgid "Compose reply"
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:2691
+#: src/view/com/composer/Composer.tsx:2692
 msgid "Compressing GIF..."
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:2693
+#: src/view/com/composer/Composer.tsx:2694
 msgid "Compressing video..."
 msgstr ""
 
@@ -3906,12 +3835,8 @@ msgstr ""
 msgid "Connecting to service..."
 msgstr ""
 
-#: src/screens/Login/LoginForm.tsx:519
-msgid "Connecting to service…"
-msgstr "Connecting to service…"
-
 #: src/screens/Login/ForgotPasswordForm.tsx:142
-#: src/screens/Login/LoginForm.tsx:525
+#: src/screens/Login/LoginForm.tsx:362
 msgid "Connecting…"
 msgstr "Connecting…"
 
@@ -3935,8 +3860,8 @@ msgid "Contact our support team"
 msgstr ""
 
 #: src/components/ageAssurance/AgeAssuranceInitDialog.tsx:160
-#: src/screens/Signup/index.tsx:241
-#: src/screens/Signup/index.tsx:244
+#: src/screens/Signup/index.tsx:252
+#: src/screens/Signup/index.tsx:256
 msgid "Contact support"
 msgstr ""
 
@@ -3971,7 +3896,7 @@ msgstr ""
 msgid "Content and media"
 msgstr ""
 
-#: src/Navigation.tsx:518
+#: src/Navigation.tsx:527
 msgid "Content and Media"
 msgstr ""
 
@@ -4100,7 +4025,7 @@ msgstr "Conversation not found."
 msgid "Conversation with {authorName}"
 msgstr "Conversation with {authorName}"
 
-#: src/screens/Settings/AboutSettings.tsx:167
+#: src/screens/Settings/AboutSettings.tsx:162
 msgid "Copied build version to clipboard"
 msgstr ""
 
@@ -4108,7 +4033,7 @@ msgstr ""
 msgid "Copied link to clipboard"
 msgstr "Copied link to clipboard"
 
-#: src/components/dms/ChatInvite/Root.tsx:100
+#: src/components/dms/ChatInvite/Root.tsx:101
 #: src/components/dms/MessageContextMenu.tsx:96
 #: src/components/PostControls/DiscoverDebug.tsx:36
 #: src/components/PostControls/PostMenu/PostMenuItems.tsx:276
@@ -4126,7 +4051,7 @@ msgstr ""
 msgid "Copied!"
 msgstr ""
 
-#: src/screens/Settings/AboutSettings.tsx:143
+#: src/screens/Settings/AboutSettings.tsx:138
 msgid "Copies build version to clipboard"
 msgstr ""
 
@@ -4249,8 +4174,7 @@ msgstr ""
 
 #: src/components/PolicyUpdateOverlay/updates/202508/index.tsx:41
 #: src/components/PolicyUpdateOverlay/updates/202508/index.tsx:108
-#: src/Navigation.tsx:404
-#: src/view/screens/CopyrightPolicy.tsx:25
+#: src/Navigation.tsx:413
 msgid "Copyright Policy"
 msgstr ""
 
@@ -4430,7 +4354,7 @@ msgstr "Create a QR code for a Starter Pack"
 
 #: src/components/StarterPack/ProfileStarterPacks.tsx:206
 #: src/components/StarterPack/ProfileStarterPacks.tsx:315
-#: src/Navigation.tsx:611
+#: src/Navigation.tsx:620
 #: src/view/screens/Profile.tsx:629
 #: src/view/screens/Profile.tsx:630
 msgid "Create a Starter Pack"
@@ -4440,18 +4364,18 @@ msgstr ""
 msgid "Create a Starter Pack for me"
 msgstr "Create a Starter Pack for me"
 
-#: src/components/WelcomeModal.tsx:157
-#: src/components/WelcomeModal.tsx:165
+#: src/components/WelcomeModal.tsx:140
+#: src/components/WelcomeModal.tsx:152
 #: src/screens/Messages/JoinRequest.tsx:314
-#: src/screens/Signup/index.tsx:139
 #: src/view/com/auth/NativeSplashScreen.tsx:158
-#: src/view/com/auth/SplashScreen.web.tsx:116
+#: src/view/com/auth/SplashScreen.web.tsx:212
+#: src/view/com/auth/SplashScreen.web.tsx:223
 #: src/view/shell/bottom-bar/BottomBar.tsx:355
 #: src/view/shell/bottom-bar/BottomBar.tsx:359
-#: src/view/shell/bottom-bar/BottomBarWeb.tsx:248
-#: src/view/shell/bottom-bar/BottomBarWeb.tsx:253
-#: src/view/shell/NavSignupCard.tsx:48
-#: src/view/shell/NavSignupCard.tsx:53
+#: src/view/shell/bottom-bar/BottomBarWeb.tsx:309
+#: src/view/shell/bottom-bar/BottomBarWeb.tsx:314
+#: src/view/shell/NavSignupCard.tsx:51
+#: src/view/shell/NavSignupCard.tsx:56
 msgid "Create account"
 msgstr ""
 
@@ -4499,7 +4423,6 @@ msgstr ""
 
 #: src/screens/Messages/JoinRequest.tsx:308
 #: src/view/com/auth/NativeSplashScreen.tsx:139
-#: src/view/com/auth/SplashScreen.web.tsx:108
 msgid "Create new account"
 msgstr ""
 
@@ -4530,7 +4453,7 @@ msgstr ""
 #. placeholder {0}: formatDateTime(i18n, appPassword.createdAt, { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', })
 #. placeholder {0}: formatDateTime(i18n, createdAt, { dateStyle: 'long', timeStyle: 'short', })
 #. placeholder {0}: i18n.date(createdAt, { month: 'long', day: 'numeric', year: 'numeric', })
-#: src/screens/Messages/components/InviteLinkDialog.tsx:353
+#: src/screens/Messages/components/InviteLinkDialog.tsx:354
 #: src/screens/Messages/ConversationSettings/index.tsx:513
 #: src/screens/Settings/AppPasswords.tsx:175
 msgid "Created {0}"
@@ -4606,7 +4529,7 @@ msgstr ""
 msgid "Dark theme"
 msgstr ""
 
-#: src/screens/Signup/StepInfo/index.tsx:313
+#: src/screens/Signup/StepInfo/index.tsx:307
 msgid "Date of birth"
 msgstr ""
 
@@ -4717,7 +4640,7 @@ msgstr ""
 
 #: src/components/PostControls/PostMenu/PostMenuItems.tsx:810
 #: src/components/PostControls/PostMenu/PostMenuItems.tsx:812
-#: src/view/com/composer/Composer.tsx:1741
+#: src/view/com/composer/Composer.tsx:1742
 msgid "Delete post"
 msgstr "Delete Zing"
 
@@ -4797,12 +4720,12 @@ msgstr "Detach quote Zing?"
 msgid "Dev"
 msgstr "Dev"
 
-#: src/screens/Settings/AboutSettings.tsx:156
+#: src/screens/Settings/AboutSettings.tsx:151
 msgctxt "toast"
 msgid "Developer mode disabled"
 msgstr ""
 
-#: src/screens/Settings/AboutSettings.tsx:150
+#: src/screens/Settings/AboutSettings.tsx:145
 msgctxt "toast"
 msgid "Developer mode enabled"
 msgstr ""
@@ -4836,8 +4759,8 @@ msgstr "Direct message"
 msgid "Direct message from {authorName}"
 msgstr "Direct message from {authorName}"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:383
-#: src/screens/Messages/components/InviteLinkDialog.tsx:388
+#: src/screens/Messages/components/InviteLinkDialog.tsx:384
+#: src/screens/Messages/components/InviteLinkDialog.tsx:389
 msgid "Disable"
 msgstr "Disable"
 
@@ -4863,8 +4786,8 @@ msgstr ""
 msgid "Disable haptic feedback"
 msgstr ""
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:486
-#: src/screens/Messages/components/InviteLinkDialog.tsx:492
+#: src/screens/Messages/components/InviteLinkDialog.tsx:487
+#: src/screens/Messages/components/InviteLinkDialog.tsx:493
 msgid "Disable link"
 msgstr "Disable link"
 
@@ -4876,7 +4799,7 @@ msgstr "Disable quote Zings of this Zing"
 msgid "Disable replies entirely"
 msgstr ""
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:473
+#: src/screens/Messages/components/InviteLinkDialog.tsx:474
 msgid "Disable this invite link?"
 msgstr "Disable this invite link?"
 
@@ -4889,9 +4812,9 @@ msgstr ""
 
 #: src/components/dialogs/lists/CreateOrEditListDialog.tsx:102
 #: src/screens/Profile/Header/EditProfileDialog.tsx:102
-#: src/view/com/composer/Composer.tsx:1519
-#: src/view/com/composer/Composer.tsx:1564
-#: src/view/com/composer/Composer.tsx:1774
+#: src/view/com/composer/Composer.tsx:1520
+#: src/view/com/composer/Composer.tsx:1565
+#: src/view/com/composer/Composer.tsx:1775
 #: src/view/com/composer/drafts/DraftItem.tsx:243
 #: src/view/com/composer/drafts/DraftsButton.tsx:128
 msgid "Discard"
@@ -4902,14 +4825,14 @@ msgstr ""
 msgid "Discard changes?"
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:1517
+#: src/view/com/composer/Composer.tsx:1518
 #: src/view/com/composer/drafts/DraftItem.tsx:240
 #: src/view/com/composer/drafts/DraftsButton.tsx:94
 msgid "Discard draft?"
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:1534
-#: src/view/com/composer/Composer.tsx:1766
+#: src/view/com/composer/Composer.tsx:1535
+#: src/view/com/composer/Composer.tsx:1767
 msgid "Discard post?"
 msgstr "Discard Zing?"
 
@@ -4919,11 +4842,6 @@ msgid "Disconnect Germ DM"
 msgstr ""
 
 #: src/screens/Atmosphere/index.tsx:47
-msgid "Discover"
-msgstr "Discover"
-
-#: src/lib/strings/feed-names.ts:16
-msgctxt "feed-name"
 msgid "Discover"
 msgstr "Discover"
 
@@ -4955,11 +4873,11 @@ msgstr ""
 msgid "Dismiss banner"
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:2633
+#: src/view/com/composer/Composer.tsx:2634
 msgid "Dismiss error"
 msgstr ""
 
-#: src/components/ProgressGuide/List.tsx:80
+#: src/components/ProgressGuide/List.tsx:82
 msgid "Dismiss getting started guide"
 msgstr ""
 
@@ -5086,10 +5004,6 @@ msgstr ""
 msgid "Download"
 msgstr "Download"
 
-#: src/screens/StarterPack/StarterPackLandingScreen.tsx:321
-msgid "Download Bluesky"
-msgstr "Download QuantZing"
-
 #: src/screens/Settings/components/ExportCarDialog.tsx:153
 msgid "Download chat data"
 msgstr ""
@@ -5117,6 +5031,10 @@ msgctxt "button"
 msgid "Download profile data"
 msgstr "Download profile data"
 
+#: src/screens/StarterPack/StarterPackLandingScreen.tsx:321
+msgid "Download QuantZing"
+msgstr "Download QuantZing"
+
 #: src/components/moderation/ReportDialog/utils/useReportOptions.ts:113
 msgid "Doxxing"
 msgstr ""
@@ -5133,7 +5051,7 @@ msgid "Drop to add images"
 msgstr ""
 
 #: src/components/ageAssurance/useAgeAssuranceCopy.ts:20
-msgid "Due to laws in your region, certain features on Bluesky are currently restricted until you're able to verify you're an adult."
+msgid "Due to laws in your region, certain features on QuantZing are currently restricted until you're able to verify you're an adult."
 msgstr "Due to laws in your region, certain features on QuantZing are currently restricted until you're able to verify you're an adult."
 
 #: src/components/dialogs/MutedWords.tsx:164
@@ -5214,7 +5132,7 @@ msgstr ""
 msgid "Edit {0}"
 msgstr "Edit {0}"
 
-#: src/view/com/util/UserAvatar.tsx:465
+#: src/view/com/util/UserAvatar.tsx:495
 #: src/view/com/util/UserBanner.tsx:132
 msgid "Edit avatar"
 msgstr ""
@@ -5258,7 +5176,7 @@ msgstr "Edit invite link"
 msgid "Edit link"
 msgstr "Edit link"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:367
+#: src/screens/Messages/components/InviteLinkDialog.tsx:368
 msgid "Edit link settings"
 msgstr "Edit link settings"
 
@@ -5276,7 +5194,7 @@ msgstr ""
 msgid "Edit moderation list"
 msgstr ""
 
-#: src/Navigation.tsx:414
+#: src/Navigation.tsx:423
 #: src/view/screens/Feeds.tsx:512
 msgid "Edit My Feeds"
 msgstr ""
@@ -5337,7 +5255,7 @@ msgstr ""
 msgid "Edit who can reply"
 msgstr ""
 
-#: src/Navigation.tsx:616
+#: src/Navigation.tsx:625
 msgid "Edit your Starter Pack"
 msgstr "Edit your Starter Pack"
 
@@ -5352,7 +5270,7 @@ msgstr ""
 #. Share target that opens the email app
 #: src/components/ShareDialog/SharePlatformIcon.tsx:183
 #: src/screens/Settings/AccountSettings.tsx:69
-#: src/screens/Signup/StepInfo/index.tsx:237
+#: src/screens/Signup/StepInfo/index.tsx:231
 msgid "Email"
 msgstr ""
 
@@ -5393,18 +5311,21 @@ msgstr ""
 msgid "Embed HTML code"
 msgstr ""
 
-#: src/components/dialogs/Embed.tsx:106
-#: src/components/dialogs/Embed.tsx:110
 #: src/components/PostControls/ShareMenu/ShareMenuItems.web.tsx:169
 #: src/components/PostControls/ShareMenu/ShareMenuItems.web.tsx:174
 msgid "Embed post"
 msgstr "Embed Zing"
 
 #: src/components/dialogs/Embed.tsx:114
-msgid "Embed this post in your website. Simply copy the following snippet and paste it into the HTML code of your website."
+msgid "Embed this Zing in your website. Simply copy the following snippet and paste it into the HTML code of your website."
 msgstr "Embed this Zing in your website. Simply copy the following snippet and paste it into the HTML code of your website."
 
-#: src/components/Post/Embed/VideoEmbed/VideoEmbedInner/VideoEmbedInnerWeb.tsx:81
+#: src/components/dialogs/Embed.tsx:106
+#: src/components/dialogs/Embed.tsx:110
+msgid "Embed Zing"
+msgstr "Embed Zing"
+
+#: src/components/Post/Embed/VideoEmbed/VideoEmbedInner/VideoEmbedInnerWeb.tsx:82
 msgid "Embedded video player"
 msgstr ""
 
@@ -5533,7 +5454,7 @@ msgstr ""
 msgid "Enter the 6-digit code sent to {prettyNumber}"
 msgstr ""
 
-#: src/screens/Login/LoginForm.tsx:437
+#: src/screens/Login/LoginForm.tsx:299
 msgid "Enter the code from your email or authenticator app"
 msgstr "Enter the code from your email or authenticator app"
 
@@ -5545,30 +5466,22 @@ msgstr ""
 msgid "Enter the email you used to create your account. We'll send you a \"reset code\" so you can set a new password."
 msgstr ""
 
-#: src/screens/Login/LoginForm.tsx:440
+#: src/screens/Login/LoginForm.tsx:302
 msgid "Enter the sign in code from your email or authenticator app."
 msgstr "Enter the sign in code from your email or authenticator app."
-
-#: src/screens/Login/LoginForm.tsx:333
-msgid "Enter the username or email address you used when you created your account"
-msgstr ""
 
 #: src/components/dialogs/BirthDateSettings.tsx:164
 msgid "Enter your birthdate"
 msgstr ""
 
 #: src/screens/Login/ForgotPasswordForm.tsx:100
-#: src/screens/Signup/StepInfo/index.tsx:257
+#: src/screens/Signup/StepInfo/index.tsx:251
 msgid "Enter your email address"
 msgstr ""
 
-#: src/screens/Login/LoginForm.tsx:381
+#: src/screens/Login/LoginForm.tsx:249
 #: src/screens/Settings/components/DeleteAccountDialog.tsx:297
 msgid "Enter your password"
-msgstr ""
-
-#: src/screens/Login/index.tsx:144
-msgid "Enter your username and password"
 msgstr ""
 
 #: src/components/Post/Embed/VideoEmbed/VideoEmbedInner/VideoEmbedInnerNative.tsx:195
@@ -5583,7 +5496,7 @@ msgstr ""
 msgid "Equal-height cards"
 msgstr "Equal-height cards"
 
-#: src/view/com/composer/Composer.tsx:2711
+#: src/view/com/composer/Composer.tsx:2712
 #: src/view/com/util/error/ErrorScreen.tsx:40
 msgid "Error"
 msgstr ""
@@ -5740,16 +5653,15 @@ msgstr ""
 msgid "Explicit sexual images."
 msgstr ""
 
-#: src/Navigation.tsx:934
+#: src/Navigation.tsx:987
 #: src/screens/Atmosphere/index.tsx:50
 #: src/screens/Search/Shell.tsx:573
-#: src/view/shell/desktop/LeftNav.tsx:741
-#: src/view/shell/Drawer.tsx:541
+#: src/view/shell/Drawer.tsx:588
 msgid "Explore"
 msgstr ""
 
-#: src/components/WelcomeModal.tsx:170
-#: src/components/WelcomeModal.tsx:179
+#: src/components/WelcomeModal.tsx:157
+#: src/components/WelcomeModal.tsx:166
 msgid "Explore the app"
 msgstr ""
 
@@ -5783,7 +5695,7 @@ msgstr ""
 msgid "External media may allow websites to collect information about you and your device. No information is sent or requested until you press the \"play\" button."
 msgstr ""
 
-#: src/Navigation.tsx:433
+#: src/Navigation.tsx:442
 #: src/screens/Settings/ExternalMediaPreferences.tsx:35
 msgid "External Media Preferences"
 msgstr ""
@@ -6165,7 +6077,7 @@ msgstr "Featured photos"
 msgid "Featured publications"
 msgstr "Featured publications"
 
-#: src/Navigation.tsx:344
+#: src/Navigation.tsx:353
 #: src/screens/ModerationInbox/components/ReportSubjectPreview/FeedSubjectPreview.tsx:45
 #: src/screens/ModerationInbox/components/util/reportSubjectLabel.ts:52
 msgid "Feed"
@@ -6205,6 +6117,11 @@ msgstr ""
 msgid "Feed menu"
 msgstr ""
 
+#. Name for a feature flag
+#: src/analytics/features/index.ts:150
+msgid "Feed rendering improvements"
+msgstr "Feed rendering improvements"
+
 #: src/components/StarterPack/Wizard/WizardListCard.tsx:58
 msgid "Feed toggle"
 msgstr ""
@@ -6214,9 +6131,7 @@ msgstr ""
 msgid "Feed unavailable"
 msgstr ""
 
-#: src/view/shell/desktop/RightNav.tsx:109
-#: src/view/shell/desktop/RightNav.tsx:110
-#: src/view/shell/Drawer.tsx:494
+#: src/view/shell/Drawer.tsx:541
 msgid "Feedback"
 msgstr ""
 
@@ -6228,7 +6143,7 @@ msgctxt "toast"
 msgid "Feedback sent to feed operator"
 msgstr ""
 
-#: src/Navigation.tsx:596
+#: src/Navigation.tsx:605
 #: src/screens/Atmosphere/components/appCategories.ts:13
 #: src/screens/SavedFeeds.tsx:112
 #: src/screens/SavedFeeds.tsx:303
@@ -6236,14 +6151,14 @@ msgstr ""
 #: src/screens/StarterPack/StarterPackScreen.tsx:194
 #: src/view/screens/Feeds.tsx:505
 #: src/view/screens/Profile.tsx:274
-#: src/view/shell/desktop/LeftNav.tsx:788
-#: src/view/shell/Drawer.tsx:675
+#: src/view/shell/Drawer.tsx:722
 msgid "Feeds"
 msgstr ""
 
-#: src/view/com/home/HomeHeader.tsx:37
-msgid "Feeds ✨"
-msgstr "Feeds"
+#. Description of a feature flag (Feed rendering improvements)
+#: src/analytics/features/index.ts:156
+msgid "Feeds and lists keep only nearby posts in the page, so performance stays steady however far you scroll."
+msgstr "Feeds and lists keep only nearby posts in the page, so performance stays steady however far you scroll."
 
 #: src/screens/SavedFeeds.tsx:227
 #: src/screens/SavedFeeds.tsx:398
@@ -6337,8 +6252,8 @@ msgstr ""
 msgid "Find and invite friends"
 msgstr "Find and invite friends"
 
-#: src/Navigation.tsx:497
-#: src/Navigation.tsx:638
+#: src/Navigation.tsx:506
+#: src/Navigation.tsx:646
 msgid "Find Contacts"
 msgstr ""
 
@@ -6363,10 +6278,6 @@ msgstr ""
 #: src/screens/Settings/FindContactsSettings.tsx:136
 msgid "Find people you know"
 msgstr "Find people you know"
-
-#: src/screens/Search/Shell.tsx:790
-msgid "Find posts, users, and feeds on Bluesky"
-msgstr "Find Zings, people, and feeds on QuantZing"
 
 #: src/screens/Notifications/components/PageList.tsx:588
 msgid "Find some friends to start getting notifications!"
@@ -6457,11 +6368,11 @@ msgstr ""
 msgid "Follow 10 accounts"
 msgstr ""
 
-#: src/components/ProgressGuide/List.tsx:73
+#: src/components/ProgressGuide/List.tsx:75
 msgid "Follow 10 people to get started"
 msgstr ""
 
-#: src/components/ProgressGuide/List.tsx:114
+#: src/components/ProgressGuide/List.tsx:116
 msgid "Follow 7 accounts"
 msgstr ""
 
@@ -6538,7 +6449,7 @@ msgid "Followers can join"
 msgstr "Followers can join"
 
 #. placeholder {0}: route.params.name
-#: src/Navigation.tsx:298
+#: src/Navigation.tsx:307
 msgid "Followers of @{0} that you know"
 msgstr ""
 
@@ -6591,7 +6502,7 @@ msgstr "Following {name}"
 msgid "Following feed preferences"
 msgstr ""
 
-#: src/Navigation.tsx:420
+#: src/Navigation.tsx:429
 #: src/screens/Settings/FollowingFeedPreferences.tsx:57
 msgid "Following Feed Preferences"
 msgstr ""
@@ -6655,19 +6566,14 @@ msgstr ""
 msgid "Forget the noise"
 msgstr ""
 
-#: src/screens/Login/index.tsx:176
-#: src/screens/Login/index.tsx:192
-msgid "Forgot Password"
-msgstr ""
-
-#: src/screens/Login/LoginForm.tsx:406
-#: src/screens/Login/LoginForm.tsx:413
+#: src/screens/Login/LoginForm.tsx:267
+#: src/screens/Login/LoginForm.tsx:274
 msgid "Forgot password?"
 msgstr ""
 
 #. This is alt text for a marketing image which transcribes English text that appears in the image
 #: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:147
-msgid "Four message bubbles representing a group chat. First message: \"Did you hear the news? Bluesky has group chats now!\" Second message: \"omg, no way\" Third message: \"Wow, 50 people in one chat!\" Fourth message: \"You can send invite links too!\""
+msgid "Four message bubbles representing a group chat. First message: \"Did you hear the news? QuantZing has group chats now!\" Second message: \"omg, no way\" Third message: \"Wow, 50 people in one chat!\" Fourth message: \"You can send invite links too!\""
 msgstr "Four message bubbles representing a group chat. First message: \"Did you hear the news? QuantZing has group chats now!\" Second message: \"omg, no way\" Third message: \"Wow, 50 people in one chat!\" Fourth message: \"You can send invite links too!\""
 
 #: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:22
@@ -6732,11 +6638,11 @@ msgstr "Generate a Starter Pack"
 msgid "Generate invite link"
 msgstr "Generate invite link"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:444
+#: src/screens/Messages/components/InviteLinkDialog.tsx:445
 msgid "Generate new invite link"
 msgstr "Generate new invite link"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:449
+#: src/screens/Messages/components/InviteLinkDialog.tsx:450
 msgid "Generate new link"
 msgstr "Generate new link"
 
@@ -6762,7 +6668,7 @@ msgstr ""
 msgid "Get early access to experimental features we’re testing."
 msgstr "Get early access to experimental features we’re testing."
 
-#: src/view/shell/Drawer.tsx:498
+#: src/view/shell/Drawer.tsx:545
 msgid "Get help"
 msgstr ""
 
@@ -6862,7 +6768,7 @@ msgstr ""
 msgid "GIF"
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:2716
+#: src/view/com/composer/Composer.tsx:2717
 msgid "GIF uploaded"
 msgstr ""
 
@@ -6972,8 +6878,8 @@ msgstr ""
 #: src/components/dms/ConvoMenu.tsx:262
 #: src/screens/Messages/components/MessagesListInfoPanel.tsx:102
 #: src/screens/Messages/ConversationSettings/MemberMenu.tsx:194
-#: src/view/shell/desktop/LeftNav.tsx:379
-#: src/view/shell/desktop/LeftNav.tsx:385
+#: src/view/shell/desktop/LeftNav.tsx:428
+#: src/view/shell/desktop/LeftNav.tsx:434
 msgid "Go to profile"
 msgstr ""
 
@@ -7028,7 +6934,7 @@ msgstr ""
 msgid "Group chat"
 msgstr "Group chat"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:554
+#: src/screens/Messages/components/InviteLinkDialog.tsx:555
 msgid "Group chat invite link dialog"
 msgstr "Group chat invite link dialog"
 
@@ -7047,7 +6953,7 @@ msgctxt "toast"
 msgid "Group chat name updated"
 msgstr "Group chat name updated"
 
-#: src/Navigation.tsx:565
+#: src/Navigation.tsx:574
 #: src/screens/Messages/ConversationSettings/index.tsx:111
 msgid "Group chat settings"
 msgstr "Group chat settings"
@@ -7149,7 +7055,7 @@ msgstr ""
 msgid "Harming or endangering minors"
 msgstr ""
 
-#: src/Navigation.tsx:549
+#: src/Navigation.tsx:558
 msgid "Hashtag"
 msgstr ""
 
@@ -7166,11 +7072,11 @@ msgstr ""
 msgid "Have a code? <0>Click here.</0>"
 msgstr ""
 
-#: src/screens/Signup/StepInfo/index.tsx:338
+#: src/screens/Signup/StepInfo/index.tsx:332
 msgid "Have we got your location wrong? <0>Tap here to update your location with GPS.</0>"
 msgstr "Have we got your location wrong? <0>Tap here to update your location with GPS.</0>"
 
-#: src/screens/Signup/index.tsx:239
+#: src/screens/Signup/index.tsx:250
 msgid "Having trouble?"
 msgstr ""
 
@@ -7185,9 +7091,7 @@ msgstr "Held by QuantZing for 7 days to prevent abuse, then deleted"
 
 #: src/screens/Settings/Settings.tsx:277
 #: src/screens/Settings/Settings.tsx:281
-#: src/view/shell/desktop/RightNav.tsx:130
-#: src/view/shell/desktop/RightNav.tsx:133
-#: src/view/shell/Drawer.tsx:507
+#: src/view/shell/Drawer.tsx:554
 msgid "Help"
 msgstr ""
 
@@ -7201,8 +7105,8 @@ msgstr ""
 
 #: src/components/PolicyUpdateOverlay/updates/202508/index.tsx:74
 #: src/components/PolicyUpdateOverlay/updates/202508/index.tsx:120
-msgid "Hey there 👋"
-msgstr ""
+msgid "Hey there"
+msgstr "Hey there"
 
 #: src/ageAssurance/components/NoAccessScreen.tsx:174
 msgid "Hey there!"
@@ -7368,11 +7272,10 @@ msgstr ""
 msgid "Hold up! We’re gradually giving access to video, and you’re still waiting in line. Check back soon!"
 msgstr ""
 
-#: src/Navigation.tsx:929
-#: src/Navigation.tsx:950
+#: src/Navigation.tsx:982
+#: src/Navigation.tsx:1003
 #: src/view/shell/bottom-bar/BottomBar.tsx:200
-#: src/view/shell/desktop/LeftNav.tsx:729
-#: src/view/shell/Drawer.tsx:567
+#: src/view/shell/Drawer.tsx:614
 msgid "Home"
 msgstr ""
 
@@ -7383,18 +7286,8 @@ msgstr ""
 #: src/components/dialogs/ServerInput.tsx:138
 #: src/screens/Login/components/HostingProviderDialog.tsx:159
 #: src/screens/Login/ForgotPasswordForm.tsx:84
-#: src/screens/Login/LoginForm.tsx:597
 msgid "Hosting provider"
 msgstr ""
-
-#. placeholder {0}: toNiceHostingUrl(state.pdsUrl)
-#: src/screens/Login/LoginForm.tsx:593
-msgid "Hosting provider: {0}"
-msgstr "Hosting provider: {0}"
-
-#: src/screens/Login/LoginForm.tsx:595
-msgid "Hosting provider: Bluesky"
-msgstr "Hosting provider: QuantZing"
 
 #: src/components/contacts/components/InviteInfo.tsx:54
 msgid "How it works:"
@@ -7414,7 +7307,7 @@ msgid "Human trafficking"
 msgstr ""
 
 #: src/components/contacts/screens/GetContacts.tsx:269
-msgid "I consent to Bluesky using my contacts for mutual friend discovery and to retain hashed data for matching until I opt out."
+msgid "I consent to QuantZing using my contacts for mutual friend discovery and to retain hashed data for matching until I opt out."
 msgstr "I consent to QuantZing using my contacts for mutual friend discovery and to retain hashed data for matching until I opt out."
 
 #: src/screens/Settings/components/DisableEmail2FADialog.tsx:142
@@ -7433,7 +7326,7 @@ msgstr ""
 
 #. placeholder {0}: currentAccount.handle
 #: src/components/contacts/screens/ViewMatches.tsx:586
-msgid "I'm on Bluesky as {0} - come find me! https://bsky.app/download"
+msgid "I'm on QuantZing as {0} - come find me! https://quantzing.com/download"
 msgstr "I'm on QuantZing as {0} - come find me! https://quantzing.com/download"
 
 #: src/components/Lightbox/Lightbox.web.tsx:252
@@ -7448,7 +7341,7 @@ msgstr ""
 msgid "If you are 18 years of age or older and want to try again, click the button below and use a different verification method if one is available in your region. If you have questions or concerns, <0>our support team can help.</0>"
 msgstr ""
 
-#: src/screens/Signup/StepInfo/index.tsx:355
+#: src/screens/Signup/StepInfo/index.tsx:349
 msgid "If you are not yet an adult according to the laws of your country, your parent or legal guardian must read these Terms on your behalf."
 msgstr ""
 
@@ -7511,13 +7404,13 @@ msgstr "Image {0}"
 msgid "Image {0} of {1}"
 msgstr ""
 
-#: src/screens/Settings/AboutSettings.tsx:72
+#: src/screens/Settings/AboutSettings.tsx:71
 msgid "Image cache cleared"
 msgstr ""
 
 #. Android-only toast message which includes amount of space freed using localized number formatting
 #. placeholder {0}: i18n.number( Math.abs(sizeDiffBytes / 1024 / 1024), { notation: 'compact', style: 'unit', unit: 'megabyte', }, )
-#: src/screens/Settings/AboutSettings.tsx:58
+#: src/screens/Settings/AboutSettings.tsx:57
 msgid "Image cache cleared, freed {0}"
 msgstr ""
 
@@ -7687,7 +7580,7 @@ msgstr "Include Zings made until this date"
 msgid "Include video timestamp ({videoTimestamp})"
 msgstr "Include video timestamp ({videoTimestamp})"
 
-#: src/screens/Login/LoginForm.tsx:160
+#: src/screens/Login/LoginForm.tsx:132
 msgid "Incorrect username or password"
 msgstr ""
 
@@ -7743,7 +7636,7 @@ msgstr "Introducing group chats"
 msgid "Introducing saved posts AKA bookmarks"
 msgstr "Introducing saved Zings AKA bookmarks"
 
-#: src/screens/Login/LoginForm.tsx:151
+#: src/screens/Login/LoginForm.tsx:123
 #: src/screens/Settings/components/DisableEmail2FADialog.tsx:80
 msgid "Invalid 2FA confirmation code."
 msgstr ""
@@ -7784,14 +7677,14 @@ msgid "Invite"
 msgstr ""
 
 #: src/components/contacts/screens/ViewMatches.tsx:575
-msgid "Invite {name} to join Bluesky"
+msgid "Invite {name} to join QuantZing"
 msgstr "Invite {name} to join QuantZing"
 
-#: src/screens/Signup/StepInfo/index.tsx:207
+#: src/screens/Signup/StepInfo/index.tsx:201
 msgid "Invite code"
 msgstr ""
 
-#: src/screens/Signup/state.ts:366
+#: src/screens/Signup/state.ts:382
 msgid "Invite code not accepted. Check that you input it correctly and try again."
 msgstr ""
 
@@ -7811,9 +7704,9 @@ msgid "Invite friends <0/>"
 msgstr ""
 
 #: src/screens/Messages/components/InviteLinkDialog.tsx:191
-#: src/screens/Messages/components/InviteLinkDialog.tsx:327
-#: src/screens/Messages/components/InviteLinkDialog.tsx:333
-#: src/screens/Messages/components/InviteLinkDialog.tsx:512
+#: src/screens/Messages/components/InviteLinkDialog.tsx:328
+#: src/screens/Messages/components/InviteLinkDialog.tsx:334
+#: src/screens/Messages/components/InviteLinkDialog.tsx:513
 #: src/screens/Messages/components/MessagesListGroupInfoPanel.tsx:150
 #: src/screens/Messages/ConversationSettings/index.tsx:561
 msgid "Invite link"
@@ -7830,7 +7723,7 @@ msgid "Invite link created"
 msgstr "Invite link created"
 
 #: src/components/dms/getSystemMessageInfo.ts:164
-#: src/screens/Messages/components/InviteLinkDialog.tsx:327
+#: src/screens/Messages/components/InviteLinkDialog.tsx:328
 msgid "Invite link disabled"
 msgstr "Invite link disabled"
 
@@ -7867,7 +7760,7 @@ msgstr ""
 msgid "It looks like some of your contacts have not tried to find you here yet. You can personally invite them by customizing a draft message we will provide."
 msgstr ""
 
-#: src/screens/Signup/StepInfo/index.tsx:388
+#: src/screens/Signup/StepInfo/index.tsx:382
 msgid "It's correct"
 msgstr ""
 
@@ -7881,31 +7774,26 @@ msgid "It's just you right now! Add more people to your starter pack by searchin
 msgstr ""
 
 #. placeholder {0}: videoState.jobId
-#: src/view/com/composer/Composer.tsx:2652
+#: src/view/com/composer/Composer.tsx:2653
 msgid "Job ID: {0}"
 msgstr ""
 
-#. Link to a page with job openings at Bluesky
-#: src/view/com/auth/SplashScreen.web.tsx:179
-msgid "Jobs"
-msgstr ""
-
-#: src/components/dms/ChatInvite/Root.tsx:118
+#: src/components/dms/ChatInvite/Root.tsx:119
 #: src/components/intents/GroupChatJoinDialog.tsx:301
 msgid "Join"
 msgstr "Join"
-
-#: src/screens/StarterPack/StarterPackLandingScreen.tsx:202
-#: src/screens/StarterPack/StarterPackLandingScreen.tsx:207
-#: src/screens/StarterPack/StarterPackScreen.tsx:468
-#: src/screens/StarterPack/StarterPackScreen.tsx:478
-msgid "Join Bluesky"
-msgstr "Join QuantZing"
 
 #: src/components/intents/GroupChatJoinDialog.tsx:70
 #: src/components/intents/GroupChatJoinDialog.tsx:465
 msgid "Join group chat"
 msgstr "Join group chat"
+
+#: src/screens/StarterPack/StarterPackLandingScreen.tsx:202
+#: src/screens/StarterPack/StarterPackLandingScreen.tsx:207
+#: src/screens/StarterPack/StarterPackScreen.tsx:468
+#: src/screens/StarterPack/StarterPackScreen.tsx:478
+msgid "Join QuantZing"
+msgstr "Join QuantZing"
 
 #: src/components/intents/GroupChatJoinDialog.tsx:194
 #: src/screens/Messages/components/OutgoingRequestListItem.tsx:29
@@ -7913,7 +7801,7 @@ msgid "Join request rescinded."
 msgstr "Join request rescinded."
 
 #: src/components/StarterPack/QrCode.tsx:64
-#: src/view/shell/NavSignupCard.tsx:41
+#: src/view/shell/NavSignupCard.tsx:44
 msgid "Join the conversation"
 msgstr ""
 
@@ -7925,8 +7813,8 @@ msgstr "Joined {createdAt}"
 msgid "Journalism"
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:1562
-#: src/view/com/composer/Composer.tsx:1577
+#: src/view/com/composer/Composer.tsx:1563
+#: src/view/com/composer/Composer.tsx:1578
 #: src/view/com/composer/drafts/DraftsButton.tsx:126
 msgid "Keep editing"
 msgstr ""
@@ -8000,7 +7888,7 @@ msgstr "Landscape frame"
 msgid "Language"
 msgstr "Language"
 
-#: src/Navigation.tsx:271
+#: src/Navigation.tsx:280
 msgid "Language Settings"
 msgstr ""
 
@@ -8059,10 +7947,6 @@ msgstr "Learn more about <0>how to use advanced search</0>."
 msgid "Learn more about age assurance"
 msgstr ""
 
-#: src/view/com/auth/SplashScreen.web.tsx:167
-msgid "Learn more about Bluesky"
-msgstr "Learn more about QuantZing"
-
 #: src/components/contacts/components/InviteInfo.tsx:33
 msgid "Learn more about how inviting friends works"
 msgstr ""
@@ -8098,9 +7982,13 @@ msgid "Learn more about this warning"
 msgstr ""
 
 #: src/components/verification/VerificationsDialog.tsx:154
-#: src/components/verification/VerifierDialog.tsx:123
 msgctxt "english-only-resource"
 msgid "Learn more about verification on Bluesky"
+msgstr "Learn more about verification on QuantZing"
+
+#: src/components/verification/VerifierDialog.tsx:123
+msgctxt "english-only-resource"
+msgid "Learn more about verification on QuantZing"
 msgstr "Learn more about verification on QuantZing"
 
 #: src/screens/Settings/PrivacyAndSecuritySettings.tsx:130
@@ -8169,7 +8057,7 @@ msgstr "Leave this group chat"
 
 #: src/components/dialogs/LinkWarning.tsx:83
 #: src/components/dialogs/LinkWarning.tsx:91
-msgid "Leaving Bluesky"
+msgid "Leaving QuantZing"
 msgstr "Leaving QuantZing"
 
 #: src/screens/Messages/ConversationSettings/prompts.tsx:145
@@ -8186,11 +8074,6 @@ msgstr ""
 
 #: src/components/StarterPack/ProfileStarterPacks.tsx:352
 msgid "Let me choose"
-msgstr ""
-
-#: src/screens/Login/index.tsx:177
-#: src/screens/Login/index.tsx:193
-msgid "Let's get your password reset!"
 msgstr ""
 
 #: src/screens/Onboarding/StepFinished/index.tsx:343
@@ -8214,11 +8097,11 @@ msgstr ""
 
 #. Accessibility label for the like button when the post has not been liked, verb form followed by number of likes and noun form
 #. placeholder {0}: post.likeCount || 0
-#: src/components/PostControls/index.tsx:256
+#: src/components/PostControls/index.tsx:278
 msgid "Like ({0, plural, one {# like} other {# likes}})"
 msgstr ""
 
-#: src/components/ProgressGuide/List.tsx:108
+#: src/components/ProgressGuide/List.tsx:110
 msgid "Like 10 posts"
 msgstr "Like 10 Zings"
 
@@ -8235,8 +8118,8 @@ msgstr ""
 msgid "Like this labeler"
 msgstr ""
 
-#: src/Navigation.tsx:349
-#: src/Navigation.tsx:354
+#: src/Navigation.tsx:358
+#: src/Navigation.tsx:363
 msgid "Liked by"
 msgstr ""
 
@@ -8341,7 +8224,7 @@ msgstr "Links show as buttons under your bio. Links to support sites like Ko-fi 
 msgid "Links to these sites show as a green support button."
 msgstr "Links to these sites show as a green support button."
 
-#: src/Navigation.tsx:304
+#: src/Navigation.tsx:313
 #: src/screens/ModerationInbox/components/ReportSubjectPreview/ListSubjectPreview.tsx:44
 #: src/screens/ModerationInbox/components/util/reportSubjectLabel.ts:50
 msgid "List"
@@ -8442,12 +8325,11 @@ msgctxt "toast"
 msgid "List unmuted"
 msgstr ""
 
-#: src/Navigation.tsx:205
+#: src/Navigation.tsx:214
 #: src/view/screens/Lists.tsx:60
 #: src/view/screens/Profile.tsx:268
 #: src/view/screens/Profile.tsx:276
-#: src/view/shell/desktop/LeftNav.tsx:796
-#: src/view/shell/Drawer.tsx:690
+#: src/view/shell/Drawer.tsx:737
 msgid "Lists"
 msgstr ""
 
@@ -8613,21 +8495,12 @@ msgstr "Lock this group chat"
 msgid "Locked"
 msgstr "Locked"
 
-#: src/Navigation.tsx:379
+#: src/Navigation.tsx:388
 msgid "Log"
 msgstr ""
 
 #: src/components/AccountList.tsx:183
 msgid "Logged out"
-msgstr ""
-
-#: src/view/shell/desktop/RightNav.tsx:142
-msgid "Logo by @sawaratsuki.bsky.social"
-msgstr ""
-
-#: src/view/shell/desktop/RightNav.tsx:139
-#: src/view/shell/Drawer.tsx:890
-msgid "Logo by <0>@sawaratsuki.bsky.social</0>"
 msgstr ""
 
 #. placeholder {0}: isCashtag ? tag : `#${tag}`
@@ -8891,7 +8764,7 @@ msgstr ""
 
 #. Share target that opens the iPhone’s Messages app
 #: src/components/ShareDialog/SharePlatformIcon.tsx:173
-#: src/Navigation.tsx:944
+#: src/Navigation.tsx:997
 msgid "Messages"
 msgstr ""
 
@@ -8924,11 +8797,11 @@ msgstr ""
 msgid "Mixed content and sizes"
 msgstr "Mixed content and sizes"
 
-#: src/Navigation.tsx:220
+#: src/Navigation.tsx:229
 msgid "Mod inbox settings"
 msgstr "Mod inbox settings"
 
-#: src/Navigation.tsx:210
+#: src/Navigation.tsx:219
 #: src/screens/Moderation/index.tsx:102
 msgid "Moderation"
 msgstr ""
@@ -8937,7 +8810,7 @@ msgstr ""
 msgid "Moderation details"
 msgstr ""
 
-#: src/Navigation.tsx:215
+#: src/Navigation.tsx:224
 #: src/screens/Moderation/index.tsx:291
 #: src/screens/ModerationInbox/index.tsx:98
 msgid "Moderation inbox"
@@ -8978,7 +8851,7 @@ msgstr ""
 msgid "Moderation lists"
 msgstr ""
 
-#: src/Navigation.tsx:235
+#: src/Navigation.tsx:244
 #: src/view/screens/ModerationModlists.tsx:60
 msgid "Moderation Lists"
 msgstr ""
@@ -8992,7 +8865,7 @@ msgstr "Moderation notice"
 msgid "moderation settings"
 msgstr ""
 
-#: src/Navigation.tsx:364
+#: src/Navigation.tsx:373
 msgid "Moderation states"
 msgstr ""
 
@@ -9012,8 +8885,8 @@ msgstr ""
 msgid "More"
 msgstr "More"
 
-#: src/view/shell/desktop/Feeds.tsx:108
-#: src/view/shell/desktop/Feeds.tsx:155
+#: src/view/shell/desktop/Feeds.tsx:136
+#: src/view/shell/desktop/Feeds.tsx:146
 msgid "More feeds"
 msgstr ""
 
@@ -9152,7 +9025,7 @@ msgstr "Muted"
 msgid "Muted accounts"
 msgstr ""
 
-#: src/Navigation.tsx:240
+#: src/Navigation.tsx:249
 #: src/view/screens/ModerationMutedAccounts.tsx:107
 msgid "Muted Accounts"
 msgstr ""
@@ -9219,7 +9092,6 @@ msgstr "Navigate to Starter Pack"
 
 #: src/screens/Login/ForgotPasswordForm.tsx:148
 #: src/screens/Login/ForgotPasswordForm.tsx:173
-#: src/screens/Login/LoginForm.tsx:532
 msgid "Navigates to the next screen"
 msgstr ""
 
@@ -9363,7 +9235,6 @@ msgstr "New Zing"
 #: src/features/followingV2/home/FeedPage.tsx:192
 #: src/screens/Notifications/index.tsx:84
 #: src/view/com/feeds/FeedPage.tsx:191
-#: src/view/shell/desktop/LeftNav.tsx:661
 msgctxt "action"
 msgid "New post"
 msgstr "New Zing"
@@ -9403,10 +9274,6 @@ msgstr "New reply from <0/>"
 #: src/components/dialogs/StarterPackDialog.tsx:196
 msgid "New Starter Pack"
 msgstr "New Starter Pack"
-
-#: src/screens/Login/LoginForm.tsx:546
-msgid "New to Bluesky? <0>Sign up</0>"
-msgstr "New to QuantZing? <0>Sign up</0>"
 
 #: src/components/dialogs/NewskieDialog/index.tsx:100
 msgid "New user info dialog"
@@ -9471,7 +9338,7 @@ msgid "No activity yet."
 msgstr "No activity yet."
 
 #: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:42
-msgid "No ads, no invasive tracking, no engagement traps. Bluesky respects your time and attention."
+msgid "No ads, no invasive tracking, no engagement traps. QuantZing respects your time and attention."
 msgstr "No ads, no invasive tracking, no engagement traps. QuantZing respects your time and attention."
 
 #: src/screens/Settings/AppPasswords.tsx:109
@@ -9807,7 +9674,7 @@ msgstr ""
 msgid "Not followed by anyone you’re following"
 msgstr "Not followed by anyone you’re following"
 
-#: src/Navigation.tsx:190
+#: src/Navigation.tsx:199
 #: src/view/screens/Profile.tsx:154
 msgid "Not Found"
 msgstr ""
@@ -9832,14 +9699,14 @@ msgstr "Note: This Zing is only visible to logged-in users."
 msgid "Nothing saved yet"
 msgstr ""
 
-#: src/Navigation.tsx:230
+#: src/Navigation.tsx:239
 #: src/screens/ModerationInbox/Notice.tsx:130
 msgid "Notice"
 msgstr "Notice"
 
 #: src/components/dialogs/NotificationSettingsDialog.tsx:72
-#: src/Navigation.tsx:504
-#: src/Navigation.tsx:591
+#: src/Navigation.tsx:513
+#: src/Navigation.tsx:600
 #: src/screens/Notifications/index.tsx:662
 msgid "Notification settings"
 msgstr ""
@@ -9853,8 +9720,8 @@ msgstr "Notification Settings"
 msgid "Notification sounds"
 msgstr ""
 
-#: src/Navigation.tsx:586
-#: src/Navigation.tsx:939
+#: src/Navigation.tsx:595
+#: src/Navigation.tsx:992
 #: src/screens/Messages/Settings.tsx:255
 #: src/screens/Notifications/ActivityList.tsx:29
 #: src/screens/Notifications/index.tsx:656
@@ -9862,8 +9729,7 @@ msgstr ""
 #: src/screens/Settings/Settings.tsx:219
 #: src/screens/Settings/Settings.tsx:222
 #: src/view/shell/bottom-bar/BottomBar.tsx:283
-#: src/view/shell/desktop/LeftNav.tsx:752
-#: src/view/shell/Drawer.tsx:620
+#: src/view/shell/Drawer.tsx:667
 msgid "Notifications"
 msgstr ""
 
@@ -10024,7 +9890,7 @@ msgstr ""
 msgid "Only people {0} follows can join."
 msgstr "Only people {0} follows can join."
 
-#: src/components/dms/ChatInvite/Root.tsx:128
+#: src/components/dms/ChatInvite/Root.tsx:129
 #: src/components/intents/GroupChatJoinDialog.tsx:311
 msgid "Only people the chat owner follows can join"
 msgstr "Only people the chat owner follows can join"
@@ -10087,11 +9953,7 @@ msgstr "Open advanced search options"
 msgid "Open avatar creator"
 msgstr ""
 
-#: src/view/com/feeds/ComposerPrompt.tsx:215
-msgid "Open camera"
-msgstr ""
-
-#: src/components/dms/ChatInvite/Root.tsx:105
+#: src/components/dms/ChatInvite/Root.tsx:106
 #: src/components/intents/GroupChatJoinDialog.tsx:454
 #: src/screens/ModerationInbox/components/ReportSubjectPreview/ChatSubjectPreview.tsx:32
 #: src/screens/ModerationInbox/components/ReportSubjectPreview/index.tsx:47
@@ -10120,7 +9982,7 @@ msgid "Open drawer menu"
 msgstr ""
 
 #: src/screens/Messages/components/MessageComposer.tsx:270
-#: src/view/com/composer/Composer.tsx:2279
+#: src/view/com/composer/Composer.tsx:2280
 msgid "Open emoji picker"
 msgstr ""
 
@@ -10260,17 +10122,13 @@ msgstr "Open this group chat"
 msgid "Opens {0} outside Bluesky"
 msgstr "Opens {0} outside QuantZing"
 
-#: src/view/shell/desktop/Feeds.tsx:188
+#: src/view/shell/desktop/Feeds.tsx:178
 msgid "Opens {displayName} feed"
 msgstr "Opens {displayName} feed"
 
 #: src/view/com/composer/labels/LabelsBtn.tsx:63
 msgid "Opens a dialog to add a content warning to your post"
 msgstr "Opens a dialog to add a content warning to your Zing"
-
-#: src/screens/Login/LoginForm.tsx:583
-msgid "Opens a dialog to change the hosting provider you sign in to"
-msgstr "Opens a dialog to change the hosting provider you sign in to"
 
 #: src/view/com/composer/threadgate/ThreadgateBtn.tsx:152
 msgid "Opens a dialog to choose who can interact with this post"
@@ -10312,10 +10170,6 @@ msgstr ""
 msgid "Opens composer"
 msgstr ""
 
-#: src/view/com/feeds/ComposerPrompt.tsx:216
-msgid "Opens device camera"
-msgstr ""
-
 #. Accessibility hint for button in composer to add images, a video, or a GIF to a post.
 #: src/view/com/composer/SelectMediaButton.tsx:526
 msgid "Opens device gallery to select up to {MAX_GALLERY_IMAGES, plural, other {# images}}, or a single video or GIF."
@@ -10323,13 +10177,11 @@ msgstr "Opens device gallery to select up to {MAX_GALLERY_IMAGES, plural, other 
 
 #: src/screens/Messages/JoinRequest.tsx:309
 #: src/view/com/auth/NativeSplashScreen.tsx:141
-#: src/view/com/auth/SplashScreen.web.tsx:110
 msgid "Opens flow to create a new Bluesky account"
 msgstr "Opens flow to create a new QuantZing account"
 
 #: src/screens/Messages/JoinRequest.tsx:295
 #: src/view/com/auth/NativeSplashScreen.tsx:170
-#: src/view/com/auth/SplashScreen.web.tsx:124
 msgid "Opens flow to sign in to your existing Bluesky account"
 msgstr "Opens flow to sign in to your existing QuantZing account"
 
@@ -10341,16 +10193,12 @@ msgstr "Opens full image"
 msgid "Opens helpdesk in browser"
 msgstr ""
 
-#: src/view/com/feeds/ComposerPrompt.tsx:238
-msgid "Opens image picker"
-msgstr ""
-
 #. placeholder {0}: link?.href ?? ''
 #: src/components/dialogs/LinkWarning.tsx:113
 msgid "Opens link {0}"
 msgstr ""
 
-#: src/view/com/util/UserAvatar.tsx:605
+#: src/view/com/util/UserAvatar.tsx:635
 msgid "Opens live status dialog"
 msgstr ""
 
@@ -10381,15 +10229,11 @@ msgstr "Opens the invite friends sheet to share your profile"
 msgid "Opens the photos in a dialog"
 msgstr "Opens the photos in a dialog"
 
-#: src/view/com/feeds/ComposerPrompt.tsx:162
-msgid "Opens the post composer"
-msgstr "Opens the Zing composer"
-
 #: src/view/com/composer/drafts/DraftItem.tsx:71
 msgid "Opens this draft in the composer"
 msgstr ""
 
-#: src/view/com/util/UserAvatar.tsx:625
+#: src/view/com/util/UserAvatar.tsx:655
 msgid "Opens this profile"
 msgstr ""
 
@@ -10538,12 +10382,12 @@ msgstr ""
 msgid "Party GIFs"
 msgstr "Party GIFs"
 
-#: src/screens/Login/LoginForm.tsx:361
-#: src/screens/Login/LoginForm.tsx:367
+#: src/screens/Login/LoginForm.tsx:229
+#: src/screens/Login/LoginForm.tsx:235
 #: src/screens/Settings/AccountSettings.tsx:124
 #: src/screens/Settings/AccountSettings.tsx:128
 #: src/screens/Settings/components/DeleteAccountDialog.tsx:292
-#: src/screens/Signup/StepInfo/index.tsx:272
+#: src/screens/Signup/StepInfo/index.tsx:266
 msgid "Password"
 msgstr ""
 
@@ -10554,10 +10398,6 @@ msgstr ""
 #: src/screens/Settings/components/ChangePasswordDialog.tsx:143
 msgid "Password successfully reset. Please sign in with your new password."
 msgstr "Password successfully reset. Please sign in with your new password."
-
-#: src/screens/Login/index.tsx:206
-msgid "Password updated"
-msgstr ""
 
 #: src/screens/Login/PasswordUpdatedForm.tsx:22
 msgid "Password updated!"
@@ -10591,12 +10431,12 @@ msgid "People {ownerName} follows can request to join"
 msgstr "People {ownerName} follows can request to join"
 
 #. placeholder {0}: route.params.name
-#: src/Navigation.tsx:291
+#: src/Navigation.tsx:300
 msgid "People followed by @{0}"
 msgstr ""
 
 #. placeholder {0}: route.params.name
-#: src/Navigation.tsx:284
+#: src/Navigation.tsx:293
 msgid "People following @{0}"
 msgstr ""
 
@@ -10719,7 +10559,7 @@ msgstr ""
 msgid "Pin to your profile"
 msgstr ""
 
-#: src/view/com/posts/PostFeedReason.tsx:118
+#: src/view/com/posts/PostFeedReason.tsx:113
 msgid "Pinned"
 msgstr ""
 
@@ -10785,12 +10625,12 @@ msgstr ""
 msgid "Please check your email inbox for further instructions. It may take a minute or two to arrive."
 msgstr ""
 
-#: src/screens/Signup/state.ts:303
+#: src/screens/Signup/state.ts:312
 msgid "Please choose your handle."
 msgstr ""
 
-#: src/screens/Signup/state.ts:295
-#: src/screens/Signup/StepInfo/index.tsx:159
+#: src/screens/Signup/state.ts:304
+#: src/screens/Signup/StepInfo/index.tsx:158
 msgid "Please choose your password."
 msgstr ""
 
@@ -10798,7 +10638,7 @@ msgstr ""
 msgid "Please click on the link in the email we just sent you to verify your new email address. This is an important step to allow you to continue enjoying all the features of Bluesky."
 msgstr "Please click on the link in the email we just sent you to verify your new email address. This is an important step to allow you to continue enjoying all the features of QuantZing."
 
-#: src/screens/Signup/state.ts:325
+#: src/screens/Signup/state.ts:334
 msgid "Please complete the verification captcha."
 msgstr ""
 
@@ -10807,7 +10647,7 @@ msgid "Please confirm your email address to upload videos."
 msgstr ""
 
 #: src/components/ageAssurance/AgeAssuranceInitDialog.tsx:104
-#: src/screens/Signup/StepInfo/index.tsx:149
+#: src/screens/Signup/StepInfo/index.tsx:148
 msgid "Please double-check that you have entered your email address correctly."
 msgstr ""
 
@@ -10855,17 +10695,17 @@ msgstr ""
 msgid "Please enter the security code we sent to your previous email address."
 msgstr ""
 
-#: src/screens/Signup/state.ts:313
-#: src/screens/Signup/StepInfo/index.tsx:173
+#: src/screens/Signup/state.ts:322
+#: src/screens/Signup/StepInfo/index.tsx:172
 msgid "Please enter your date of birth."
 msgstr "Please enter your date of birth."
 
-#: src/screens/Signup/state.ts:279
-#: src/screens/Signup/StepInfo/index.tsx:132
+#: src/screens/Signup/state.ts:288
+#: src/screens/Signup/StepInfo/index.tsx:131
 msgid "Please enter your email."
 msgstr ""
 
-#: src/screens/Signup/StepInfo/index.tsx:125
+#: src/screens/Signup/StepInfo/index.tsx:124
 msgid "Please enter your invite code."
 msgstr ""
 
@@ -10873,12 +10713,8 @@ msgstr ""
 msgid "Please enter your new email address."
 msgstr ""
 
-#: src/screens/Login/LoginForm.tsx:192
+#: src/screens/Login/LoginForm.tsx:166
 msgid "Please enter your password"
-msgstr ""
-
-#: src/screens/Login/LoginForm.tsx:186
-msgid "Please enter your username"
 msgstr ""
 
 #. placeholder {0}: labeler ? sanitizeHandle(labeler.creator.handle, '@') : label.src
@@ -10942,7 +10778,7 @@ msgstr ""
 msgid "Please verify your email"
 msgstr ""
 
-#: src/lib/hooks/useCreateSupportLink.ts:29
+#: src/lib/hooks/useCreateSupportLink.ts:30
 msgid "Please write your message below:"
 msgstr ""
 
@@ -10967,7 +10803,7 @@ msgstr "Portrait, square, and landscape frames as plain children. The frames, no
 msgid "Post"
 msgstr "Zing"
 
-#: src/view/com/composer/Composer.tsx:1921
+#: src/view/com/composer/Composer.tsx:1922
 msgctxt "action"
 msgid "Post"
 msgstr "Zing"
@@ -10999,12 +10835,12 @@ msgctxt "notifications tab"
 msgid "Post alerts"
 msgstr "Zing alerts"
 
-#: src/view/com/composer/Composer.tsx:1919
+#: src/view/com/composer/Composer.tsx:1920
 msgctxt "action"
 msgid "Post All"
 msgstr "Zing All"
 
-#: src/view/com/composer/Composer.tsx:1576
+#: src/view/com/composer/Composer.tsx:1577
 msgid "Post anyway"
 msgstr "Zing anyway"
 
@@ -11019,10 +10855,10 @@ msgstr "Zing by {authorName}"
 #. placeholder {0}: author.handle
 #. placeholder {0}: route.params.name
 #: src/lib/hooks/useSetPostTitle.ts:15
-#: src/Navigation.tsx:317
-#: src/Navigation.tsx:324
-#: src/Navigation.tsx:331
-#: src/Navigation.tsx:338
+#: src/Navigation.tsx:326
+#: src/Navigation.tsx:333
+#: src/Navigation.tsx:340
+#: src/Navigation.tsx:347
 msgid "Post by @{0}"
 msgstr "Zing by @{0}"
 
@@ -11062,22 +10898,22 @@ msgstr "Zing Hidden by You"
 msgid "Post interaction settings"
 msgstr "Zing interaction settings"
 
-#: src/Navigation.tsx:251
+#: src/Navigation.tsx:260
 #: src/screens/ModerationInteractionSettings/index.tsx:36
 msgid "Post Interaction Settings"
 msgstr "Zing Interaction Settings"
 
 #: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:187
-msgid "Post it to Bluesky or share anywhere."
-msgstr "Zing it to QuantZing or share anywhere."
+msgid "Post it to QuantZing or share anywhere."
+msgstr "Post it to QuantZing or share anywhere."
 
 #. Accessibility label for button that opens dialog to choose post language settings
 #: src/view/com/composer/select-language/PostLanguageSelect.tsx:193
 msgid "Post language selection"
 msgstr "Zing language selection"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:393
-#: src/screens/Messages/components/InviteLinkDialog.tsx:409
+#: src/screens/Messages/components/InviteLinkDialog.tsx:394
+#: src/screens/Messages/components/InviteLinkDialog.tsx:410
 msgid "Post link"
 msgstr "Zing link"
 
@@ -11131,7 +10967,6 @@ msgstr "Posted {0}"
 #: src/components/activity-notifications/SubscribeProfileDialog.tsx:266
 #: src/screens/ProfileList/index.tsx:164
 #: src/screens/Settings/NotificationSettings/ActivityNotificationSettings.tsx:216
-#: src/screens/StarterPack/StarterPackScreen.tsx:195
 #: src/view/screens/Profile.tsx:269
 msgid "Posts"
 msgstr "Zings"
@@ -11215,18 +11050,13 @@ msgstr ""
 msgid "Primary language"
 msgstr ""
 
-#: src/view/shell/desktop/RightNav.tsx:118
-#: src/view/shell/desktop/RightNav.tsx:119
-msgid "Privacy"
-msgstr ""
-
 #: src/screens/Settings/Settings.tsx:194
 #: src/screens/Settings/Settings.tsx:197
 msgid "Privacy and security"
 msgstr ""
 
-#: src/Navigation.tsx:481
-#: src/Navigation.tsx:489
+#: src/Navigation.tsx:490
+#: src/Navigation.tsx:498
 #: src/screens/Settings/ActivityPrivacySettings.tsx:41
 #: src/screens/Settings/PrivacyAndSecuritySettings.tsx:47
 msgid "Privacy and Security"
@@ -11239,12 +11069,11 @@ msgstr ""
 
 #: src/components/PolicyUpdateOverlay/updates/202508/index.tsx:36
 #: src/components/PolicyUpdateOverlay/updates/202508/index.tsx:103
-#: src/Navigation.tsx:389
-#: src/screens/Settings/AboutSettings.tsx:100
-#: src/screens/Settings/AboutSettings.tsx:103
-#: src/view/screens/PrivacyPolicy.tsx:25
-#: src/view/shell/Drawer.tsx:885
-#: src/view/shell/Drawer.tsx:886
+#: src/Navigation.tsx:398
+#: src/screens/Settings/AboutSettings.tsx:99
+#: src/screens/Settings/AboutSettings.tsx:102
+#: src/view/shell/Drawer.tsx:990
+#: src/view/shell/Drawer.tsx:992
 msgid "Privacy Policy"
 msgstr ""
 
@@ -11252,11 +11081,11 @@ msgstr ""
 msgid "Privacy violation of a minor"
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:2705
+#: src/view/com/composer/Composer.tsx:2706
 msgid "Processing GIF..."
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:2707
+#: src/view/com/composer/Composer.tsx:2708
 msgid "Processing video..."
 msgstr ""
 
@@ -11273,9 +11102,8 @@ msgid "profile"
 msgstr ""
 
 #: src/view/shell/bottom-bar/BottomBar.tsx:326
-#: src/view/shell/desktop/LeftNav.tsx:812
 #: src/view/shell/Drawer.tsx:120
-#: src/view/shell/Drawer.tsx:741
+#: src/view/shell/Drawer.tsx:788
 msgid "Profile"
 msgstr ""
 
@@ -11329,22 +11157,22 @@ msgid "Publication options"
 msgstr "Publication options"
 
 #. Accessibility label for button to publish a single post
-#: src/view/com/composer/Composer.tsx:1905
+#: src/view/com/composer/Composer.tsx:1906
 msgid "Publish post"
 msgstr "Publish Zing"
 
 #. Accessibility label for button to publish multiple posts in a thread
-#: src/view/com/composer/Composer.tsx:1900
+#: src/view/com/composer/Composer.tsx:1901
 msgid "Publish posts"
 msgstr "Publish Zings"
 
 #. Accessibility label for button to publish multiple replies in a thread
-#: src/view/com/composer/Composer.tsx:1889
+#: src/view/com/composer/Composer.tsx:1890
 msgid "Publish replies"
 msgstr ""
 
 #. Accessibility label for button to publish a single reply
-#: src/view/com/composer/Composer.tsx:1894
+#: src/view/com/composer/Composer.tsx:1895
 msgid "Publish reply"
 msgstr ""
 
@@ -11377,11 +11205,40 @@ msgstr ""
 msgid "QR code saved to your camera roll!"
 msgstr ""
 
+#: src/components/dialogs/ServerInput.tsx:144
+#: src/components/dialogs/ServerInput.tsx:146
+msgid "QuantZing"
+msgstr "QuantZing"
+
+#: src/components/contacts/screens/GetContacts.tsx:237
+msgid "QuantZing helps friends find each other by creating an encoded digital fingerprint, called a \"hash\", and then looking for matching hashes."
+msgstr "QuantZing helps friends find each other by creating an encoded digital fingerprint, called a \"hash\", and then looking for matching hashes."
+
+#: src/components/dialogs/ServerInput.tsx:214
+msgid "QuantZing is an open network where you can choose your hosting provider. If you're a developer, you can host your own server."
+msgstr "QuantZing is an open network where you can choose your hosting provider. If you're a developer, you can host your own server."
+
+#: src/components/dialogs/ServerInput.tsx:162
+msgid "QuantZing is an open network where you can choose your own provider. If you're new here, we recommend sticking with the default QuantZing Social option."
+msgstr "QuantZing is an open network where you can choose your own provider. If you're new here, we recommend sticking with the default QuantZing Social option."
+
+#: src/components/dialogs/nuxs/FindContactsAnnouncement.tsx:108
+msgid "QuantZing is more fun with friends! Import your contacts to see who’s already here."
+msgstr "QuantZing is more fun with friends! Import your contacts to see who’s already here."
+
+#: src/components/contacts/screens/ViewMatches.tsx:323
+msgid "QuantZing is more fun with friends. Do you want to invite some of yours? <0/>"
+msgstr "QuantZing is more fun with friends. Do you want to invite some of yours? <0/>"
+
+#: src/screens/Takendown.tsx:213
+msgid "QuantZing Terms of Service"
+msgstr "QuantZing Terms of Service"
+
+#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:137
+msgid "QuantZing will proactively verify notable and authentic accounts."
+msgstr "QuantZing will proactively verify notable and authentic accounts."
+
 #: src/components/PostControls/PostMenu/PostMenuControlItems.tsx:158
-#: src/components/PostControls/RepostButton.tsx:177
-#: src/components/PostControls/RepostButton.tsx:200
-#: src/components/PostControls/RepostButtonMenu.tsx:94
-#: src/components/PostControls/RepostButtonMenu.tsx:99
 #: src/view/com/composer/drafts/DraftItem.tsx:138
 msgid "Quote post"
 msgstr "Quote Zing"
@@ -11395,10 +11252,6 @@ msgid "Quote post was successfully detached"
 msgstr "Quote Zing was successfully detached"
 
 #: src/components/PostControls/PostMenu/PostMenuControlItems.tsx:158
-#: src/components/PostControls/RepostButton.tsx:176
-#: src/components/PostControls/RepostButton.tsx:198
-#: src/components/PostControls/RepostButtonMenu.tsx:94
-#: src/components/PostControls/RepostButtonMenu.tsx:99
 msgid "Quote posts disabled"
 msgstr "Quote Zings disabled"
 
@@ -11426,11 +11279,11 @@ msgstr ""
 msgid "Re-attach quote"
 msgstr ""
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:431
+#: src/screens/Messages/components/InviteLinkDialog.tsx:432
 msgid "Re-enable invite link"
 msgstr "Re-enable invite link"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:438
+#: src/screens/Messages/components/InviteLinkDialog.tsx:439
 msgid "Re-enable link"
 msgstr "Re-enable link"
 
@@ -11494,25 +11347,11 @@ msgstr "Read our Community Guidelines"
 msgid "Read our Terms of Service"
 msgstr "Read our Terms of Service"
 
-#: src/view/com/auth/SplashScreen.web.tsx:172
-msgid "Read the Bluesky blog"
-msgstr "Read the QuantZing blog"
-
-#: src/screens/Signup/StepInfo/Policies.tsx:53
-#: src/screens/Signup/StepInfo/Policies.tsx:79
-msgid "Read the Bluesky Privacy Policy"
-msgstr "Read the QuantZing Privacy Policy"
-
-#: src/screens/Signup/StepInfo/Policies.tsx:46
-#: src/screens/Signup/StepInfo/Policies.tsx:66
-msgid "Read the Bluesky Terms of Service"
-msgstr "Read the QuantZing Terms of Service"
-
-#: src/components/WelcomeModal.tsx:148
+#: src/components/WelcomeModal.tsx:131
 msgid "Real conversations."
 msgstr ""
 
-#: src/components/WelcomeModal.tsx:146
+#: src/components/WelcomeModal.tsx:129
 msgid "Real people."
 msgstr ""
 
@@ -11559,6 +11398,10 @@ msgstr "Recommended by <0>{name}</0> +{others}"
 #: src/screens/Messages/components/MessageListError.tsx:19
 msgid "Reconnect"
 msgstr ""
+
+#: src/Navigation.tsx:631
+msgid "Reels"
+msgstr "Reels"
 
 #. Pill on the notifications list, shown when there are new notifications to load.
 #: src/screens/Notifications/components/RefreshPill.tsx:101
@@ -11648,8 +11491,8 @@ msgstr ""
 msgid "Remove attachment"
 msgstr ""
 
-#: src/view/com/util/UserAvatar.tsx:524
-#: src/view/com/util/UserAvatar.tsx:527
+#: src/view/com/util/UserAvatar.tsx:554
+#: src/view/com/util/UserAvatar.tsx:557
 msgid "Remove Avatar"
 msgstr ""
 
@@ -11762,11 +11605,6 @@ msgstr ""
 #: src/screens/Profile/Header/PronounsDialog.tsx:234
 msgid "Remove pronouns"
 msgstr "Remove pronouns"
-
-#: src/components/PostControls/RepostButton.tsx:154
-#: src/components/PostControls/RepostButton.tsx:164
-msgid "Remove repost"
-msgstr "Remove rezing"
 
 #: src/components/contacts/screens/ViewMatches.tsx:508
 #: src/screens/Settings/FindContactsSettings.tsx:357
@@ -11947,14 +11785,14 @@ msgstr "Replies to this Zing are disabled."
 msgid "Reply"
 msgstr "Reply"
 
-#: src/view/com/composer/Composer.tsx:1917
+#: src/view/com/composer/Composer.tsx:1918
 msgctxt "action"
 msgid "Reply"
 msgstr ""
 
 #. Accessibility label for the reply button, verb form followed by number of replies and noun form
 #. placeholder {0}: post.replyCount || 0
-#: src/components/PostControls/index.tsx:212
+#: src/components/PostControls/index.tsx:234
 msgid "Reply ({0, plural, one {# reply} other {# replies}})"
 msgstr ""
 
@@ -12154,26 +11992,9 @@ msgid "Reporting restricted"
 msgstr "Reporting restricted"
 
 #: src/components/PostControls/PostMenu/PostMenuControlItems.tsx:157
-#: src/components/PostControls/RepostButton.tsx:155
-#: src/components/PostControls/RepostButton.tsx:166
-#: src/components/PostControls/RepostButtonMenu.tsx:80
-#: src/components/PostControls/RepostButtonMenu.tsx:87
 msgctxt "action"
 msgid "Repost"
 msgstr "Rezing"
-
-#. Accessibility label for the repost button when the post has not been reposted, verb form followed by number of reposts and noun form
-#. placeholder {0}: repostCount || 0
-#: src/components/PostControls/RepostButton.tsx:81
-msgid "Repost ({0, plural, one {# repost} other {# reposts}})"
-msgstr "Rezing ({0, plural, one {# rezing} other {# rezings}})"
-
-#: src/components/PostControls/RepostButton.tsx:147
-#: src/components/PostControls/RepostButtonMenu.tsx:44
-#: src/components/PostControls/RepostButtonMenu.tsx:112
-#: src/screens/StarterPack/StarterPackScreen.tsx:594
-msgid "Repost or quote post"
-msgstr "Rezing or quote Zing"
 
 #: src/components/PostControls/PostMenu/PostMenuControlItems.tsx:85
 msgctxt "Toast after undoing a repost"
@@ -12188,16 +12009,6 @@ msgstr "Rezinged"
 #: src/screens/Post/PostRepostedBy.tsx:33
 msgid "Reposted By"
 msgstr "Rezinged By"
-
-#: src/view/com/posts/PostFeedReason.tsx:80
-#: src/view/com/posts/PostFeedReason.tsx:99
-msgid "Reposted by {reposter}"
-msgstr "Rezinged by {reposter}"
-
-#: src/view/com/posts/PostFeedReason.tsx:80
-#: src/view/com/posts/PostFeedReason.tsx:97
-msgid "Reposted by you"
-msgstr "Rezinged by you"
 
 #: src/lib/hooks/useNotificationHandler.ts:166
 #: src/screens/Settings/NotificationSettings/index.tsx:217
@@ -12246,12 +12057,12 @@ msgstr ""
 msgid "Request rejected."
 msgstr "Request rejected."
 
-#: src/components/dms/ChatInvite/Root.tsx:118
+#: src/components/dms/ChatInvite/Root.tsx:119
 #: src/components/intents/GroupChatJoinDialog.tsx:300
 msgid "Request to join"
 msgstr "Request to join"
 
-#: src/components/dms/ChatInvite/Root.tsx:132
+#: src/components/dms/ChatInvite/Root.tsx:133
 msgid "Requested"
 msgstr "Requested"
 
@@ -12260,7 +12071,7 @@ msgstr "Requested"
 msgid "Requests"
 msgstr "Requests"
 
-#: src/Navigation.tsx:570
+#: src/Navigation.tsx:579
 #: src/screens/Messages/JoinRequests.tsx:57
 #: src/screens/Messages/JoinRequests.tsx:429
 msgid "Requests to join"
@@ -12273,10 +12084,6 @@ msgstr ""
 
 #: src/components/dialogs/EmailDialog/screens/Manage2FA/Enable.tsx:95
 msgid "Require an email code to sign in to your account."
-msgstr ""
-
-#: src/screens/Signup/StepInfo/index.tsx:221
-msgid "Required for this provider"
 msgstr ""
 
 #: src/components/LabelingServiceCard/index.tsx:80
@@ -12338,7 +12145,7 @@ msgstr ""
 msgid "Reset password"
 msgstr ""
 
-#: src/screens/Login/LoginForm.tsx:407
+#: src/screens/Login/LoginForm.tsx:268
 msgid "Reset your password by sending a code to your email"
 msgstr "Reset your password by sending a code to your email"
 
@@ -12364,7 +12171,7 @@ msgstr "Restored Zing"
 msgid "Resync contacts"
 msgstr ""
 
-#: src/screens/Login/LoginForm.tsx:509
+#: src/screens/Login/LoginForm.tsx:344
 msgid "Retries signing in"
 msgstr ""
 
@@ -12383,8 +12190,8 @@ msgstr ""
 #: src/components/Post/Embed/VideoEmbed/VideoEmbedInner/VideoFallback.tsx:56
 #: src/components/Post/Embed/VideoEmbed/VideoEmbedInner/VideoFallback.tsx:59
 #: src/components/StarterPack/ProfileStarterPacks.tsx:371
-#: src/screens/Login/LoginForm.tsx:508
-#: src/screens/Login/LoginForm.tsx:514
+#: src/screens/Login/LoginForm.tsx:343
+#: src/screens/Login/LoginForm.tsx:350
 #: src/screens/Messages/ChatList.tsx:429
 #: src/screens/Messages/components/MessageListError.tsx:24
 #: src/screens/Messages/Inbox.tsx:211
@@ -12462,6 +12269,10 @@ msgstr "Reverse the order"
 msgid "Reviewed, no action taken"
 msgstr "Reviewed, no action taken"
 
+#: src/screens/StarterPack/StarterPackScreen.tsx:594
+msgid "Rezing or Quote Zing"
+msgstr "Rezing or Quote Zing"
+
 #. Accessibility label for the icon-only pill that filters the GIF picker to sad/crying GIFs.
 #: src/features/gifPicker/components/GifCategoryPills.tsx:75
 msgid "Sad GIFs"
@@ -12509,22 +12320,22 @@ msgstr ""
 #: src/screens/SavedFeeds.tsx:124
 #: src/screens/SavedFeeds.tsx:311
 #: src/screens/SavedFeeds.tsx:315
-#: src/view/com/composer/Composer.tsx:1557
+#: src/view/com/composer/Composer.tsx:1558
 #: src/view/com/composer/drafts/DraftsButton.tsx:121
 msgid "Save changes"
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:1529
+#: src/view/com/composer/Composer.tsx:1530
 #: src/view/com/composer/drafts/DraftsButton.tsx:89
 msgid "Save changes?"
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:1557
+#: src/view/com/composer/Composer.tsx:1558
 #: src/view/com/composer/drafts/DraftsButton.tsx:121
 msgid "Save draft"
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:1531
+#: src/view/com/composer/Composer.tsx:1532
 #: src/view/com/composer/drafts/DraftsButton.tsx:91
 msgid "Save draft?"
 msgstr ""
@@ -12565,8 +12376,7 @@ msgstr "Save your position in the Following feed between sessions. New Zings wai
 msgid "Saved"
 msgstr "Saved"
 
-#: src/view/shell/desktop/LeftNav.tsx:804
-#: src/view/shell/Drawer.tsx:716
+#: src/view/shell/Drawer.tsx:763
 msgctxt "link to bookmarks screen"
 msgid "Saved"
 msgstr ""
@@ -12577,7 +12387,7 @@ msgid "Saved Feeds"
 msgstr ""
 
 #: src/components/dialogs/nuxs/BookmarksAnnouncement.tsx:145
-#: src/Navigation.tsx:630
+#: src/Navigation.tsx:638
 #: src/screens/Bookmarks.tsx:61
 msgid "Saved Posts"
 msgstr "Saved Zings"
@@ -12612,7 +12422,7 @@ msgstr "Scan"
 
 #: src/features/inviteFriends/InviteScannerScreen.tsx:86
 #: src/features/inviteFriends/InviteScannerScreen.web.tsx:23
-#: src/Navigation.tsx:369
+#: src/Navigation.tsx:378
 msgid "Scan QR code"
 msgstr "Scan QR code"
 
@@ -12645,8 +12455,8 @@ msgid "Scroll to top"
 msgstr ""
 
 #: src/components/dialogs/SearchablePeopleList.tsx:663
-#: src/components/forms/SearchInput.tsx:57
 #: src/components/forms/SearchInput.tsx:59
+#: src/components/forms/SearchInput.tsx:61
 #: src/screens/Search/components/AdvancedSearchDialog/index.tsx:218
 #: src/screens/Search/components/AdvancedSearchDialog/index.tsx:224
 #: src/screens/Search/Shell.tsx:573
@@ -12658,7 +12468,7 @@ msgstr ""
 
 #. placeholder {0}: profile.handle
 #. placeholder {0}: route.params.name
-#: src/Navigation.tsx:310
+#: src/Navigation.tsx:319
 #: src/screens/Profile/ProfileSearch.tsx:37
 msgid "Search @{0}'s posts"
 msgstr "Search @{0}'s Zings"
@@ -12798,16 +12608,12 @@ msgstr "See #{tag} Zings by user"
 msgid "See how often your posts were seen."
 msgstr "See how often your Zings were seen."
 
-#: src/view/com/auth/SplashScreen.web.tsx:177
-msgid "See jobs at Bluesky"
-msgstr "See jobs at QuantZing"
-
 #: src/components/FeedInterstitials.tsx:496
 #: src/components/FeedInterstitials.tsx:555
 #: src/components/interstitials/FeedTrendingTopics.tsx:117
 #: src/components/moderation/BlockDialog.tsx:198
 #: src/screens/Atmosphere/components/ExploreSectionHeader.tsx:49
-#: src/view/shell/desktop/SidebarTrendingTopics.tsx:83
+#: src/view/shell/desktop/SidebarTrendingTopics.tsx:178
 msgid "See more"
 msgstr ""
 
@@ -12820,7 +12626,7 @@ msgid "See more suggested profiles"
 msgstr ""
 
 #: src/components/interstitials/FeedTrendingTopics.tsx:103
-#: src/view/shell/desktop/SidebarTrendingTopics.tsx:69
+#: src/view/shell/desktop/SidebarTrendingTopics.tsx:167
 msgid "See more trending topics"
 msgstr "See more trending topics"
 
@@ -12923,10 +12729,6 @@ msgstr ""
 msgid "Select filter type (currently: {0})"
 msgstr "Select filter type (currently: {0})"
 
-#: src/screens/Login/index.tsx:166
-msgid "Select from an existing account"
-msgstr ""
-
 #: src/components/dialogs/PostInteractionSettingsDialog.tsx:555
 msgid "Select from your lists"
 msgstr ""
@@ -13009,8 +12811,8 @@ msgstr ""
 msgid "Select which languages you want your subscribed feeds to include. If none are selected, all languages will be shown."
 msgstr ""
 
-#: src/screens/Signup/StepInfo/index.tsx:314
-#: src/screens/Signup/StepInfo/index.tsx:315
+#: src/screens/Signup/StepInfo/index.tsx:308
+#: src/screens/Signup/StepInfo/index.tsx:309
 msgid "Select your date of birth"
 msgstr ""
 
@@ -13049,12 +12851,12 @@ msgstr ""
 
 #: src/components/SendErrorReportDialog.tsx:60
 #: src/components/SendErrorReportDialog.tsx:64
-#: src/screens/Settings/AboutSettings.tsx:123
-#: src/screens/Settings/AboutSettings.tsx:126
+#: src/screens/Settings/AboutSettings.tsx:118
+#: src/screens/Settings/AboutSettings.tsx:121
 msgid "Send error report"
 msgstr "Send error report"
 
-#: src/view/shell/Drawer.tsx:487
+#: src/view/shell/Drawer.tsx:534
 msgid "Send feedback"
 msgstr ""
 
@@ -13134,25 +12936,16 @@ msgid "Set who can reply to your post"
 msgstr "Set who can reply to your Zing"
 
 #: src/ageAssurance/components/NoAccessScreen.tsx:290
-msgid "Set your birthdate below and we'll get you back to posting and exploring in no time!"
-msgstr ""
-
-#: src/screens/Login/LoginForm.tsx:348
-msgid "set your hosting provider manually"
-msgstr "set your hosting provider manually"
-
-#: src/screens/Login/LoginForm.tsx:463
-msgid "Set your hosting provider manually"
-msgstr "Set your hosting provider manually"
+msgid "Set your birthdate below and we'll get you back to zinging and exploring in no time!"
+msgstr "Set your birthdate below and we'll get you back to zinging and exploring in no time!"
 
 #: src/screens/Login/ForgotPasswordForm.tsx:108
 msgid "Sets email for password reset"
 msgstr ""
 
-#: src/Navigation.tsx:266
+#: src/Navigation.tsx:275
 #: src/screens/Settings/Settings.tsx:111
-#: src/view/shell/desktop/LeftNav.tsx:820
-#: src/view/shell/Drawer.tsx:767
+#: src/view/shell/Drawer.tsx:814
 msgid "Settings"
 msgstr ""
 
@@ -13230,8 +13023,8 @@ msgstr ""
 #: src/components/StarterPack/QrCodeDialog.tsx:192
 #: src/screens/Atmosphere/components/AtmosphereCardMenu.tsx:184
 #: src/screens/Hashtag.tsx:132
-#: src/screens/Messages/components/InviteLinkDialog.tsx:413
-#: src/screens/Messages/components/InviteLinkDialog.tsx:424
+#: src/screens/Messages/components/InviteLinkDialog.tsx:414
+#: src/screens/Messages/components/InviteLinkDialog.tsx:425
 #: src/screens/StarterPack/StarterPackScreen.tsx:437
 #: src/screens/Topic.tsx:91
 msgid "Share"
@@ -13348,7 +13141,7 @@ msgstr ""
 msgid "Share your thoughts…"
 msgstr "Share your thoughts…"
 
-#: src/Navigation.tsx:374
+#: src/Navigation.tsx:383
 msgid "Shared Preferences Tester"
 msgstr ""
 
@@ -13544,27 +13337,24 @@ msgstr ""
 
 #: src/components/dialogs/Signin.tsx:98
 #: src/components/dialogs/Signin.tsx:100
-#: src/components/WelcomeModal.tsx:197
-#: src/components/WelcomeModal.tsx:208
+#: src/components/WelcomeModal.tsx:184
+#: src/components/WelcomeModal.tsx:195
 #: src/screens/Hashtag.tsx:233
-#: src/screens/Login/index.tsx:143
-#: src/screens/Login/index.tsx:165
-#: src/screens/Login/LoginForm.tsx:271
-#: src/screens/Login/LoginForm.tsx:531
-#: src/screens/Login/LoginForm.tsx:537
+#: src/screens/Login/LoginForm.tsx:368
+#: src/screens/Login/LoginForm.tsx:381
 #: src/screens/Messages/JoinRequest.tsx:294
 #: src/screens/Messages/JoinRequest.tsx:300
 #: src/screens/Search/SearchResults.tsx:399
 #: src/view/com/auth/NativeSplashScreen.tsx:168
 #: src/view/com/auth/NativeSplashScreen.tsx:194
-#: src/view/com/auth/SplashScreen.web.tsx:122
-#: src/view/com/auth/SplashScreen.web.tsx:130
+#: src/view/com/auth/SplashScreen.web.tsx:284
+#: src/view/com/auth/SplashScreen.web.tsx:300
 #: src/view/shell/bottom-bar/BottomBar.tsx:364
 #: src/view/shell/bottom-bar/BottomBar.tsx:368
-#: src/view/shell/bottom-bar/BottomBarWeb.tsx:258
-#: src/view/shell/bottom-bar/BottomBarWeb.tsx:263
-#: src/view/shell/NavSignupCard.tsx:58
-#: src/view/shell/NavSignupCard.tsx:63
+#: src/view/shell/bottom-bar/BottomBarWeb.tsx:319
+#: src/view/shell/bottom-bar/BottomBarWeb.tsx:324
+#: src/view/shell/NavSignupCard.tsx:61
+#: src/view/shell/NavSignupCard.tsx:66
 msgid "Sign in"
 msgstr ""
 
@@ -13614,9 +13404,9 @@ msgstr "Sign in to view Zing"
 #: src/screens/SignupQueued.tsx:99
 #: src/screens/SignupQueued.tsx:102
 #: src/screens/Takendown.tsx:88
-#: src/view/shell/desktop/LeftNav.tsx:266
-#: src/view/shell/desktop/LeftNav.tsx:394
-#: src/view/shell/desktop/LeftNav.tsx:397
+#: src/view/shell/desktop/LeftNav.tsx:315
+#: src/view/shell/desktop/LeftNav.tsx:443
+#: src/view/shell/desktop/LeftNav.tsx:446
 msgid "Sign out"
 msgstr ""
 
@@ -13625,13 +13415,9 @@ msgid "Sign Out"
 msgstr ""
 
 #: src/screens/Settings/Settings.tsx:326
-#: src/view/shell/desktop/LeftNav.tsx:263
+#: src/view/shell/desktop/LeftNav.tsx:312
 msgid "Sign out?"
 msgstr ""
-
-#: src/screens/Login/LoginForm.tsx:549
-msgid "Sign up"
-msgstr "Sign up"
 
 #: src/components/moderation/ScreenHider.tsx:97
 #: src/lib/moderation/useGlobalLabelStrings.ts:25
@@ -13670,7 +13456,7 @@ msgstr ""
 msgid "Skip contact sharing and continue to the app"
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:1574
+#: src/view/com/composer/Composer.tsx:1575
 msgid "Skip empty posts?"
 msgstr "Skip empty Zings?"
 
@@ -13717,7 +13503,7 @@ msgstr "So many thoughts, you should send a Zing"
 msgid "Social"
 msgstr "Social"
 
-#: src/components/WelcomeModal.tsx:150
+#: src/components/WelcomeModal.tsx:133
 msgid "Social media you control."
 msgstr ""
 
@@ -13925,8 +13711,8 @@ msgstr "Start chat"
 msgid "Start chat with {displayName}"
 msgstr ""
 
-#: src/Navigation.tsx:601
-#: src/Navigation.tsx:606
+#: src/Navigation.tsx:610
+#: src/Navigation.tsx:615
 #: src/screens/ModerationInbox/components/ReportSubjectPreview/StarterPackSubjectPreview.tsx:60
 #: src/screens/ModerationInbox/components/util/reportSubjectLabel.ts:56
 #: src/screens/StarterPack/Wizard/index.tsx:196
@@ -13991,21 +13777,13 @@ msgstr ""
 msgid "Status by {name}"
 msgstr "Status by {name}"
 
-#: src/screens/Settings/AboutSettings.tsx:108
-#: src/screens/Settings/AboutSettings.tsx:111
-msgid "Status Page"
-msgstr ""
-
 #: src/screens/ModerationInbox/components/ReportSubjectPreview/StatusSubjectPreview.tsx:75
 msgid "Status unavailable"
 msgstr "Status unavailable"
 
-#. placeholder {0}: state.activeStep + 1
 #. placeholder {0}: state.activeStepIndex + 1
-#. placeholder {1}: state.serviceDescription && !state.serviceDescription.phoneVerificationRequired ? '2' : '3'
 #. placeholder {1}: state.totalSteps
 #: src/screens/Onboarding/Layout.tsx:300
-#: src/screens/Signup/index.tsx:181
 msgid "Step {0} of {1}"
 msgstr ""
 
@@ -14017,13 +13795,13 @@ msgstr ""
 msgid "Stored as part of a secure code for matching with others"
 msgstr ""
 
-#: src/Navigation.tsx:359
+#: src/Navigation.tsx:368
 #: src/screens/Settings/Settings.tsx:488
 msgid "Storybook"
 msgstr ""
 
 #: src/components/dialogs/nuxs/LiveNowBetaDialog.tsx:182
-msgid "Streaming on Twitch? Set your live status on Bluesky to add a badge to your avatar. Tapping it takes people straight to your stream."
+msgid "Streaming on Twitch? Set your live status on QuantZing to add a badge to your avatar. Tapping it takes people straight to your stream."
 msgstr "Streaming on Twitch? Set your live status on QuantZing to add a badge to your avatar. Tapping it takes people straight to your stream."
 
 #: src/components/Gallery/Storybook.tsx:370
@@ -14157,9 +13935,7 @@ msgctxt "Name of app icon variant"
 msgid "Sunset"
 msgstr ""
 
-#: src/Navigation.tsx:384
-#: src/view/screens/Support.tsx:25
-#: src/view/screens/Support.tsx:28
+#: src/Navigation.tsx:393
 msgid "Support"
 msgstr ""
 
@@ -14198,11 +13974,11 @@ msgstr "Suspended accounts cannot participate in chat."
 #: src/screens/Settings/Settings.tsx:135
 #: src/screens/Settings/Settings.tsx:147
 #: src/screens/Settings/Settings.tsx:647
-#: src/view/shell/desktop/LeftNav.tsx:351
+#: src/view/shell/desktop/LeftNav.tsx:400
 msgid "Switch account"
 msgstr ""
 
-#: src/view/shell/desktop/LeftNav.tsx:163
+#: src/view/shell/desktop/LeftNav.tsx:232
 msgid "Switch accounts"
 msgstr ""
 
@@ -14217,7 +13993,7 @@ msgid "Switch OTA channel"
 msgstr "Switch OTA channel"
 
 #. placeholder {0}: sanitizeHandle( profile?.handle ?? account.handle, '@', )
-#: src/view/shell/desktop/LeftNav.tsx:360
+#: src/view/shell/desktop/LeftNav.tsx:409
 msgid "Switch to {0}"
 msgstr ""
 
@@ -14229,8 +14005,8 @@ msgid "System"
 msgstr ""
 
 #: src/screens/Log.tsx:49
-#: src/screens/Settings/AboutSettings.tsx:115
-#: src/screens/Settings/AboutSettings.tsx:118
+#: src/screens/Settings/AboutSettings.tsx:110
+#: src/screens/Settings/AboutSettings.tsx:113
 #: src/screens/Settings/Settings.tsx:473
 msgid "System log"
 msgstr ""
@@ -14256,7 +14032,7 @@ msgid "Tall card"
 msgstr "Tall card"
 
 #: src/components/dialogs/DeviceLocationRequestDialog.tsx:110
-msgid "Tap below to allow Bluesky to access your approximate location via GPS. We will then use that data to more accurately determine the content and features available in your region."
+msgid "Tap below to allow QuantZing to access your approximate location via GPS. We will then use that data to more accurately determine the content and features available in your region."
 msgstr "Tap below to allow QuantZing to access your approximate location via GPS. We will then use that data to more accurately determine the content and features available in your region."
 
 #: src/components/dms/MessageItem.tsx:697
@@ -14275,12 +14051,12 @@ msgstr ""
 msgid "Tap here to update your approximate location via GPS."
 msgstr "Tap here to update your approximate location via GPS."
 
-#: src/screens/Signup/StepInfo/index.tsx:341
+#: src/screens/Signup/StepInfo/index.tsx:335
 msgid "Tap here to update your location with GPS."
 msgstr "Tap here to update your location with GPS."
 
 #: src/components/PolicyUpdateOverlay/updates/202508/index.tsx:165
-msgid "Tap to acknowledge that you understand and agree to these updates and continue using Bluesky"
+msgid "Tap to acknowledge that you understand and agree to these updates and continue using QuantZing"
 msgstr "Tap to acknowledge that you understand and agree to these updates and continue using QuantZing"
 
 #: src/components/ContextMenu/Backdrop.ios.tsx:54
@@ -14297,12 +14073,12 @@ msgstr "Tap to copy this invite link"
 msgid "Tap to dismiss"
 msgstr ""
 
-#: src/components/dms/ChatInvite/Root.tsx:141
+#: src/components/dms/ChatInvite/Root.tsx:142
 #: src/components/intents/GroupChatJoinDialog.tsx:470
 msgid "Tap to join this group chat immediately"
 msgstr "Tap to join this group chat immediately"
 
-#: src/components/dms/ChatInvite/Root.tsx:106
+#: src/components/dms/ChatInvite/Root.tsx:107
 msgid "Tap to open this group chat"
 msgstr "Tap to open this group chat"
 
@@ -14315,7 +14091,7 @@ msgstr "Tap to remove"
 msgid "Tap to remove your {0} reaction"
 msgstr "Tap to remove your {0} reaction"
 
-#: src/components/dms/ChatInvite/Root.tsx:140
+#: src/components/dms/ChatInvite/Root.tsx:141
 #: src/components/intents/GroupChatJoinDialog.tsx:469
 msgid "Tap to request access to join this group chat"
 msgstr "Tap to request access to join this group chat"
@@ -14353,7 +14129,7 @@ msgstr ""
 msgid "Task complete - 10 likes!"
 msgstr ""
 
-#: src/components/ProgressGuide/List.tsx:109
+#: src/components/ProgressGuide/List.tsx:111
 msgid "Teach our algorithm what you like"
 msgstr ""
 
@@ -14377,20 +14153,14 @@ msgstr "Tell us why you believe this decision was a mistake. We will review your
 msgid "Temporarily deactivate your account"
 msgstr "Temporarily deactivate your account"
 
-#: src/view/shell/desktop/RightNav.tsx:125
-#: src/view/shell/desktop/RightNav.tsx:126
-msgid "Terms"
-msgstr ""
-
 #: src/components/dialogs/BirthDateSettings.tsx:181
 #: src/components/PolicyUpdateOverlay/updates/202508/index.tsx:31
 #: src/components/PolicyUpdateOverlay/updates/202508/index.tsx:98
-#: src/Navigation.tsx:394
-#: src/screens/Settings/AboutSettings.tsx:92
-#: src/screens/Settings/AboutSettings.tsx:95
-#: src/view/screens/TermsOfService.tsx:25
-#: src/view/shell/Drawer.tsx:878
-#: src/view/shell/Drawer.tsx:880
+#: src/Navigation.tsx:403
+#: src/screens/Settings/AboutSettings.tsx:91
+#: src/screens/Settings/AboutSettings.tsx:94
+#: src/view/shell/Drawer.tsx:982
+#: src/view/shell/Drawer.tsx:985
 msgid "Terms of Service"
 msgstr ""
 
@@ -14458,7 +14228,7 @@ msgstr "That doesn’t look like a link. Try something like yoursite.com."
 msgid "That Starter Pack could not be found."
 msgstr "That Starter Pack could not be found."
 
-#: src/screens/Signup/StepHandle/index.tsx:91
+#: src/screens/Signup/StepHandle/index.tsx:98
 msgid "That username is already taken"
 msgstr ""
 
@@ -14511,25 +14281,13 @@ msgstr ""
 msgid "The birthdate you've entered means you are under 18 years old. Certain content and features may be unavailable to you."
 msgstr ""
 
-#: src/screens/Moderation/index.tsx:468
-msgid "The Bluesky web application"
-msgstr "The QuantZing web application"
-
 #: src/components/Gallery/Storybook.tsx:290
 msgid "The carousel used for post images. Tap an image to open the lightbox, change images, and close it: it should land on the right thumbnail. The first and last images are cropped, and the third learns its size when it loads."
 msgstr "The carousel used for Zing images. Tap an image to open the lightbox, change images, and close it: it should land on the right thumbnail. The first and last images are cropped, and the third learns its size when it loads."
 
-#: src/view/screens/CommunityGuidelines.tsx:32
-msgid "The Community Guidelines have been moved to <0/>"
-msgstr ""
-
 #: src/screens/ModerationInbox/components/ReportActionSummary.tsx:75
 msgid "The content you reported has been restored after another review. If you’d rather not see it, you can mute or block the account. Read our <0>Community Guidelines</0>."
 msgstr "The content you reported has been restored after another review. If you’d rather not see it, you can mute or block the account. Read our <0>Community Guidelines</0>."
-
-#: src/view/screens/CopyrightPolicy.tsx:29
-msgid "The Copyright Policy has been moved to <0/>"
-msgstr ""
 
 #: src/view/com/posts/FeedShutdownMsg.tsx:107
 msgid "The Discover feed"
@@ -14540,7 +14298,7 @@ msgid "The Discover feed now knows what you like"
 msgstr ""
 
 #: src/screens/StarterPack/StarterPackLandingScreen.tsx:324
-msgid "The experience is better in the app. Download Bluesky now and we'll pick back up where you left off."
+msgid "The experience is better in the app. Download QuantZing now and we'll pick back up where you left off."
 msgstr "The experience is better in the app. Download QuantZing now and we'll pick back up where you left off."
 
 #: src/view/com/posts/FeedShutdownMsg.tsx:70
@@ -14584,13 +14342,13 @@ msgstr "The moderation service is temporarily unavailable. Please try again late
 msgid "The post you’re replying to was marked as being written in {suggestedLanguageName} by its author. Would you like to reply in <0>{suggestedLanguageName}</0>?"
 msgstr "The Zing you’re replying to was marked as being written in {suggestedLanguageName} by its author. Would you like to reply in <0>{suggestedLanguageName}</0>?"
 
-#: src/view/screens/PrivacyPolicy.tsx:29
-msgid "The Privacy Policy has been moved to <0/>"
-msgstr ""
-
 #: src/view/com/composer/state/video.ts:488
 msgid "The processed video is too large. Please try again with a smaller file."
 msgstr "The processed video is too large. Please try again with a smaller file."
+
+#: src/screens/Moderation/index.tsx:468
+msgid "The QuantZing web application"
+msgstr "The QuantZing web application"
 
 #: src/view/com/composer/state/video.ts:463
 msgid "The selected video could not be encoded."
@@ -14630,14 +14388,6 @@ msgstr "The Starter Pack that you are trying to view is invalid. You may delete 
 msgid "The subject of the context menu"
 msgstr ""
 
-#: src/view/screens/Support.tsx:31
-msgid "The support form has been moved. If you need help, please <0/> or visit {HELP_DESK_URL} to get in touch with us."
-msgstr ""
-
-#: src/view/screens/TermsOfService.tsx:29
-msgid "The Terms of Service have been moved to"
-msgstr ""
-
 #: src/components/Gallery/Storybook.tsx:816
 msgid "The two lines above should touch."
 msgstr "The two lines above should touch."
@@ -14664,7 +14414,7 @@ msgstr ""
 msgid "There is a limit to how often you can change your birthdate. You may need to wait a day or two before updating it again."
 msgstr ""
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:517
+#: src/screens/Messages/components/InviteLinkDialog.tsx:518
 msgid "There is no invite link for this group chat."
 msgstr "There is no invite link for this group chat."
 
@@ -14701,9 +14451,9 @@ msgstr ""
 msgid "There was an issue fetching notifications. Tap here to try again."
 msgstr ""
 
-#: src/features/followingV2/home/PostFeed.tsx:1104
+#: src/features/followingV2/home/PostFeed.tsx:1116
 #: src/screens/Search/Explore.tsx:1052
-#: src/view/com/posts/PostFeed.tsx:828
+#: src/view/com/posts/PostFeed.tsx:840
 msgid "There was an issue fetching posts. Tap here to try again."
 msgstr "There was an issue fetching Zings. Tap here to try again."
 
@@ -14898,7 +14648,7 @@ msgstr "This card has enough text to wrap over many lines. Its siblings should s
 msgid "This chat has ended"
 msgstr "This chat has ended"
 
-#: src/components/dms/ChatInvite/Root.tsx:123
+#: src/components/dms/ChatInvite/Root.tsx:124
 #: src/components/intents/GroupChatJoinDialog.tsx:306
 msgid "This chat is full"
 msgstr "This chat is full"
@@ -15151,10 +14901,6 @@ msgstr ""
 msgid "This screen is only available for group conversations."
 msgstr "This screen is only available for group conversations."
 
-#: src/screens/Signup/StepInfo/Policies.tsx:32
-msgid "This service has not provided terms of service or a privacy policy."
-msgstr ""
-
 #: src/features/liveNow/index.tsx:199
 msgid "This service is not supported while the Live feature is in beta. Allowed services: {formatted}."
 msgstr ""
@@ -15220,11 +14966,11 @@ msgstr ""
 msgid "This user isn't following anyone."
 msgstr ""
 
-#: src/components/Post/Embed/VideoEmbed/index.web.tsx:396
+#: src/components/Post/Embed/VideoEmbed/index.web.tsx:441
 msgid "This video can’t be played on your device. Your browser or system may be missing the required video codecs (H.264/AAC)."
 msgstr "This video can’t be played on your device. Your browser or system may be missing the required video codecs (H.264/AAC)."
 
-#: src/view/com/composer/videos/VideoPreview.web.tsx:65
+#: src/view/com/composer/videos/VideoPreview.web.tsx:67
 msgid "This video can’t be previewed in your browser. It will still be uploaded."
 msgstr "This video can’t be previewed in your browser. It will still be uploaded."
 
@@ -15273,7 +15019,7 @@ msgstr ""
 msgid "Threaded"
 msgstr ""
 
-#: src/Navigation.tsx:427
+#: src/Navigation.tsx:436
 msgid "Threads Preferences"
 msgstr ""
 
@@ -15378,7 +15124,7 @@ msgstr ""
 msgid "Top replies first"
 msgstr ""
 
-#: src/Navigation.tsx:554
+#: src/Navigation.tsx:563
 msgid "Topic"
 msgstr ""
 
@@ -15417,7 +15163,6 @@ msgstr ""
 #: src/components/interstitials/FeedTrendingTopics.tsx:99
 #: src/features/trendingWidget/Sync.native.tsx:41
 #: src/screens/Search/modules/ExploreTrendingTopics.tsx:91
-#: src/view/shell/desktop/SidebarTrendingTopics.tsx:66
 msgid "Trending"
 msgstr ""
 
@@ -15432,7 +15177,7 @@ msgstr "Trending on QuantZing"
 
 #: src/components/interstitials/FeedTrendingTopics.tsx:126
 #: src/screens/Search/modules/ExploreTrendingTopics.tsx:94
-#: src/view/shell/desktop/SidebarTrendingTopics.tsx:93
+#: src/view/shell/desktop/SidebarTrendingTopics.tsx:87
 msgid "Trending options"
 msgstr ""
 
@@ -15509,7 +15254,7 @@ msgid "Type:"
 msgstr ""
 
 #: src/components/dialogs/DeviceLocationRequestDialog.tsx:87
-msgid "Unable to access location. You'll need to visit your system settings to enable location services for Bluesky."
+msgid "Unable to access location. You'll need to visit your system settings to enable location services for QuantZing."
 msgstr "Unable to access location. You'll need to visit your system settings to enable location services for QuantZing."
 
 #: src/lib/hooks/useCleanError.ts:32
@@ -15523,10 +15268,7 @@ msgid "Unable to contact your service. Please check your internet connection and
 msgstr ""
 
 #: src/screens/Login/ForgotPasswordForm.tsx:70
-#: src/screens/Login/index.tsx:100
-#: src/screens/Login/LoginForm.tsx:164
 #: src/screens/Login/SetNewPasswordForm.tsx:82
-#: src/screens/Signup/index.tsx:89
 msgid "Unable to contact your service. Please check your Internet connection."
 msgstr ""
 
@@ -15655,16 +15397,8 @@ msgid "Undo opt-out?"
 msgstr "Undo opt-out?"
 
 #: src/components/PostControls/PostMenu/PostMenuControlItems.tsx:156
-#: src/components/PostControls/RepostButtonMenu.tsx:79
-#: src/components/PostControls/RepostButtonMenu.tsx:86
 msgid "Undo repost"
 msgstr "Undo rezing"
-
-#. Accessibility label for the repost button when the post has been reposted, verb followed by number of reposts and noun
-#. placeholder {0}: repostCount || 0
-#: src/components/PostControls/RepostButton.tsx:71
-msgid "Undo repost ({0, plural, one {# repost} other {# reposts}})"
-msgstr "Undo rezing ({0, plural, one {# rezing} other {# rezings}})"
 
 #. placeholder {0}: profile.handle
 #: src/screens/Profile/Header/ProfileHeaderStandard.tsx:417
@@ -15685,11 +15419,11 @@ msgid "Unfortunately, none of your subscribed labelers supports this report type
 msgstr ""
 
 #: src/ageAssurance/components/NoAccessScreen.tsx:267
-msgid "Unfortunately, the birthdate you have saved to your profile makes you too young to access Bluesky."
+msgid "Unfortunately, the birthdate you have saved to your profile makes you too young to access QuantZing."
 msgstr "Unfortunately, the birthdate you have saved to your profile makes you too young to access QuantZing."
 
 #: src/ageAssurance/components/NoAccessScreen.tsx:251
-msgid "Unfortunately, your declared age indicates that you are not old enough to access Bluesky in your region."
+msgid "Unfortunately, your declared age indicates that you are not old enough to access QuantZing in your region."
 msgstr "Unfortunately, your declared age indicates that you are not old enough to access QuantZing in your region."
 
 #: src/screens/ModerationInbox/Report.tsx:183
@@ -15714,7 +15448,7 @@ msgstr ""
 
 #. Accessibility label for the like button when the post has been liked, verb followed by number of likes and noun
 #. placeholder {0}: post.likeCount || 0
-#: src/components/PostControls/index.tsx:248
+#: src/components/PostControls/index.tsx:270
 msgid "Unlike ({0, plural, one {# like} other {# likes}})"
 msgstr ""
 
@@ -15843,7 +15577,7 @@ msgstr ""
 msgid "Unsupported clipboard content"
 msgstr "Unsupported clipboard content"
 
-#: src/view/com/composer/Composer.tsx:1666
+#: src/view/com/composer/Composer.tsx:1667
 msgid "Unsupported video type: {mimeType}"
 msgstr ""
 
@@ -15921,26 +15655,26 @@ msgstr ""
 msgid "Upload a text file to:"
 msgstr ""
 
-#: src/view/com/util/UserAvatar.tsx:495
-#: src/view/com/util/UserAvatar.tsx:498
+#: src/view/com/util/UserAvatar.tsx:525
+#: src/view/com/util/UserAvatar.tsx:528
 #: src/view/com/util/UserBanner.tsx:171
 #: src/view/com/util/UserBanner.tsx:174
 msgid "Upload from Camera"
 msgstr ""
 
-#: src/view/com/util/UserAvatar.tsx:512
+#: src/view/com/util/UserAvatar.tsx:542
 #: src/view/com/util/UserBanner.tsx:188
 msgid "Upload from Files"
 msgstr ""
 
-#: src/view/com/util/UserAvatar.tsx:506
-#: src/view/com/util/UserAvatar.tsx:510
+#: src/view/com/util/UserAvatar.tsx:536
+#: src/view/com/util/UserAvatar.tsx:540
 #: src/view/com/util/UserBanner.tsx:182
 #: src/view/com/util/UserBanner.tsx:186
 msgid "Upload from Library"
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:2698
+#: src/view/com/composer/Composer.tsx:2699
 msgid "Uploading GIF..."
 msgstr ""
 
@@ -15954,7 +15688,7 @@ msgstr ""
 msgid "Uploading link thumbnail..."
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:2700
+#: src/view/com/composer/Composer.tsx:2701
 msgid "Uploading video..."
 msgstr ""
 
@@ -15990,7 +15724,7 @@ msgid "Use this to sign in to the other app along with your handle."
 msgstr ""
 
 #: src/components/ageAssurance/AgeAssuranceInitDialog.tsx:287
-msgid "Use your account email address, or another real email address you control, in case KWS or Bluesky needs to contact you."
+msgid "Use your account email address, or another real email address you control, in case KWS or QuantZing needs to contact you."
 msgstr "Use your account email address, or another real email address you control, in case KWS or QuantZing needs to contact you."
 
 #: src/view/screens/Profile.tsx:447
@@ -16053,28 +15787,20 @@ msgctxt "toast"
 msgid "User list updated"
 msgstr ""
 
-#: src/screens/Signup/StepHandle/index.tsx:266
+#: src/screens/Signup/StepHandle/index.tsx:283
 msgid "Username cannot be longer than {MAX_SERVICE_HANDLE_LENGTH, plural, other {# characters}}"
 msgstr ""
 
-#: src/screens/Signup/StepHandle/index.tsx:250
+#: src/screens/Signup/StepHandle/index.tsx:267
 msgid "Username cannot begin or end with a hyphen"
 msgstr ""
 
-#: src/screens/Signup/StepHandle/index.tsx:200
+#: src/screens/Signup/StepHandle/index.tsx:216
 msgid "Username is available"
 msgstr "Username is available"
 
-#: src/screens/Signup/StepHandle/index.tsx:254
+#: src/screens/Signup/StepHandle/index.tsx:271
 msgid "Username must only contain letters (a-z), numbers, and hyphens"
-msgstr ""
-
-#: src/screens/Login/LoginForm.tsx:302
-msgid "Username or email"
-msgstr "Username or email"
-
-#: src/screens/Login/LoginForm.tsx:312
-msgid "Username or email address"
 msgstr ""
 
 #. placeholder {0}: post.author.handle
@@ -16103,7 +15829,7 @@ msgstr ""
 msgid "Verification settings"
 msgstr ""
 
-#: src/Navigation.tsx:259
+#: src/Navigation.tsx:268
 #: src/screens/Moderation/VerificationSettings.tsx:34
 msgid "Verification Settings"
 msgstr ""
@@ -16197,8 +15923,8 @@ msgid "Verifying..."
 msgstr ""
 
 #. placeholder {0}: env.APP_VERSION
-#: src/screens/Settings/AboutSettings.tsx:142
-#: src/screens/Settings/AboutSettings.tsx:171
+#: src/screens/Settings/AboutSettings.tsx:137
+#: src/screens/Settings/AboutSettings.tsx:166
 msgid "Version {0}"
 msgstr ""
 
@@ -16215,10 +15941,6 @@ msgstr ""
 
 #: src/view/com/composer/state/video.ts:474
 msgid "Video failed to process"
-msgstr ""
-
-#: src/Navigation.tsx:622
-msgid "Video Feed"
 msgstr ""
 
 #. placeholder {0}: author.handle
@@ -16244,7 +15966,7 @@ msgstr ""
 msgid "Video is playing"
 msgstr ""
 
-#: src/components/Post/Embed/VideoEmbed/index.web.tsx:391
+#: src/components/Post/Embed/VideoEmbed/index.web.tsx:436
 msgid "Video not found."
 msgstr ""
 
@@ -16252,7 +15974,7 @@ msgstr ""
 msgid "Video settings"
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:2718
+#: src/view/com/composer/Composer.tsx:2719
 msgid "Video uploaded"
 msgstr ""
 
@@ -16497,8 +16219,8 @@ msgid "View the labeling service provided by @{0}"
 msgstr ""
 
 #: src/components/verification/VerificationCheckButton.tsx:103
-msgid "View this user's verifications"
-msgstr ""
+msgid "View this user's QuantZing verifications"
+msgstr "View this user's QuantZing verifications"
 
 #: src/screens/CustomFeed/components/CustomFeedHeader.tsx:579
 msgid "View users who like this feed"
@@ -16513,10 +16235,10 @@ msgid "View your blocked accounts"
 msgstr ""
 
 #: src/screens/Moderation/index.tsx:318
-msgid "View your default post interaction settings"
+msgid "View your default Zing interaction settings"
 msgstr "View your default Zing interaction settings"
 
-#: src/view/com/home/HomeHeaderLayout.web.tsx:59
+#: src/view/com/home/HomeHeaderLayout.web.tsx:72
 #: src/view/com/home/HomeHeaderLayoutMobile.tsx:104
 msgid "View your feeds and explore more"
 msgstr ""
@@ -16534,8 +16256,8 @@ msgid "View your muted accounts"
 msgstr ""
 
 #: src/components/verification/VerificationCheckButton.tsx:102
-msgid "View your verifications"
-msgstr ""
+msgid "View your QuantZing verifications"
+msgstr "View your QuantZing verifications"
 
 #: src/components/images/AutoSizedImage.tsx:235
 #: src/components/images/AutoSizedImage.tsx:267
@@ -16619,10 +16341,6 @@ msgstr "We could not connect to the service that provides this custom feed. It m
 msgid "We could not find this list. It was probably deleted."
 msgstr ""
 
-#: src/screens/Login/LoginForm.tsx:344
-msgid "We couldn't find an account with that username. Please check that you've typed it correctly, or <0>set your hosting provider manually</0>."
-msgstr "We couldn't find an account with that username. Please check that you've typed it correctly, or <0>set your hosting provider manually</0>."
-
 #: src/screens/Hashtag.tsx:262
 msgid "We couldn't find any results for that tag."
 msgstr ""
@@ -16651,10 +16369,6 @@ msgstr "We couldn't load your account settings. Check your internet connection a
 msgid "We couldn’t reach this link. Check it, or save anyway."
 msgstr "We couldn’t reach this link. Check it, or save anyway."
 
-#: src/screens/Login/LoginForm.tsx:459
-msgid "We couldn’t verify your hosting provider. Check your internet connection, or <0>set your hosting provider manually</0>."
-msgstr "We couldn’t verify your hosting provider. Check your internet connection, or <0>set your hosting provider manually</0>."
-
 #: src/components/contacts/screens/GetContacts.tsx:246
 msgid "We delete hashes after matches are made"
 msgstr ""
@@ -16668,7 +16382,7 @@ msgid "We estimate {estimatedTime} until your account is ready."
 msgstr ""
 
 #: src/components/ageAssurance/AgeAssuranceInitDialog.tsx:206
-msgid "We have partnered with <0>KWS</0> to handle age verification. When you click \"Begin\" below, KWS will email you instructions to complete the verification process. If your email address has already been used to verify your age for another game or service that uses KWS, you won’t need to do it again. When you’re done, you'll be brought back to continue using Bluesky."
+msgid "We have partnered with <0>KWS</0> to handle age verification. When you click \"Begin\" below, KWS will email you instructions to complete the verification process. If your email address has already been used to verify your age for another game or service that uses KWS, you won’t need to do it again. When you’re done, you'll be brought back to continue using QuantZing."
 msgstr "We have partnered with <0>KWS</0> to handle age verification. When you click \"Begin\" below, KWS will email you instructions to complete the verification process. If your email address has already been used to verify your age for another game or service that uses KWS, you won’t need to do it again. When you’re done, you'll be brought back to continue using QuantZing."
 
 #. placeholder {0}: currentAccount?.email
@@ -16787,12 +16501,8 @@ msgid "We’re having network issues, try again"
 msgstr "We’re having network issues, try again"
 
 #: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:98
-msgid "We’re introducing a new layer of verification on Bluesky — an easy-to-see checkmark."
+msgid "We’re introducing a new layer of verification on QuantZing — an easy-to-see checkmark."
 msgstr "We’re introducing a new layer of verification on QuantZing — an easy-to-see checkmark."
-
-#: src/screens/Signup/index.tsx:140
-msgid "We’re so excited to have you join us!"
-msgstr "We’re so excited to have you join us!"
 
 #: src/ageAssurance/useVerificationFlow.ts:117
 msgid "We're sorry, but based on the data shared by your device, you are not old enough to access Bluesky."
@@ -16912,9 +16622,7 @@ msgstr "What you reported"
 msgid "what’s up"
 msgstr "what’s up"
 
-#: src/view/com/auth/SplashScreen.web.tsx:98
-#: src/view/com/composer/Composer.tsx:1630
-#: src/view/com/feeds/ComposerPrompt.tsx:206
+#: src/view/com/composer/Composer.tsx:1631
 msgid "What's up?"
 msgstr "What's zinging?"
 
@@ -17039,7 +16747,7 @@ msgstr "Would you like to block this user and/or leave this conversation?"
 msgid "Would you like to save this as a draft before viewing your drafts?"
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:1545
+#: src/view/com/composer/Composer.tsx:1546
 msgid "Would you like to save this as a draft to edit later?"
 msgstr ""
 
@@ -17048,12 +16756,12 @@ msgstr ""
 msgid "Write a post"
 msgstr "Write a Zing"
 
-#: src/view/com/composer/Composer.tsx:1728
+#: src/view/com/composer/Composer.tsx:1729
 msgid "Write post"
 msgstr "Write Zing"
 
 #: src/screens/PostThread/components/ThreadComposePrompt.tsx:98
-#: src/view/com/composer/Composer.tsx:1628
+#: src/view/com/composer/Composer.tsx:1629
 msgid "Write your reply"
 msgstr ""
 
@@ -17121,7 +16829,7 @@ msgid "You are a trusted verifier"
 msgstr ""
 
 #: src/ageAssurance/components/NoAccessScreen.tsx:177
-msgid "You are accessing Bluesky from a region that legally requires us to verify your age before allowing you to access the app."
+msgid "You are accessing QuantZing from a region that legally requires us to verify your age before allowing you to access the app."
 msgstr "You are accessing QuantZing from a region that legally requires us to verify your age before allowing you to access the app."
 
 #. placeholder {0}: sanitizeHandle(profile.handle, '@')
@@ -17145,9 +16853,12 @@ msgstr ""
 msgid "You are currently blocked from using the Go Live feature. To appeal this moderation decision, please submit the form below."
 msgstr ""
 
-#: src/ageAssurance/components/NoAccessScreen.tsx:404
 #: src/components/ageAssurance/AgeAssuranceAccountCard.tsx:125
 msgid "You are currently unable to access Bluesky's Age Assurance flow. Please <0>contact our moderation team</0> if you believe this is an error."
+msgstr "You are currently unable to access QuantZing's Age Assurance flow. Please <0>contact our moderation team</0> if you believe this is an error."
+
+#: src/ageAssurance/components/NoAccessScreen.tsx:404
+msgid "You are currently unable to access QuantZing's Age Assurance flow. Please <0>contact our moderation team</0> if you believe this is an error."
 msgstr "You are currently unable to access QuantZing's Age Assurance flow. Please <0>contact our moderation team</0> if you believe this is an error."
 
 #: src/screens/SignupQueued.tsx:175
@@ -17226,10 +16937,9 @@ msgid "You can now choose to be notified when specific people post. If there’s
 msgstr "You can now choose to be notified when specific people Zing. If there’s someone you want timely updates from, go to their profile and find the new bell icon near the follow button."
 
 #: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:154
-msgid "You can now invite friends with a link or QR code. Share the link anywhere, or let them scan the code to join you on Bluesky."
+msgid "You can now invite friends with a link or QR code. Share the link anywhere, or let them scan the code to join you on QuantZing."
 msgstr "You can now invite friends with a link or QR code. Share the link anywhere, or let them scan the code to join you on QuantZing."
 
-#: src/screens/Login/index.tsx:207
 #: src/screens/Login/PasswordUpdatedForm.tsx:25
 msgid "You can now sign in with your new password."
 msgstr ""
@@ -17239,7 +16949,7 @@ msgstr ""
 msgid "You can only add up to {MAX_GALLERY_IMAGES, plural, other {# images}} per post"
 msgstr "You can only add up to {MAX_GALLERY_IMAGES, plural, other {# images}} per Zing"
 
-#: src/view/com/composer/Composer.tsx:1550
+#: src/view/com/composer/Composer.tsx:1551
 msgid "You can only save drafts up to 1000 characters."
 msgstr ""
 
@@ -17256,7 +16966,7 @@ msgid "You can only select one video at a time."
 msgstr ""
 
 #: src/screens/Deactivated.tsx:129
-msgid "You can reactivate your account to continue logging in. Your profile and posts will be visible to other users."
+msgid "You can reactivate your account to continue logging in. Your profile and Zings will be visible to other users."
 msgstr "You can reactivate your account to continue logging in. Your profile and Zings will be visible to other users."
 
 #: src/components/dms/MessagesListBlockedFooter.tsx:93
@@ -17334,7 +17044,7 @@ msgid "You have blocked this user. You cannot view their content."
 msgstr ""
 
 #: src/components/ageAssurance/useAgeAssuranceCopy.ts:17
-msgid "You have completed the Age Assurance process, but based on the results, we cannot be sure that you are 18 years of age or older. Due to laws in your region, certain features on Bluesky must remain restricted until you're able to verify you're an adult."
+msgid "You have completed the Age Assurance process, but based on the results, we cannot be sure that you are 18 years of age or older. Due to laws in your region, certain features on QuantZing must remain restricted until you're able to verify you're an adult."
 msgstr "You have completed the Age Assurance process, but based on the results, we cannot be sure that you are 18 years of age or older. Due to laws in your region, certain features on QuantZing must remain restricted until you're able to verify you're an adult."
 
 #: src/screens/Login/SetNewPasswordForm.tsx:49
@@ -17392,7 +17102,7 @@ msgstr ""
 msgid "You have temporarily reached the limit for video uploads. Please try again later."
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:1540
+#: src/view/com/composer/Composer.tsx:1541
 msgid "You have unsaved changes to this draft, would you like to save them?"
 msgstr ""
 
@@ -17431,19 +17141,19 @@ msgid "You initiated this flow already, {0} ago. It may take up to 5 minutes for
 msgstr ""
 
 #: src/components/dialogs/NewskieDialog/utils.ts:42
-msgid "You joined Bluesky {timeAgoString} ago"
+msgid "You joined QuantZing {timeAgoString} ago"
 msgstr "You joined QuantZing {timeAgoString} ago"
 
 #: src/components/dialogs/NewskieDialog/utils.ts:27
-msgid "You joined Bluesky just now"
+msgid "You joined QuantZing just now"
 msgstr "You joined QuantZing just now"
 
 #: src/components/dialogs/NewskieDialog/utils.ts:40
-msgid "You joined Bluesky using a Starter Pack {timeAgoString} ago"
+msgid "You joined QuantZing using a Starter Pack {timeAgoString} ago"
 msgstr "You joined QuantZing using a Starter Pack {timeAgoString} ago"
 
 #: src/components/dialogs/NewskieDialog/utils.ts:26
-msgid "You joined Bluesky using a Starter Pack just now"
+msgid "You joined QuantZing using a Starter Pack just now"
 msgstr "You joined QuantZing using a Starter Pack just now"
 
 #: src/components/moderation/LabelsOnMeDialog.tsx:83
@@ -17470,7 +17180,7 @@ msgid "You must be a chat owner to remove a member."
 msgstr "You must be a chat owner to remove a member."
 
 #: src/components/dialogs/BirthDateSettings.tsx:177
-msgid "You must be at least 13 years old to use Bluesky. Read our <0>Terms of Service</0> for more information."
+msgid "You must be at least 13 years old to use QuantZing. Read our <0>Terms of Service</0> for more information."
 msgstr "You must be at least 13 years old to use QuantZing. Read our <0>Terms of Service</0> for more information."
 
 #: src/components/StarterPack/ProfileStarterPacks.tsx:362
@@ -17541,7 +17251,7 @@ msgid "You will be eligible to appear in this Starter Pack again."
 msgstr "You will be eligible to appear in this Starter Pack again."
 
 #: src/screens/Settings/Settings.tsx:327
-#: src/view/shell/desktop/LeftNav.tsx:264
+#: src/view/shell/desktop/LeftNav.tsx:313
 msgid "You will be signed out of all your accounts."
 msgstr ""
 
@@ -17576,11 +17286,11 @@ msgstr "You won’t be able to rejoin unless you’re invited."
 msgid "You: {message}"
 msgstr "You: {message}"
 
-#: src/screens/Signup/index.tsx:155
+#: src/screens/Signup/index.tsx:172
 msgid "You'll follow the suggested users and feeds once you finish creating your account!"
 msgstr ""
 
-#: src/screens/Signup/index.tsx:160
+#: src/screens/Signup/index.tsx:177
 msgid "You'll follow the suggested users once you finish creating your account!"
 msgstr ""
 
@@ -17594,7 +17304,7 @@ msgid "You'll follow these people right away"
 msgstr ""
 
 #: src/components/contacts/screens/GetContacts.tsx:316
-msgid "You'll need to go to the System Settings for Bluesky and give permission if you want to use this feature."
+msgid "You'll need to go to the System Settings for QuantZing and give permission if you want to use this feature."
 msgstr "You'll need to go to the System Settings for QuantZing and give permission if you want to use this feature."
 
 #. placeholder {0}: sanitizeHandle(profile.handle, '@')
@@ -17690,7 +17400,7 @@ msgstr "Your ability to submit reports was restricted"
 
 #: src/screens/ModerationInbox/components/util/noticeLabels.ts:97
 #: src/screens/ModerationInbox/index.tsx:117
-#: src/screens/Signup/index.tsx:191
+#: src/screens/Signup/index.tsx:202
 msgid "Your account"
 msgstr ""
 
@@ -17772,7 +17482,7 @@ msgid "Your account repository, containing all public data records, can be downl
 msgstr ""
 
 #: src/screens/Takendown.tsx:210
-msgid "Your account was found to be in violation of the <0>Bluesky Social Terms of Service</0>. You have been sent an email outlining the specific violation and suspension period, if applicable. You can appeal this decision if you believe it was made in error."
+msgid "Your account was found to be in violation of the <0>QuantZing Terms of Service</0>. You have been sent an email outlining the specific violation and suspension period, if applicable. You can appeal this decision if you believe it was made in error."
 msgstr "Your account was found to be in violation of the <0>QuantZing Terms of Service</0>. You have been sent an email outlining the specific violation and suspension period, if applicable. You can appeal this decision if you believe it was made in error."
 
 #: src/screens/ModerationInbox/components/hooks/useActionedSubjectLabels.ts:60
@@ -17797,7 +17507,7 @@ msgstr "Your appeal has been submitted and is awaiting review."
 msgid "Your appeal has been submitted. If your appeal succeeds, you will receive an email."
 msgstr ""
 
-#: src/screens/Signup/StepInfo/index.tsx:297
+#: src/screens/Signup/StepInfo/index.tsx:291
 msgid "Your birth date"
 msgstr ""
 
@@ -17847,8 +17557,8 @@ msgstr ""
 
 #: src/screens/Login/ForgotPasswordForm.tsx:51
 #: src/screens/Settings/components/ChangePasswordDialog.tsx:82
-#: src/screens/Signup/state.ts:287
-#: src/screens/Signup/StepInfo/index.tsx:139
+#: src/screens/Signup/state.ts:296
+#: src/screens/Signup/StepInfo/index.tsx:138
 msgid "Your email appears to be invalid."
 msgstr ""
 
@@ -17885,7 +17595,7 @@ msgstr "Your hosting provider does not support videos this large. Please try aga
 msgid "Your hosting provider is detected automatically from the username you enter."
 msgstr "Your hosting provider is detected automatically from the username you enter."
 
-#: src/Navigation.tsx:526
+#: src/Navigation.tsx:535
 #: src/screens/Search/modules/ExploreInterestsCard.tsx:62
 #: src/screens/Settings/ContentAndMediaSettings.tsx:94
 #: src/screens/Settings/ContentAndMediaSettings.tsx:97
@@ -17902,7 +17612,7 @@ msgstr ""
 msgid "Your interests help us find what you like!"
 msgstr ""
 
-#: src/screens/Signup/StepInfo/index.tsx:371
+#: src/screens/Signup/StepInfo/index.tsx:365
 msgid "Your location has been updated."
 msgstr ""
 
@@ -17918,7 +17628,7 @@ msgstr "Your name, avatar, the name of the group chat, and the number of members
 msgid "Your note:"
 msgstr "Your note:"
 
-#: src/screens/Signup/StepInfo/index.tsx:166
+#: src/screens/Signup/StepInfo/index.tsx:165
 msgid "Your password must be at least 8 characters long."
 msgstr ""
 
@@ -17968,7 +17678,7 @@ msgstr "Your pronouns show next to your handle on your profile."
 msgid "Your reply was sent"
 msgstr ""
 
-#: src/Navigation.tsx:225
+#: src/Navigation.tsx:234
 #: src/screens/ModerationInbox/Report.tsx:112
 msgid "Your report"
 msgstr "Your report"
@@ -17995,7 +17705,7 @@ msgstr "Your reports notifications"
 msgid "Your selected interests help us serve you content you care about."
 msgstr ""
 
-#: src/view/com/composer/Composer.tsx:1575
+#: src/view/com/composer/Composer.tsx:1576
 msgid "Your thread has empty posts that will be skipped. The remaining posts will be published as a thread."
 msgstr "Your thread has empty Zings that will be skipped. The remaining Zings will be published as a thread."
 
@@ -18006,3 +17716,7 @@ msgstr "Your username and password will be shared with <0>{host}</0>. If you don
 #: src/components/verification/VerificationsDialog.tsx:67
 msgid "Your verifications"
 msgstr ""
+
+#: src/screens/StarterPack/StarterPackScreen.tsx:195
+msgid "Zings"
+msgstr "Zings"
