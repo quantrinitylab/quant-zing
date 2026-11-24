@@ -61,7 +61,7 @@ const WRITE_RATE_MAX_PER_WINDOW = 25
 const HEALTH_CACHE_TTL_MS = 15 * 1000
 const HEALTH_PROBE_TIMEOUT_MS = 1500
 const AI_CALL_TIMEOUT_MS = 4500
-const MENTION_AI_TIMEOUT_MS = 2800
+const MENTION_AI_TIMEOUT_MS = 8000
 
 const DEFAULT_QUANT_AI_URL =
   process.env.QUANT_AI_URL ||
@@ -627,16 +627,36 @@ const TOOL_MAP = new Map(QUANTY_TOOLS.map(t => [t.name, t]))
 // Deterministic Helpers (Zero Emojis, Canonical JSON, HMAC, Safe Parsing)
 // ---------------------------------------------------------------------------
 
-function stripEmojis(text) {
-  if (!text) return ''
+function stripEmojiCharsOnly(text) {
   return String(text)
     .replace(/[0-9#*]\uFE0F?\u20E3/g, '')
     .replace(
       /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{25A0}-\u{25FF}\u{2B00}-\u{2BFF}\u{231A}-\u{231B}\u{23E9}-\u{23F3}\u{23F8}-\u{23FA}\u{203C}\u{2049}\u{2139}\u{2194}-\u{2199}\u{21A9}-\u{21AA}\u{FE0E}\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu,
       '',
     )
-    .replace(/[ \t]{2,}/g, ' ')
-    .replace(/ *\n */g, '\n')
+}
+
+function stripEmojis(text) {
+  if (!text) return ''
+  const raw = String(text)
+  if (!raw.includes('```')) {
+    return stripEmojiCharsOnly(raw)
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/[ \t]*(\r?\n)[ \t]*/g, '$1')
+      .trim()
+  }
+  const parts = raw.split(/(```[\s\S]*?```)/g)
+  return parts
+    .map((part, idx) => {
+      const cleaned = stripEmojiCharsOnly(part)
+      if (idx % 2 === 1) {
+        return cleaned
+      }
+      return cleaned
+        .replace(/[ \t]{2,}/g, ' ')
+        .replace(/[ \t]*(\r?\n)[ \t]*/g, '$1')
+    })
+    .join('')
     .trim()
 }
 
@@ -764,12 +784,14 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 1500) {
   try {
     const res = await fetch(url, {...options, signal: controller.signal})
     const latencyMs = Date.now() - started
+    const headers = Object.fromEntries(res.headers.entries())
     const data = await res.json().catch(() => null)
-    return {ok: res.ok, status: res.status, data, latencyMs}
+    return {ok: res.ok, status: res.status, headers, data, latencyMs}
   } catch (err) {
     return {
       ok: false,
       status: 0,
+      headers: {},
       data: null,
       latencyMs: Date.now() - started,
       error: err instanceof Error ? err.message : 'network_error',
@@ -782,21 +804,40 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 1500) {
 function extractKnowledgeSubject(rawPrompt) {
   let q = stripEmojis(rawPrompt || '').trim()
   q = q.replace(/[?!.]+$/g, '').trim()
-  q = q
-    .replace(
-      /^(?:(?:hi+|hey+|hello+|namaste)[,\s]+)?(?:quanty[,\s]+)?(?:can\s+you\s+|could\s+you\s+|would\s+you\s+|please\s+)*/i,
-      '',
-    )
-    .replace(
-      /^(?:what\s+(?:is|are|was|were)\s+(?:a\s+|an\s+|the\s+)?|who\s+(?:is|are|was|were)\s+|where\s+(?:is|are|was|were)\s+|when\s+(?:was|did|is)\s+|why\s+(?:is|are|do|does|did)\s+|how\s+(?:does|do|did|is|are|to)\s+|explain\s+(?:to\s+me\s+)?(?:what\s+(?:is|are)\s+)?(?:the\s+)?|tell\s+me\s+(?:all\s+)?about\s+|define\s+|describe\s+|overview\s+of\s+|summary\s+of\s+|meaning\s+of\s+)/i,
-      '',
-    )
-    .replace(/\s+(?:work|works|mean|means|exist|exists)\s*$/i, '')
-    .replace(
-      /\s+in\s+(?:simple\s+terms|brief|short|detail|plain\s+english|one\s+sentence)$/i,
-      '',
-    )
-    .trim()
+  for (let pass = 0; pass < 3; pass++) {
+    const before = q
+    q = q
+      .replace(
+        /^(?:(?:hi+|hey+|hello+|namaste|namaskar|bhai|yaar|bro|dost|arre|arey|suno|ok|okay|so|well)[,\s]+)+/i,
+        '',
+      )
+      .replace(/^quanty[,\s]+/i, '')
+      .replace(
+        /^(?:can\s+you\s+|could\s+you\s+|would\s+you\s+|please\s+|pls\s+|plz\s+|mujhe\s+|humko\s+|ek\s+baat\s+batao\s+|zara\s+|thoda\s+)+/i,
+        '',
+      )
+      .replace(
+        /^(?:what\s+(?:is|are|was|were)\s+(?:a\s+|an\s+|the\s+)?|who\s+(?:is|are|was|were)\s+|where\s+(?:is|are|was|were)\s+|when\s+(?:was|did|is)\s+|why\s+(?:is|are|do|does|did)\s+|how\s+(?:does|do|did|is|are|to)\s+|explain\s+(?:to\s+me\s+)?(?:what\s+(?:is|are)\s+)?(?:the\s+)?|tell\s+me\s+(?:all\s+)?about\s+|define\s+|describe\s+|overview\s+of\s+|summary\s+of\s+|meaning\s+of\s+|difference\s+between\s+|batao\s+|samjhao\s+)/i,
+        '',
+      )
+      .replace(/\s+(?:bhai|yaar|bro|dost|please|pls|plz)$/i, '')
+      .replace(
+        /\s+(?:in\s+(?:simple\s+terms|brief|short|detail|plain\s+english|one\s+sentence|hindi|hinglish)|simple\s+(?:mein|me|bhasha\s+mei?n)|aa?san\s+bhasha\s+mei?n|short\s+mei?n|detail\s+mei?n)$/i,
+        '',
+      )
+      .replace(
+        /\s+(?:batao|bata\s+do|bata\s+de|bata\s+dena|samjhao|samjha\s+do|samjha\s+de|explain\s+karo)$/i,
+        '',
+      )
+      .replace(
+        /\s+(?:kya\s+(?:hai|hota\s+hai|hoti\s+hai|hote\s+hain|hote\s+hai|hota|hoti)|ke\s+baa?re\s+mei?n|kaise\s+kaam\s+kart[aei]\s+(?:hai|hain)|kaise\s+chalt[aei]\s+(?:hai|hain)|kaise\s+hot[aei]\s+(?:hai|hain)|ka\s+matlab(?:\s+kya\s+hai)?)$/i,
+        '',
+      )
+      .replace(/\s+(?:work|works|mean|means|exist|exists)\s*$/i, '')
+      .replace(/[?!.,:\-]+$/g, '')
+      .trim()
+    if (q === before) break
+  }
   return q || stripEmojis(rawPrompt || '').trim()
 }
 
@@ -919,16 +960,2049 @@ async function fetchExternalKnowledge(rawPrompt, timeoutMs = 2500) {
   }
 }
 
-function classifyConversationalIntent(prompt, mode, postContext) {
+function truncateAtWord(text, maxLen) {
+  const clean = stripEmojis(text || '').replace(/\s+/g, ' ').trim()
+  if (!clean || clean.length <= maxLen) return clean
+  const slice = clean.slice(0, Math.max(1, maxLen - 3))
+  const lastSpace = slice.lastIndexOf(' ')
+  const cut = lastSpace > maxLen * 0.6 ? slice.slice(0, lastSpace) : slice
+  return `${cut.replace(/[,;:\-]+$/, '').trim()}...`
+}
+
+const DEICTIC_POST_WORDS = new Set([
+  'this',
+  'that',
+  'these',
+  'those',
+  'here',
+  'there',
+  'just',
+  'when',
+  'what',
+  'why',
+  'how',
+  'where',
+  'who',
+  'breaking',
+  'update',
+  'today',
+  'yesterday',
+  'tomorrow',
+  'everyone',
+  'anyone',
+  'someone',
+  'people',
+  'hot',
+  'quick',
+  'true',
+  'real',
+  'false',
+  'fake',
+  'fact',
+  'check',
+  'explain',
+  'context',
+  'summarize',
+  'summary',
+  'thread',
+  'zing',
+  'post',
+  'bhai',
+  'yaar',
+  'kya',
+  'hai',
+  'hota',
+  'mein',
+  'batao',
+  'samjhao',
+  'iska',
+  'matlab',
+  'sach',
+  'new',
+  'big',
+  'best',
+  'more',
+  'most',
+  'some',
+  'many',
+  'very',
+  'really',
+  'still',
+  'also',
+  'never',
+  'always',
+])
+
+function extractTopicFromPostText(postText) {
+  const raw = stripEmojis(postText || '')
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/@[a-zA-Z0-9._-]+/g, ' ')
+    .replace(/\bRT\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!raw) {
+    return {
+      primaryTopic: '',
+      searchQuery: '',
+      entities: [],
+      hashtags: [],
+      hasNumericalClaim: false,
+    }
+  }
+
+  const hashtags = []
+  for (const m of raw.matchAll(/#([A-Za-z0-9_]{2,40})/g)) {
+    const spaced = m[1]
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/_/g, ' ')
+      .trim()
+    if (spaced && !DEICTIC_POST_WORDS.has(spaced.toLowerCase())) {
+      hashtags.push(spaced)
+    }
+  }
+
+  const noTags = raw.replace(/#[A-Za-z0-9_]+/g, ' ').replace(/\s+/g, ' ').trim()
+  const entities = []
+  const seenEntity = new Set()
+
+  const entityRegex =
+    /\b(?:[A-Z]{2,}(?:\s+[A-Z0-9][A-Za-z0-9.-]*){0,2}|[A-Z][a-z]+(?:\s+(?:of|for|and|the)\s+)?(?:[A-Z][a-zA-Z0-9.-]*)(?:\s+[A-Z][a-zA-Z0-9.-]*)?|[A-Z][a-z]{2,}(?:[A-Z][a-zA-Z0-9]*)*)\b/g
+  for (const m of noTags.matchAll(entityRegex)) {
+    const phrase = m[0].trim()
+    const lower = phrase.toLowerCase()
+    if (phrase.length < 2 || DEICTIC_POST_WORDS.has(lower)) continue
+    if (
+      m.index === 0 &&
+      !phrase.includes(' ') &&
+      /^[A-Z][a-z]+$/.test(phrase) &&
+      STOP_WORDS.has(lower)
+    ) {
+      continue
+    }
+    if (!seenEntity.has(lower)) {
+      seenEntity.add(lower)
+      entities.push(phrase)
+      if (entities.length >= 4) break
+    }
+  }
+
+  const keywords = extractKeywords(noTags, 6).filter(
+    k => !DEICTIC_POST_WORDS.has(k.toLowerCase()),
+  )
+  const hasNumericalClaim =
+    /\b\d+(?:[.,]\d+)?(?:\s*(?:%|percent|billion|million|trillion|crore|lakh|k|m|b|x|ms|gb|tb|usd|inr|\$))\b/i.test(
+      raw,
+    )
+
+  const primaryTopic =
+    entities[0] || hashtags[0] || keywords.slice(0, 3).join(' ') || ''
+
+  const queryParts = []
+  const seenQ = new Set()
+  for (const term of [
+    ...entities.slice(0, 2),
+    ...hashtags.slice(0, 2),
+    ...keywords,
+  ]) {
+    const norm = term.toLowerCase()
+    if (!norm || seenQ.has(norm)) continue
+    seenQ.add(norm)
+    queryParts.push(term)
+    if (queryParts.length >= 4) break
+  }
+
+  return {
+    primaryTopic,
+    searchQuery: queryParts.join(' ').slice(0, 120).trim(),
+    entities,
+    hashtags,
+    hasNumericalClaim,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Fast Zero-Key Translation Helper (2.2s timeout, safe fail-back)
+// ---------------------------------------------------------------------------
+
+const TRANSLATE_LANG_MAP = {
+  hindi: {code: 'hi', label: 'Hindi', romanize: false},
+  hi: {code: 'hi', label: 'Hindi', romanize: false},
+  hinglish: {code: 'hi', label: 'Hinglish', romanize: true},
+  english: {code: 'en', label: 'English', romanize: false},
+  en: {code: 'en', label: 'English', romanize: false},
+  spanish: {code: 'es', label: 'Spanish', romanize: false},
+  espanol: {code: 'es', label: 'Spanish', romanize: false},
+  es: {code: 'es', label: 'Spanish', romanize: false},
+  french: {code: 'fr', label: 'French', romanize: false},
+  francais: {code: 'fr', label: 'French', romanize: false},
+  fr: {code: 'fr', label: 'French', romanize: false},
+  german: {code: 'de', label: 'German', romanize: false},
+  deutsch: {code: 'de', label: 'German', romanize: false},
+  de: {code: 'de', label: 'German', romanize: false},
+  japanese: {code: 'ja', label: 'Japanese', romanize: false},
+  ja: {code: 'ja', label: 'Japanese', romanize: false},
+  korean: {code: 'ko', label: 'Korean', romanize: false},
+  ko: {code: 'ko', label: 'Korean', romanize: false},
+  chinese: {code: 'zh-CN', label: 'Chinese', romanize: false},
+  mandarin: {code: 'zh-CN', label: 'Chinese', romanize: false},
+  zh: {code: 'zh-CN', label: 'Chinese', romanize: false},
+  arabic: {code: 'ar', label: 'Arabic', romanize: false},
+  ar: {code: 'ar', label: 'Arabic', romanize: false},
+  portuguese: {code: 'pt', label: 'Portuguese', romanize: false},
+  pt: {code: 'pt', label: 'Portuguese', romanize: false},
+  russian: {code: 'ru', label: 'Russian', romanize: false},
+  ru: {code: 'ru', label: 'Russian', romanize: false},
+  italian: {code: 'it', label: 'Italian', romanize: false},
+  it: {code: 'it', label: 'Italian', romanize: false},
+  bengali: {code: 'bn', label: 'Bengali', romanize: false},
+  bangla: {code: 'bn', label: 'Bengali', romanize: false},
+  tamil: {code: 'ta', label: 'Tamil', romanize: false},
+  telugu: {code: 'te', label: 'Telugu', romanize: false},
+  marathi: {code: 'mr', label: 'Marathi', romanize: false},
+  gujarati: {code: 'gu', label: 'Gujarati', romanize: false},
+  punjabi: {code: 'pa', label: 'Punjabi', romanize: false},
+  urdu: {code: 'ur', label: 'Urdu', romanize: false},
+  kannada: {code: 'kn', label: 'Kannada', romanize: false},
+  malayalam: {code: 'ml', label: 'Malayalam', romanize: false},
+}
+
+function parseLanguageRequest(prompt, hasTarget = false) {
+  const trimmed = stripEmojis(prompt || '').trim()
+  if (!trimmed) return null
+
+  const m1 = trimmed.match(
+    /^(?:please\s+)?translate(?:\s+(?:it|this|that|above|the\s+(?:zing|post|answer|reply)))?(?:\s+["']?([\s\S]+?)["']?)?\s+(?:to|into|in)\s+([a-zA-Z-]+)[\s?!.]*$/i,
+  )
+  if (m1) {
+    const spec = TRANSLATE_LANG_MAP[m1[2].toLowerCase()]
+    if (spec) {
+      const rawInline = (m1[1] || '').trim().replace(/^["']|["']$/g, '')
+      const isDeicticInline =
+        /^(?:it|this|that|above|last\s+answer|the\s+(?:zing|post|answer))$/i.test(
+          rawInline,
+        )
+      return {
+        ...spec,
+        inlineText: isDeicticInline ? '' : rawInline,
+      }
+    }
+  }
+
+  const m2 = trimmed.match(
+    /^(?:(?:please|bhai|yaar)\s+)?(?:(?:isko|iska|ise|ye|yeh)\s+)?(hindi|hinglish|english|spanish|french|german|tamil|telugu|marathi|bengali|gujarati|punjabi|urdu|japanese|korean|arabic)\s+(?:mein|me|mai|main)\s+(?:batao|bata\s+do|bata\s+de|likho|likh\s+do|likh\s+de|samjhao|translate(?:\s+karo|\s+kardo)?|bol(?:o)?)(?:\s*[:\-]\s*([\s\S]+))?[\s?!.]*$/i,
+  )
+  if (m2) {
+    const spec = TRANSLATE_LANG_MAP[m2[1].toLowerCase()]
+    if (spec) {
+      return {
+        ...spec,
+        inlineText: (m2[2] || '').trim().replace(/^["']|["']$/g, ''),
+      }
+    }
+  }
+
+  if (hasTarget) {
+    const m3 = trimmed.match(
+      /^(?:(?:now\s+)?(?:in|into|to)\s+)?(hindi|hinglish|english|spanish|french|german|tamil|telugu|marathi|bengali|gujarati|punjabi|urdu|japanese|korean|arabic|portuguese|italian|russian|chinese)(?:\s+(?:please|pls|translation|version|mein|me))?[\s?!.]*$/i,
+    )
+    if (m3) {
+      const spec = TRANSLATE_LANG_MAP[m3[1].toLowerCase()]
+      if (spec) {
+        return {...spec, inlineText: ''}
+      }
+    }
+  }
+
+  return null
+}
+
+function cleanTextForTranslation(text) {
+  return stripEmojis(text || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/^#{1,4}\s+/gm, '')
+    .replace(/^\s*>\s?/gm, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*Source:[^*\n]+\*/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+async function translateTextWithGoogle(
+  rawText,
+  targetLangCode = 'hi',
+  {romanize = false, langLabel = 'Hindi'} = {},
+  timeoutMs = 2200,
+) {
+  const cleaned = cleanTextForTranslation(rawText).slice(0, 1200)
+  if (!cleaned) {
+    return {
+      ok: false,
+      targetLang: targetLangCode,
+      langLabel,
+      error: 'empty_source',
+    }
+  }
+  try {
+    const url =
+      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto` +
+      `&tl=${encodeURIComponent(targetLangCode)}&dt=t${romanize ? '&dt=rm' : ''}` +
+      `&q=${encodeURIComponent(cleaned)}`
+    const res = await fetchJsonWithTimeout(
+      url,
+      {
+        headers: {
+          accept: 'application/json',
+          'user-agent': 'QuantZing-Quanty/2.0',
+        },
+      },
+      timeoutMs,
+    )
+    if (!res.ok || !Array.isArray(res.data?.[0])) {
+      return {
+        ok: false,
+        targetLang: targetLangCode,
+        langLabel,
+        error: res.error || `http_${res.status}`,
+      }
+    }
+    const segs = res.data[0]
+    const translated = segs
+      .map(seg =>
+        Array.isArray(seg) && typeof seg[0] === 'string' ? seg[0] : '',
+      )
+      .join('')
+      .trim()
+    const romanized = segs
+      .map(seg =>
+        Array.isArray(seg) && seg[0] === null && typeof seg[2] === 'string'
+          ? seg[2]
+          : '',
+      )
+      .join(' ')
+      .trim()
+    const output = romanize ? romanized || translated : translated
+    if (!output) {
+      return {
+        ok: false,
+        targetLang: targetLangCode,
+        langLabel,
+        error: 'empty_translation',
+      }
+    }
+    return {
+      ok: true,
+      translated: output,
+      nativeScript: translated,
+      romanized,
+      targetLang: targetLangCode,
+      langLabel,
+      latencyMs: res.latencyMs,
+    }
+  } catch {
+    return {
+      ok: false,
+      targetLang: targetLangCode,
+      langLabel,
+      error: 'translate_exception',
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Safe Deterministic Math Solver (ZERO eval / ZERO Function)
+// ---------------------------------------------------------------------------
+
+const MATH_FUNCS = new Set(['sqrt', 'abs', 'sin', 'cos', 'tan', 'log', 'ln'])
+const MATH_CONSTS = {pi: Math.PI, e: Math.E}
+
+function formatMathNumber(n) {
+  if (!Number.isFinite(n)) return ''
+  if (Math.abs(n) < 1e-12) return '0'
+  const rounded = Number(n.toPrecision(12))
+  return String(rounded)
+}
+
+function tokenizeMathExpression(expr, allowVariable = null) {
+  const tokens = []
+  let i = 0
+  const len = expr.length
+  while (i < len) {
+    const ch = expr[i]
+    if (/\s/.test(ch)) {
+      i++
+      continue
+    }
+    if (
+      (ch >= '0' && ch <= '9') ||
+      (ch === '.' && i + 1 < len && expr[i + 1] >= '0' && expr[i + 1] <= '9')
+    ) {
+      const start = i
+      let hasDot = false
+      while (
+        i < len &&
+        ((expr[i] >= '0' && expr[i] <= '9') || (expr[i] === '.' && !hasDot))
+      ) {
+        if (expr[i] === '.') hasDot = true
+        i++
+      }
+      const num = Number(expr.slice(start, i))
+      if (!Number.isFinite(num)) return null
+      tokens.push({type: 'num', value: num})
+      continue
+    }
+    if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')) {
+      const start = i
+      while (
+        i < len &&
+        ((expr[i] >= 'a' && expr[i] <= 'z') ||
+          (expr[i] >= 'A' && expr[i] <= 'Z'))
+      ) {
+        i++
+      }
+      const word = expr.slice(start, i).toLowerCase()
+      if (MATH_FUNCS.has(word)) {
+        tokens.push({type: 'func', value: word})
+      } else if (word === 'pi' || (word === 'e' && allowVariable !== 'e')) {
+        tokens.push({type: 'num', value: MATH_CONSTS[word]})
+      } else if (word === 'deg') {
+        tokens.push({type: 'deg'})
+      } else if (allowVariable && word === allowVariable) {
+        tokens.push({type: 'var', value: word})
+      } else {
+        return null
+      }
+      continue
+    }
+    if (
+      ch === '+' ||
+      ch === '-' ||
+      ch === '*' ||
+      ch === '/' ||
+      ch === '%' ||
+      ch === '^'
+    ) {
+      tokens.push({type: 'op', value: ch})
+      i++
+      continue
+    }
+    if (ch === '(' || ch === ')') {
+      tokens.push({type: 'paren', value: ch})
+      i++
+      continue
+    }
+    if (ch === '\u00B0') {
+      tokens.push({type: 'deg'})
+      i++
+      continue
+    }
+    return null
+  }
+  if (tokens.length === 0 || tokens.length > 100) return null
+  return tokens
+}
+
+function evaluateLinearTokens(tokens) {
+  let pos = 0
+  let depth = 0
+
+  const peek = () => tokens[pos] || null
+  const consume = () => tokens[pos++] || null
+  const isOperandStart = tok =>
+    Boolean(
+      tok &&
+        (tok.type === 'num' ||
+          tok.type === 'var' ||
+          tok.type === 'func' ||
+          (tok.type === 'paren' && tok.value === '(')),
+    )
+
+  function parseAddSub() {
+    if (++depth > 40) throw new Error('depth')
+    let left = parseMulDiv()
+    while (
+      peek()?.type === 'op' &&
+      (peek().value === '+' || peek().value === '-')
+    ) {
+      const op = consume().value
+      const right = parseMulDiv()
+      left =
+        op === '+'
+          ? {a: left.a + right.a, b: left.b + right.b}
+          : {a: left.a - right.a, b: left.b - right.b}
+    }
+    depth--
+    return left
+  }
+
+  function parseMulDiv() {
+    let left = parseUnary()
+    while (true) {
+      const t = peek()
+      if (
+        t?.type === 'op' &&
+        (t.value === '*' || t.value === '/' || t.value === '%')
+      ) {
+        const nextTok = tokens[pos + 1]
+        if (
+          t.value === '%' &&
+          !isOperandStart(nextTok) &&
+          !(
+            nextTok?.type === 'op' &&
+            (nextTok.value === '+' || nextTok.value === '-')
+          )
+        ) {
+          consume()
+          left = {a: left.a / 100, b: left.b / 100}
+          continue
+        }
+        const op = consume().value
+        const right = parseUnary()
+        if (op === '*') {
+          if (Math.abs(left.a) > 1e-12 && Math.abs(right.a) > 1e-12) {
+            throw new Error('nonlinear')
+          }
+          left = {
+            a: left.a * right.b + right.a * left.b,
+            b: left.b * right.b,
+          }
+        } else if (op === '/') {
+          if (Math.abs(right.a) > 1e-12 || Math.abs(right.b) < 1e-15) {
+            throw new Error('div')
+          }
+          left = {a: left.a / right.b, b: left.b / right.b}
+        } else {
+          if (
+            Math.abs(left.a) > 1e-12 ||
+            Math.abs(right.a) > 1e-12 ||
+            Math.abs(right.b) < 1e-15
+          ) {
+            throw new Error('mod')
+          }
+          left = {a: 0, b: left.b % right.b}
+        }
+        continue
+      }
+      if (isOperandStart(t)) {
+        const right = parseUnary()
+        if (Math.abs(left.a) > 1e-12 && Math.abs(right.a) > 1e-12) {
+          throw new Error('nonlinear')
+        }
+        left = {
+          a: left.a * right.b + right.a * left.b,
+          b: left.b * right.b,
+        }
+        continue
+      }
+      break
+    }
+    return left
+  }
+
+  function parseUnary() {
+    const t = peek()
+    if (t?.type === 'op' && (t.value === '+' || t.value === '-')) {
+      consume()
+      const val = parseUnary()
+      return t.value === '-' ? {a: -val.a, b: -val.b} : val
+    }
+    return parsePower()
+  }
+
+  function parsePower() {
+    let base = parsePostfix()
+    if (peek()?.type === 'op' && peek().value === '^') {
+      consume()
+      const exp = parseUnary()
+      if (Math.abs(exp.a) > 1e-12) throw new Error('nonlinear')
+      if (Math.abs(base.a) > 1e-12) {
+        if (Math.abs(exp.b - 1) < 1e-12) return base
+        if (Math.abs(exp.b) < 1e-12) return {a: 0, b: 1}
+        throw new Error('nonlinear')
+      }
+      const powered = Math.pow(base.b, exp.b)
+      if (!Number.isFinite(powered)) throw new Error('nan')
+      base = {a: 0, b: powered}
+    }
+    return base
+  }
+
+  function parsePostfix() {
+    let val = parsePrimary()
+    while (peek()?.type === 'deg') {
+      consume()
+      if (Math.abs(val.a) > 1e-12) throw new Error('nonlinear')
+      val = {a: 0, b: (val.b * Math.PI) / 180}
+    }
+    const nextTok = tokens[pos + 1]
+    if (
+      peek()?.type === 'op' &&
+      peek().value === '%' &&
+      !isOperandStart(nextTok) &&
+      !(
+        nextTok?.type === 'op' &&
+        (nextTok.value === '+' || nextTok.value === '-')
+      )
+    ) {
+      consume()
+      val = {a: val.a / 100, b: val.b / 100}
+    }
+    return val
+  }
+
+  function parsePrimary() {
+    const t = peek()
+    if (!t) throw new Error('eof')
+    if (t.type === 'num') {
+      consume()
+      return {a: 0, b: t.value}
+    }
+    if (t.type === 'var') {
+      consume()
+      return {a: 1, b: 0}
+    }
+    if (t.type === 'func') {
+      const fn = consume().value
+      let arg
+      if (peek()?.type === 'paren' && peek().value === '(') {
+        consume()
+        arg = parseAddSub()
+        if (peek()?.type !== 'paren' || peek().value !== ')') {
+          throw new Error('paren')
+        }
+        consume()
+      } else {
+        arg = parseUnary()
+      }
+      if (Math.abs(arg.a) > 1e-12) throw new Error('nonlinear')
+      const x = arg.b
+      let out = NaN
+      switch (fn) {
+        case 'sqrt':
+          out = x < 0 ? NaN : Math.sqrt(x)
+          break
+        case 'abs':
+          out = Math.abs(x)
+          break
+        case 'sin':
+          out = Math.sin(x)
+          break
+        case 'cos':
+          out = Math.cos(x)
+          break
+        case 'tan':
+          out = Math.tan(x)
+          break
+        case 'log':
+          out = x <= 0 ? NaN : Math.log10(x)
+          break
+        case 'ln':
+          out = x <= 0 ? NaN : Math.log(x)
+          break
+      }
+      if (!Number.isFinite(out)) throw new Error('domain')
+      return {a: 0, b: out}
+    }
+    if (t.type === 'paren' && t.value === '(') {
+      consume()
+      const inner = parseAddSub()
+      if (peek()?.type !== 'paren' || peek().value !== ')') {
+        throw new Error('paren')
+      }
+      consume()
+      return inner
+    }
+    throw new Error('unexpected')
+  }
+
+  const res = parseAddSub()
+  if (pos !== tokens.length) throw new Error('trailing')
+  if (!Number.isFinite(res.a) || !Number.isFinite(res.b)) throw new Error('nan')
+  return res
+}
+
+function evalPureNumericExpression(expr) {
+  const tokens = tokenizeMathExpression(expr, null)
+  if (!tokens) return null
+  try {
+    const res = evaluateLinearTokens(tokens)
+    if (Math.abs(res.a) > 1e-12 || !Number.isFinite(res.b)) return null
+    return res.b
+  } catch {
+    return null
+  }
+}
+
+function evaluateSafeMath(rawPrompt) {
+  const raw = stripEmojis(rawPrompt || '').trim()
+  if (
+    !raw ||
+    raw.length > 220 ||
+    raw.includes('```') ||
+    /https?:\/\/|at:\/\//i.test(raw)
+  ) {
+    return null
+  }
+
+  const cleaned = raw
+    .replace(/^(?:(?:please|quanty|bhai|yaar)[,\s]+)*/i, '')
+    .replace(
+      /^(?:what(?:'s|\s+is)\s+|how\s+much\s+is\s+|calculate\s+|compute\s+|evaluate\s+|find(?:\s+the\s+value\s+of)?\s+|solve(?:\s+for\s+[a-z])?\s*[:\-]?\s*|math\s*[:\-]?\s*)+/i,
+      '',
+    )
+    .replace(/\s*=\s*\?\s*$/, '')
+    .replace(/[?!.]+$/g, '')
+    .replace(/[\u00D7]/g, '*')
+    .replace(/[\u00F7]/g, '/')
+    .replace(/[\u2212\u2013]/g, '-')
+    .replace(/\*\*/g, '^')
+    .replace(/(\d),(?=\d{3}\b)/g, '$1')
+    .trim()
+
+  if (!cleaned) return null
+  if (
+    /^\d{4}-\d{2}-\d{2}$/.test(cleaned) ||
+    /^[+-]?\d+(?:\.\d+)?$/.test(cleaned)
+  ) {
+    return null
+  }
+
+  const pctOfMatch = cleaned.match(/^([+-]?\d+(?:\.\d+)?)\s*%\s+of\s+(.+)$/i)
+  if (pctOfMatch) {
+    const pct = Number(pctOfMatch[1])
+    const baseVal = evalPureNumericExpression(pctOfMatch[2].trim())
+    if (Number.isFinite(pct) && baseVal !== null) {
+      const val = (pct / 100) * baseVal
+      const formatted = formatMathNumber(val)
+      const baseFmt = formatMathNumber(baseVal)
+      const exprLabel = `${pct}% of ${baseFmt}`
+      return {
+        ok: true,
+        kind: 'percentage',
+        expression: exprLabel,
+        value: val,
+        formatted,
+        summaryLine: `${exprLabel} = ${formatted}`,
+        markdown: [
+          `### ${exprLabel} = **${formatted}**`,
+          '',
+          `- Calculation: \`(${pct} / 100) * ${baseFmt} = ${formatted}\``,
+        ].join('\n'),
+      }
+    }
+  }
+
+  const pctOffMatch = cleaned.match(/^([+-]?\d+(?:\.\d+)?)\s*%\s+off\s+(.+)$/i)
+  if (pctOffMatch) {
+    const pct = Number(pctOffMatch[1])
+    const baseVal = evalPureNumericExpression(pctOffMatch[2].trim())
+    if (Number.isFinite(pct) && baseVal !== null) {
+      const discount = (pct / 100) * baseVal
+      const val = baseVal - discount
+      const formatted = formatMathNumber(val)
+      const baseFmt = formatMathNumber(baseVal)
+      const discFmt = formatMathNumber(discount)
+      const exprLabel = `${pct}% off ${baseFmt}`
+      return {
+        ok: true,
+        kind: 'percentage',
+        expression: exprLabel,
+        value: val,
+        formatted,
+        summaryLine: `${exprLabel} = ${formatted} (discount: ${discFmt})`,
+        markdown: [
+          `### ${exprLabel} = **${formatted}**`,
+          '',
+          `- Discount (${pct}%): \`${discFmt}\``,
+          `- Final amount: \`${baseFmt} - ${discFmt} = ${formatted}\``,
+        ].join('\n'),
+      }
+    }
+  }
+
+  const pctDeltaMatch = cleaned.match(/^(.+?)\s*([+-])\s*(\d+(?:\.\d+)?)\s*%$/)
+  if (pctDeltaMatch) {
+    const baseVal = evalPureNumericExpression(pctDeltaMatch[1].trim())
+    const sign = pctDeltaMatch[2]
+    const pct = Number(pctDeltaMatch[3])
+    if (baseVal !== null && Number.isFinite(pct)) {
+      const delta = (pct / 100) * baseVal
+      const val = sign === '+' ? baseVal + delta : baseVal - delta
+      const formatted = formatMathNumber(val)
+      const baseFmt = formatMathNumber(baseVal)
+      const deltaFmt = formatMathNumber(delta)
+      const exprLabel = `${baseFmt} ${sign} ${pct}%`
+      return {
+        ok: true,
+        kind: 'percentage',
+        expression: exprLabel,
+        value: val,
+        formatted,
+        summaryLine: `${exprLabel} = ${formatted}`,
+        markdown: [
+          `### ${exprLabel} = **${formatted}**`,
+          '',
+          `- ${pct}% of ${baseFmt} = \`${deltaFmt}\``,
+          `- Result: \`${baseFmt} ${sign} ${deltaFmt} = ${formatted}\``,
+        ].join('\n'),
+      }
+    }
+  }
+
+  if (cleaned.includes('=')) {
+    const sides = cleaned.split('=')
+    if (sides.length === 2 && sides[0].trim() && sides[1].trim()) {
+      const withoutFuncs = cleaned.replace(
+        /\b(?:sqrt|abs|sin|cos|tan|log|ln|pi|deg)\b/gi,
+        ' ',
+      )
+      const varLetters = [
+        ...new Set((withoutFuncs.match(/[a-z]/gi) || []).map(c => c.toLowerCase())),
+      ]
+      if (varLetters.length === 1) {
+        const varName = varLetters[0]
+        const leftTokens = tokenizeMathExpression(sides[0].trim(), varName)
+        const rightTokens = tokenizeMathExpression(sides[1].trim(), varName)
+        if (leftTokens && rightTokens) {
+          try {
+            const L = evaluateLinearTokens(leftTokens)
+            const R = evaluateLinearTokens(rightTokens)
+            const coeff = L.a - R.a
+            const rhsConst = R.b - L.b
+            if (Math.abs(coeff) < 1e-12) {
+              const isIdentity = Math.abs(rhsConst) < 1e-12
+              const msg = isIdentity
+                ? `Identity: true for all real values of ${varName}.`
+                : `No real solution (contradiction: 0 = ${formatMathNumber(rhsConst)}).`
+              return {
+                ok: true,
+                kind: 'linear_equation',
+                expression: cleaned,
+                value: null,
+                formatted: isIdentity ? 'all real numbers' : 'no solution',
+                summaryLine: `${cleaned} -> ${msg}`,
+                markdown: `### Solving \`${cleaned}\`\n\n${msg}`,
+              }
+            }
+            const sol = rhsConst / coeff
+            const solFmt = formatMathNumber(sol)
+            const coeffFmt = formatMathNumber(coeff)
+            const rhsFmt = formatMathNumber(rhsConst)
+            return {
+              ok: true,
+              kind: 'linear_equation',
+              expression: cleaned,
+              variable: varName,
+              value: sol,
+              formatted: `${varName} = ${solFmt}`,
+              summaryLine: `${cleaned} -> ${varName} = ${solFmt}`,
+              markdown: [
+                `### ${varName} = **${solFmt}**`,
+                '',
+                `- Equation: \`${cleaned}\``,
+                `- Isolate \`${varName}\`: \`${coeffFmt}${varName} = ${rhsFmt}\``,
+                `- Divide by \`${coeffFmt}\`: \`${varName} = ${rhsFmt} / ${coeffFmt} = ${solFmt}\``,
+              ].join('\n'),
+            }
+          } catch {
+            // Fall through if nonlinear
+          }
+        }
+      }
+    }
+    return null
+  }
+
+  const hasMathOperatorOrFunc =
+    /[+\-*/%^]/.test(cleaned) ||
+    /\b(?:sqrt|abs|sin|cos|tan|log|ln)\b/i.test(cleaned)
+  if (!hasMathOperatorOrFunc) return null
+
+  const value = evalPureNumericExpression(cleaned)
+  if (value === null) return null
+  const formatted = formatMathNumber(value)
+  return {
+    ok: true,
+    kind: 'arithmetic',
+    expression: cleaned,
+    value,
+    formatted,
+    summaryLine: `${cleaned} = ${formatted}`,
+    markdown: [
+      `### ${cleaned} = **${formatted}**`,
+      '',
+      `- Exact evaluated result: \`${formatted}\``,
+    ].join('\n'),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Coding & Technical Assistant (Idiomatic Fenced Code + Zero Zing Noise)
+// ---------------------------------------------------------------------------
+
+function detectCodingPrompt(prompt) {
+  const trimmed = stripEmojis(prompt || '').trim()
+  const lower = trimmed.toLowerCase()
+  if (!trimmed || trimmed.startsWith('/')) return null
+
+  if (
+    /^(?:please\s+)?(?:write|draft|compose|post|publish|generate)\s+(?:a\s+|an\s+|ek\s+)?(?:[\w]+\s+){0,2}(?:zing|post|tweet|thread|article|poll|caption|hook)\b/i.test(
+      trimmed,
+    )
+  ) {
+    return null
+  }
+
+  const langMatch = lower.match(
+    /\b(typescript|javascript|python|sql|postgres(?:ql)?|sqlite|rust|golang|react|next\.?js|node\.?js|bash|shell|powershell|docker(?:file)?|graphql|css|html|java|c\+\+|cpp)\b/,
+  )
+  const hasGoLang =
+    /\bgo\b/.test(lower) &&
+    /\b(write|code|function|implement|http|server|binary\s+search|goroutine|struct|slice|snippet|example)\b/.test(
+      lower,
+    )
+  const hasTsJsShort =
+    /\b(ts|js|py)\b/.test(lower) &&
+    /\b(write|code|function|implement|example|snippet|script|hook|class|fix|debug|regex|debounce|throttle|search|sort|api|async|promise)\b/.test(
+      lower,
+    )
+
+  const techPattern =
+    /\b(debounce|throttle|binary\s+search|quick\s*sort|merge\s*sort|lru\s+cache|memoiz\w*|rate\s+limit\w*|exponential\s+backoff|regex|regular\s+expression|sql\s+join|left\s+join|inner\s+join|group\s+by|window\s+function|rest\s+api|fetch\s+with\s+(?:timeout|retry)|promise\.all|async[\s/]+await|event\s+loop|closure|linked\s+list|hash\s*map|fibonacci|palindrome|fizzbuzz|flatten\s+array|deep\s+clone|useeffect|usestate|usedebounce|custom\s+hook|middleware|dockerfile|docker\s+compose|hmac|sha256|jwt|websocket|cors|big\s+o|time\s+complexity|syntaxerror|typeerror|referenceerror|stack\s+trace)\b/i
+
+  const codeVerbPattern =
+    /^(?:please\s+)?(?:write|create|build|implement|code|show\s+me|give\s+me|fix|debug|refactor|optimize)\s+(?:a\s+|an\s+|the\s+|some\s+)?(?:[\w-]+\s+){0,3}(?:function|method|class|component|hook|script|query|regex|algorithm|snippet|code|endpoint|middleware|dockerfile|api|cli|server|utility|helper|parser)\b/i
+
+  const hasFence = trimmed.includes('```')
+  const matchedTech = techPattern.test(lower)
+  const matchedVerb = codeVerbPattern.test(trimmed)
+
+  if (
+    !langMatch &&
+    !hasGoLang &&
+    !hasTsJsShort &&
+    !matchedTech &&
+    !matchedVerb &&
+    !hasFence
+  ) {
+    return null
+  }
+
+  let language = 'typescript'
+  if (/\bpython\b|\bpy\b/.test(lower)) language = 'python'
+  else if (
+    /\bsql\b|\bpostgres|\bsqlite\b|\b(?:left|inner|outer)\s+join\b/.test(lower)
+  )
+    language = 'sql'
+  else if (/\brust\b/.test(lower)) language = 'rust'
+  else if (/\bgolang\b/.test(lower) || hasGoLang) language = 'go'
+  else if (
+    /\breact\b|\buseeffect\b|\busestate\b|\busedebounce\b|\bcustom\s+hook\b/.test(
+      lower,
+    )
+  )
+    language = 'tsx'
+  else if (/\bdockerfile\b|\bdocker\b/.test(lower)) language = 'dockerfile'
+  else if (/\bbash\b|\bshell\b/.test(lower)) language = 'bash'
+  else if (/\bjavascript\b|\bjs\b/.test(lower) && !/\btypescript\b|\bts\b/.test(lower))
+    language = 'javascript'
+  else if (/\btypescript\b|\bts\b/.test(lower)) language = 'typescript'
+
+  return {language, prompt: trimmed}
+}
+
+function synthesizeCodingResponse(prompt, meta = {}) {
+  const lower = stripEmojis(prompt || '').toLowerCase()
+  const lang = meta.language || 'typescript'
+
+  if (
+    /\busedebounce\b/.test(lower) ||
+    (/\bdebounce\b/.test(lower) && lang === 'tsx')
+  ) {
+    return [
+      '### React `useDebounce` Hook (TypeScript)',
+      '',
+      'Delays updating a fast-changing value (such as search input) until the user pauses for `delayMs`, cleaning up pending timers on unmount.',
+      '',
+      '```tsx',
+      "import {useEffect, useState} from 'react'",
+      '',
+      'export function useDebounce<T>(value: T, delayMs = 300): T {',
+      '  const [debounced, setDebounced] = useState<T>(value)',
+      '',
+      '  useEffect(() => {',
+      '    const timer = setTimeout(() => setDebounced(value), delayMs)',
+      '    return () => clearTimeout(timer)',
+      '  }, [value, delayMs])',
+      '',
+      '  return debounced',
+      '}',
+      '```',
+      '',
+      '- **Complexity**: `O(1)` time and space per render.',
+      '- **Tip**: Pair with an `AbortController` in your data-fetching `useEffect` so stale requests never overwrite newer results.',
+    ].join('\n')
+  }
+
+  if (/\bdebounce\b/.test(lower)) {
+    if (lang === 'python') {
+      return [
+        '### Debounce Decorator (Python)',
+        '',
+        'Uses `threading.Timer` to delay execution until `wait_seconds` elapse with no new calls.',
+        '',
+        '```python',
+        'import threading',
+        'from functools import wraps',
+        '',
+        'def debounce(wait_seconds: float):',
+        '    def decorator(fn):',
+        '        timer = None',
+        '        lock = threading.Lock()',
+        '',
+        '        @wraps(fn)',
+        '        def debounced(*args, **kwargs):',
+        '            nonlocal timer',
+        '            with lock:',
+        '                if timer is not None:',
+        '                    timer.cancel()',
+        '                timer = threading.Timer(wait_seconds, fn, args=args, kwargs=kwargs)',
+        '                timer.start()',
+        '',
+        '        def cancel():',
+        '            with lock:',
+        '                if timer is not None:',
+        '                    timer.cancel()',
+        '',
+        '        debounced.cancel = cancel',
+        '        return debounced',
+        '    return decorator',
+        '```',
+        '',
+        '- **Thread safety**: Guarded with `threading.Lock()` so rapid concurrent calls never leak stray timers.',
+      ].join('\n')
+    }
+    if (lang === 'javascript') {
+      return [
+        '### Debounce Utility (JavaScript)',
+        '',
+        'Delays invoking `fn` until `delayMs` have passed since the last call, with an explicit `.cancel()` handle.',
+        '',
+        '```javascript',
+        'export function debounce(fn, delayMs = 250) {',
+        '  let timer = null',
+        '',
+        '  function debounced(...args) {',
+        '    if (timer) clearTimeout(timer)',
+        '    timer = setTimeout(() => {',
+        '      timer = null',
+        '      fn.apply(this, args)',
+        '    }, delayMs)',
+        '  }',
+        '',
+        '  debounced.cancel = () => {',
+        '    if (timer) {',
+        '      clearTimeout(timer)',
+        '      timer = null',
+        '    }',
+        '  }',
+        '',
+        '  return debounced',
+        '}',
+        '```',
+        '',
+        '- **Usage**: `const onSearch = debounce(query => fetchResults(query), 300)`',
+        '- **Cleanup**: Call `onSearch.cancel()` on component unmount to prevent stale callbacks.',
+      ].join('\n')
+    }
+    return [
+      '### Type-Safe `debounce` Function (TypeScript)',
+      '',
+      'Preserves full argument inference via `Parameters<T>` and exposes `.cancel()` for clean teardown.',
+      '',
+      '```typescript',
+      'export type DebouncedFn<T extends (...args: any[]) => void> = ((',
+      '  ...args: Parameters<T>',
+      ') => void) & {cancel: () => void}',
+      '',
+      'export function debounce<T extends (...args: any[]) => void>(',
+      '  fn: T,',
+      '  delayMs = 250,',
+      '): DebouncedFn<T> {',
+      '  let timer: ReturnType<typeof setTimeout> | null = null',
+      '',
+      '  const debounced = ((...args: Parameters<T>) => {',
+      '    if (timer !== null) clearTimeout(timer)',
+      '    timer = setTimeout(() => {',
+      '      timer = null',
+      '      fn(...args)',
+      '    }, delayMs)',
+      '  }) as DebouncedFn<T>',
+      '',
+      '  debounced.cancel = () => {',
+      '    if (timer !== null) {',
+      '      clearTimeout(timer)',
+      '      timer = null',
+      '    }',
+      '  }',
+      '',
+      '  return debounced',
+      '}',
+      '```',
+      '',
+      '- **Complexity**: `O(1)` per invocation.',
+      '- **When to use throttle instead**: Use `debounce` for search inputs/auto-save; use `throttle` for scroll/resize handlers.',
+    ].join('\n')
+  }
+
+  if (/\bthrottle\b/.test(lower)) {
+    return [
+      '### Throttle Function (TypeScript)',
+      '',
+      'Guarantees `fn` executes at most once every `intervalMs` while preserving the latest trailing call.',
+      '',
+      '```typescript',
+      'export function throttle<T extends (...args: any[]) => void>(',
+      '  fn: T,',
+      '  intervalMs = 200,',
+      '): (...args: Parameters<T>) => void {',
+      '  let lastRun = 0',
+      '  let trailingTimer: ReturnType<typeof setTimeout> | null = null',
+      '',
+      '  return (...args: Parameters<T>) => {',
+      '    const now = Date.now()',
+      '    const remaining = intervalMs - (now - lastRun)',
+      '    if (remaining <= 0) {',
+      '      if (trailingTimer) {',
+      '        clearTimeout(trailingTimer)',
+      '        trailingTimer = null',
+      '      }',
+      '      lastRun = now',
+      '      fn(...args)',
+      '    } else if (!trailingTimer) {',
+      '      trailingTimer = setTimeout(() => {',
+      '        lastRun = Date.now()',
+      '        trailingTimer = null',
+      '        fn(...args)',
+      '      }, remaining)',
+      '    }',
+      '  }',
+      '}',
+      '```',
+      '',
+      '- **Benefit**: Handles both leading responsiveness and trailing state accuracy.',
+    ].join('\n')
+  }
+
+  if (/\bbinary\s+search\b/.test(lower)) {
+    if (lang === 'python') {
+      return [
+        '### Iterative Binary Search (Python)',
+        '',
+        'Searches a sorted list in `O(log n)` time and `O(1)` space without recursion stack overhead.',
+        '',
+        '```python',
+        'from typing import Sequence, TypeVar',
+        '',
+        'T = TypeVar("T")',
+        '',
+        'def binary_search(items: Sequence[T], target: T) -> int:',
+        '    left, right = 0, len(items) - 1',
+        '    while left <= right:',
+        '        mid = left + (right - left) // 2',
+        '        if items[mid] == target:',
+        '            return mid',
+        '        if items[mid] < target:',
+        '            left = mid + 1',
+        '        else:',
+        '            right = mid - 1',
+        '    return -1',
+        '```',
+        '',
+        '- **Precondition**: `items` must be sorted in ascending order.',
+        '- **Stdlib tip**: For insertion indices in Python, `bisect.bisect_left(items, target)` runs in C.',
+      ].join('\n')
+    }
+    if (lang === 'rust') {
+      return [
+        '### Generic Binary Search (Rust)',
+        '',
+        'Uses `left + (right - left) / 2` to prevent integer overflow and returns `Option<usize>`.',
+        '',
+        '```rust',
+        'pub fn binary_search<T: Ord>(items: &[T], target: &T) -> Option<usize> {',
+        '    let (mut left, mut right) = (0usize, items.len());',
+        '    while left < right {',
+        '        let mid = left + (right - left) / 2;',
+        '        match items[mid].cmp(target) {',
+        '            std::cmp::Ordering::Equal => return Some(mid),',
+        '            std::cmp::Ordering::Less => left = mid + 1,',
+        '            std::cmp::Ordering::Greater => right = mid,',
+        '        }',
+        '    }',
+        '    None',
+        '}',
+        '```',
+        '',
+        '- **Complexity**: `O(log n)` time, `O(1)` extra memory.',
+      ].join('\n')
+    }
+    if (lang === 'go') {
+      return [
+        '### Generic Binary Search (Go)',
+        '',
+        'Uses Go generics with `cmp.Ordered` for `O(log n)` lookup.',
+        '',
+        '```go',
+        'package search',
+        '',
+        'import "cmp"',
+        '',
+        'func BinarySearch[T cmp.Ordered](items []T, target T) int {',
+        '    left, right := 0, len(items)-1',
+        '    for left <= right {',
+        '        mid := left + (right-left)/2',
+        '        if items[mid] == target {',
+        '            return mid',
+        '        }',
+        '        if items[mid] < target {',
+        '            left = mid + 1',
+        '        } else {',
+        '            right = mid - 1',
+        '        }',
+        '    }',
+        '    return -1',
+        '}',
+        '```',
+        '',
+        '- **Complexity**: `O(log n)` time, `O(1)` space.',
+      ].join('\n')
+    }
+    return [
+      '### Binary Search (TypeScript)',
+      '',
+      'Returns the index of `target` in a sorted array, or `-1` if absent.',
+      '',
+      '```typescript',
+      'export function binarySearch<T>(',
+      '  items: readonly T[],',
+      '  target: T,',
+      '  compare: (a: T, b: T) => number = (a, b) => (a < b ? -1 : a > b ? 1 : 0),',
+      '): number {',
+      '  let left = 0',
+      '  let right = items.length - 1',
+      '',
+      '  while (left <= right) {',
+      '    const mid = left + Math.floor((right - left) / 2)',
+      '    const cmp = compare(items[mid], target)',
+      '    if (cmp === 0) return mid',
+      '    if (cmp < 0) left = mid + 1',
+      '    else right = mid - 1',
+      '  }',
+      '',
+      '  return -1',
+      '}',
+      '```',
+      '',
+      '- **Time**: `O(log n)` | **Space**: `O(1)`.',
+      '- **Overflow-safe midpoint**: `left + Math.floor((right - left) / 2)`.',
+    ].join('\n')
+  }
+
+  if (/\bsql\b|\bjoin\b|\bgroup\s+by\b|\bwindow\s+function\b/.test(lower)) {
+    return [
+      '### SQL Joins & Aggregation Pattern',
+      '',
+      'Use `INNER JOIN` when rows must exist in both tables, and `LEFT JOIN` when you want all rows from the primary table even without matches.',
+      '',
+      '```sql',
+      'SELECT',
+      '    u.id,',
+      '    u.handle,',
+      '    COUNT(p.id) AS post_count,',
+      '    COALESCE(SUM(p.view_count), 0) AS total_views',
+      'FROM users u',
+      'LEFT JOIN posts p',
+      '    ON p.author_id = u.id',
+      "    AND p.created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'",
+      'GROUP BY u.id, u.handle',
+      'ORDER BY total_views DESC',
+      'LIMIT 20;',
+      '```',
+      '',
+      '- **Critical pitfall**: Put date filters on the right-hand table inside the `ON` clause (not `WHERE`), otherwise a `LEFT JOIN` silently turns into an `INNER JOIN`.',
+      '- **Indexing**: Add a composite index `CREATE INDEX idx_posts_author_created ON posts (author_id, created_at DESC);`.',
+    ].join('\n')
+  }
+
+  if (/\bregex\b|\bregular\s+expression\b/.test(lower)) {
+    if (/\burl\b|\blink\b/.test(lower)) {
+      return [
+        '### Safe URL Extraction Regex',
+        '',
+        'Matches HTTP/HTTPS URLs while excluding trailing sentence punctuation.',
+        '',
+        '```typescript',
+        'const URL_REGEX = /https?:\\/\\/[a-zA-Z0-9.-]+(?:\\:[0-9]+)?(?:\\/[^\\s<>()"\'`,;!?]*)?/g',
+        '',
+        'export function extractUrls(text: string): string[] {',
+        '  return text.match(URL_REGEX) ?? []',
+        '}',
+        '```',
+        '',
+        '- **Safety**: Avoids nested quantifiers so malicious input cannot trigger catastrophic backtracking (ReDoS).',
+      ].join('\n')
+    }
+    if (/\bphone\b|\bmobile\b/.test(lower)) {
+      return [
+        '### Phone Number Validation Regex (E.164 & Indian Mobile)',
+        '',
+        'Strip spaces/hyphens first, then validate against a linear-time pattern.',
+        '',
+        '```typescript',
+        'const E164_PHONE_RE = /^\\+[1-9]\\d{7,14}$/',
+        'const INDIA_MOBILE_RE = /^(?:\\+91|91|0)?[6-9]\\d{9}$/',
+        '',
+        'export function isValidPhone(raw: string): boolean {',
+        '  const normalized = raw.replace(/[\\s()-]/g, "")',
+        '  return E164_PHONE_RE.test(normalized) || INDIA_MOBILE_RE.test(normalized)',
+        '}',
+        '```',
+        '',
+        '- **Tip**: Store normalized E.164 format (e.g. `+919876543210`) in your database.',
+      ].join('\n')
+    }
+    return [
+      '### Practical Email Validation Regex (Linear-Time, ReDoS-Safe)',
+      '',
+      'Covers real-world email addresses without nested quantifiers that risk exponential backtracking.',
+      '',
+      '```typescript',
+      'const EMAIL_RE = /^[a-zA-Z0-9.!#$%&\'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\\.[a-zA-Z0-9-]+)+$/',
+      '',
+      'export function isValidEmail(input: string): boolean {',
+      '  const value = input.trim()',
+      '  return value.length <= 254 && EMAIL_RE.test(value)',
+      '}',
+      '```',
+      '',
+      '- **Why `length <= 254`**: Enforces RFC 5321 maximum address length before running the regex.',
+      '- **Production tip**: Confirm deliverability with a verification email rather than an ultra-complex regex.',
+    ].join('\n')
+  }
+
+  if (
+    /\bpromise\b|\basync\b|\bfetch\b|\bretry\b|\bbackoff\b|\brest\s+api\b|\bapi\b/.test(
+      lower,
+    )
+  ) {
+    if (lang === 'python') {
+      return [
+        '### Async HTTP Fetch with Timeout & Retry (Python)',
+        '',
+        'Uses `asyncio` with exponential backoff and explicit timeouts.',
+        '',
+        '```python',
+        'import asyncio',
+        'import json',
+        'from urllib.request import Request, urlopen',
+        '',
+        'async def fetch_json_with_retry(url: str, retries: int = 3, timeout: float = 5.0):',
+        '    last_err = None',
+        '    for attempt in range(retries):',
+        '        try:',
+        '            def _call():',
+        '                req = Request(url, headers={"Accept": "application/json"})',
+        '                with urlopen(req, timeout=timeout) as resp:',
+        '                    return json.loads(resp.read().decode("utf-8"))',
+        '            return await asyncio.to_thread(_call)',
+        '        except Exception as err:',
+        '            last_err = err',
+        '            if attempt < retries - 1:',
+        '                await asyncio.sleep(0.3 * (2 ** attempt))',
+        '    raise RuntimeError(f"Request failed after {retries} attempts: {last_err}")',
+        '```',
+        '',
+        '- **Zero external deps**: Runs on standard-library Python; swap `urlopen` for `httpx.AsyncClient` in high-throughput services.',
+      ].join('\n')
+    }
+    if (lang === 'go') {
+      return [
+        '### Production HTTP JSON Server (Go)',
+        '',
+        'Sets explicit server timeouts to prevent slowloris resource exhaustion.',
+        '',
+        '```go',
+        'package main',
+        '',
+        'import (',
+        '    "encoding/json"',
+        '    "log"',
+        '    "net/http"',
+        '    "time"',
+        ')',
+        '',
+        'func main() {',
+        '    mux := http.NewServeMux()',
+        '    mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {',
+        '        w.Header().Set("Content-Type", "application/json")',
+        '        _ = json.NewEncoder(w).Encode(map[string]any{"ok": true})',
+        '    })',
+        '',
+        '    srv := &http.Server{',
+        '        Addr:         ":8080",',
+        '        Handler:      mux,',
+        '        ReadTimeout:  5 * time.Second,',
+        '        WriteTimeout: 10 * time.Second,',
+        '        IdleTimeout:  60 * time.Second,',
+        '    }',
+        '    log.Fatal(srv.ListenAndServe())',
+        '}',
+        '```',
+        '',
+        '- **Key practice**: Always configure `ReadTimeout` and `WriteTimeout` on production Go HTTP servers.',
+      ].join('\n')
+    }
+    return [
+      '### Resilient Async `fetch` with Timeout & Exponential Backoff (TypeScript)',
+      '',
+      'Combines `AbortController` timeouts with retries on transient 5xx/network errors and `Promise.allSettled` for parallel fan-out.',
+      '',
+      '```typescript',
+      'export async function fetchJsonWithRetry<T>(',
+      '  url: string,',
+      '  init: RequestInit = {},',
+      '  {retries = 3, timeoutMs = 4000}: {retries?: number; timeoutMs?: number} = {},',
+      '): Promise<T> {',
+      '  let lastError: unknown',
+      '  for (let attempt = 0; attempt < retries; attempt++) {',
+      '    const controller = new AbortController()',
+      '    const timer = setTimeout(() => controller.abort(), timeoutMs)',
+      '    try {',
+      '      const res = await fetch(url, {...init, signal: controller.signal})',
+      '      if (!res.ok) {',
+      '        if (res.status >= 500 && attempt < retries - 1) {',
+      '          throw new Error(`Transient HTTP ${res.status}`)',
+      '        }',
+      '        throw new Error(`HTTP ${res.status}`)',
+      '      }',
+      '      return (await res.json()) as T',
+      '    } catch (err) {',
+      '      lastError = err',
+      '      if (attempt < retries - 1) {',
+      '        await new Promise(r => setTimeout(r, 250 * 2 ** attempt))',
+      '      }',
+      '    } finally {',
+      '      clearTimeout(timer)',
+      '    }',
+      '  }',
+      '  throw lastError',
+      '}',
+      '```',
+      '',
+      '- **Parallel tip**: Use `Promise.allSettled(tasks)` when one slow/failing upstream call should not abort the others.',
+    ].join('\n')
+  }
+
+  if (lang === 'dockerfile' || /\bdocker\b/.test(lower)) {
+    return [
+      '### Multi-Stage Production Dockerfile (Node.js)',
+      '',
+      'Keeps the runtime image small, drops root privileges, and installs only production dependencies.',
+      '',
+      '```dockerfile',
+      'FROM node:22-alpine AS builder',
+      'WORKDIR /app',
+      'COPY package.json package-lock.json ./',
+      'RUN npm ci',
+      'COPY . .',
+      'RUN npm run build',
+      '',
+      'FROM node:22-alpine AS runner',
+      'WORKDIR /app',
+      'ENV NODE_ENV=production',
+      'COPY package.json package-lock.json ./',
+      'RUN npm ci --omit=dev && chown -R node:node /app',
+      'COPY --from=builder --chown=node:node /app/dist ./dist',
+      'USER node',
+      'EXPOSE 3000',
+      'HEALTHCHECK --interval=30s --timeout=3s CMD wget -qO- http://127.0.0.1:3000/health || exit 1',
+      'CMD ["node", "dist/index.js"]',
+      '```',
+      '',
+      '- **Best practices**: Layer `package*.json` before source code for Docker cache hits, and always run as non-root `USER node`.',
+    ].join('\n')
+  }
+
+  if (/\blru\s+cache\b/.test(lower)) {
+    return [
+      '### O(1) LRU Cache (TypeScript)',
+      '',
+      'Leverages JavaScript `Map` insertion ordering for constant-time `get` and `set`.',
+      '',
+      '```typescript',
+      'export class LRUCache<K, V> {',
+      '  private readonly cache = new Map<K, V>()',
+      '',
+      '  constructor(private readonly capacity: number) {',
+      '    if (capacity < 1) throw new Error("Capacity must be >= 1")',
+      '  }',
+      '',
+      '  get(key: K): V | undefined {',
+      '    if (!this.cache.has(key)) return undefined',
+      '    const val = this.cache.get(key)!',
+      '    this.cache.delete(key)',
+      '    this.cache.set(key, val)',
+      '    return val',
+      '  }',
+      '',
+      '  set(key: K, value: V): void {',
+      '    if (this.cache.has(key)) this.cache.delete(key)',
+      '    this.cache.set(key, value)',
+      '    if (this.cache.size > this.capacity) {',
+      '      const oldestKey = this.cache.keys().next().value',
+      '      if (oldestKey !== undefined) this.cache.delete(oldestKey)',
+      '    }',
+      '  }',
+      '}',
+      '```',
+      '',
+      '- **Complexity**: `O(1)` time for both `get` and `set`, `O(capacity)` memory.',
+    ].join('\n')
+  }
+
+  if (lang === 'bash') {
+    return [
+      '### Strict, Safe Bash Script Template',
+      '',
+      'Fails fast on errors, undefined variables, and broken pipes while safely handling spaces in filenames.',
+      '',
+      '```bash',
+      '#!/usr/bin/env bash',
+      'set -euo pipefail',
+      '',
+      'TARGET_DIR="${1:-.}"',
+      'if [[ ! -d "$TARGET_DIR" ]]; then',
+      '  echo "Directory not found: $TARGET_DIR" >&2',
+      '  exit 1',
+      'fi',
+      '',
+      'find "$TARGET_DIR" -maxdepth 2 -type f -name "*.log" -mtime +7 -print0 |',
+      '  while IFS= read -r -d "" file; do',
+      '    printf "Archiving: %s\\n" "$file"',
+      '  done',
+      '```',
+      '',
+      '- **Why `set -euo pipefail`**: Catches silent failures in pipelines instead of continuing with partial state.',
+    ].join('\n')
+  }
+
+  if (/\bhmac\b|\bsha256\b|\bjwt\b/.test(lower)) {
+    return [
+      '### Timing-Safe HMAC-SHA256 Signing & Verification (Node.js)',
+      '',
+      'Uses `crypto.timingSafeEqual` so signature checks are immune to timing side-channel attacks.',
+      '',
+      '```typescript',
+      "import crypto from 'node:crypto'",
+      '',
+      'export function signPayload(payload: string, secret: string): string {',
+      "  return crypto.createHmac('sha256', secret).update(payload).digest('hex')",
+      '}',
+      '',
+      'export function verifySignature(',
+      '  payload: string,',
+      '  signatureHex: string,',
+      '  secret: string,',
+      '): boolean {',
+      '  const expected = signPayload(payload, secret)',
+      "  const a = Buffer.from(signatureHex, 'utf8')",
+      "  const b = Buffer.from(expected, 'utf8')",
+      '  return a.length === b.length && crypto.timingSafeEqual(a, b)',
+      '}',
+      '```',
+      '',
+      '- **Security note**: Never compare HMAC digests with `===`; always check buffer lengths and use `timingSafeEqual`.',
+    ].join('\n')
+  }
+
+  const cleanGoal = stripEmojis(prompt || '').slice(0, 110)
+  if (lang === 'python') {
+    return [
+      '### Python Implementation Blueprint',
+      '',
+      `Here is a clean, typed Python structure for **${cleanGoal}**:`,
+      '',
+      '```python',
+      'from dataclasses import dataclass',
+      'from typing import Iterable, List',
+      '',
+      '@dataclass(frozen=True)',
+      'class Result:',
+      '    ok: bool',
+      '    items: List[str]',
+      '',
+      'def process(records: Iterable[str]) -> Result:',
+      '    cleaned = [item.strip() for item in records if item and item.strip()]',
+      '    return Result(ok=True, items=cleaned)',
+      '',
+      'if __name__ == "__main__":',
+      '    print(process(["alpha", "beta"]))',
+      '```',
+      '',
+      '- **Next step**: Share exact input/output types or sample data and I can tailor the algorithm, edge cases, and unit tests directly.',
+    ].join('\n')
+  }
+
+  return [
+    `### ${lang.toUpperCase()} Implementation Blueprint`,
+    '',
+    `Here is a clean, type-safe starter pattern for **${cleanGoal}**:`,
+    '',
+    `\`\`\`${lang === 'tsx' ? 'tsx' : lang === 'javascript' ? 'javascript' : 'typescript'}`,
+    'export interface TaskInput {',
+    '  items: string[]',
+    '  limit?: number',
+    '}',
+    '',
+    'export function runTask({items, limit = 10}: TaskInput): string[] {',
+    '  const seen = new Set<string>()',
+    '  const result: string[] = []',
+    '  for (const raw of items) {',
+    '    const normalized = raw.trim()',
+    '    if (!normalized || seen.has(normalized)) continue',
+    '    seen.add(normalized)',
+    '    result.push(normalized)',
+    '    if (result.length >= limit) break',
+    '  }',
+    '  return result',
+    '}',
+    '```',
+    '',
+    '- **Checklist**: Validate inputs up front, keep core logic pure for easy unit testing, and handle empty/error states explicitly.',
+    '- Share your exact input/output contract or error trace if you want a targeted implementation.',
+  ].join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// Actionable Playbooks ("how to...", "tips for...", "best way to...", Hinglish)
+// ---------------------------------------------------------------------------
+
+function detectAdvicePrompt(prompt) {
+  const trimmed = stripEmojis(prompt || '').trim()
+  if (!trimmed || trimmed.startsWith('/')) return null
+
+  const enMatch = trimmed.match(
+    /^(?:(?:please|bhai|yaar)[,\s]+)?(?:how\s+(?:to|do\s+i|can\s+i|should\s+i|can\s+someone)|tips\s+(?:for|on|to)|best\s+way(?:s)?\s+(?:to|for)|guide\s+(?:to|for|on)|steps\s+(?:to|for)|advice\s+(?:for|on)|roadmap\s+(?:for|to)|strateg(?:y|ies)\s+(?:for|to))\s+([\s\S]+?)[?!.]*$/i,
+  )
+  if (enMatch && enMatch[1].trim().length >= 3) {
+    return {goal: enMatch[1].trim()}
+  }
+
+  const hiMatch = trimmed.match(
+    /^(?:(?:bhai|yaar|bro)[,\s]+)?([\s\S]+?)\s+(?:kaise\s+(?:karein|kare|karu|banaye|sikhe|seekhe|grow\s+kare|start\s+kare|shuru\s+kare|improve\s+kare)|ke\s+liye\s+tips|ka\s+best\s+tarika)[?!.]*$/i,
+  )
+  if (hiMatch && hiMatch[1].trim().length >= 2) {
+    return {goal: hiMatch[1].trim(), langHint: 'hinglish'}
+  }
+
+  return null
+}
+
+function buildActionablePlaybook(
+  goal,
+  rawPrompt,
+  externalKnowledge = null,
+  citations = [],
+) {
+  const cleanGoal = stripEmojis(goal || rawPrompt || '')
+    .replace(/[?!.]+$/, '')
+    .trim()
+  const capGoal = cleanGoal.charAt(0).toUpperCase() + cleanGoal.slice(1)
+  const lower = cleanGoal.toLowerCase()
+
+  let title = `Actionable Playbook: ${capGoal}`
+  let steps = []
+  let watchOut = ''
+  let firstStep = ''
+
+  if (
+    /\b(grow|followers|audience|quantzing|social\s+media|creator|engagement|viral|reach)\b/.test(
+      lower,
+    )
+  ) {
+    title = `Playbook: ${capGoal}`
+    steps = [
+      '**Pick 2 clear pillars**: Anchor 80% of your Zings around 2 topics people associate with your handle immediately.',
+      '**Lead with the takeaway**: Put the sharpest insight, number, or claim in line one so readers stop scrolling.',
+      '**Reply with real substance**: Spend 15 minutes daily leaving thoughtful replies on active threads — replies drive more profile visits than cold broadcasts early on.',
+      '**Mix structured formats**: Alternate single-line takes with 3-post mini-threads, polls, and live ZingSpaces.',
+      '**Review `/analytics` weekly**: Double down on the topics and formats with the highest engagement rate per impression.',
+    ]
+    watchOut =
+      'Posting vague motivational filler or chasing unrelated trends dilutes audience trust.'
+    firstStep =
+      'Publish one concrete lesson from work you actually shipped this week, then leave 5 high-signal replies in your niche.'
+  } else if (
+    /\b(startup|saas|mvp|fundrais|pitch|launch|product|founder|business|customers|users)\b/.test(
+      lower,
+    )
+  ) {
+    title = `Startup Playbook: ${capGoal}`
+    steps = [
+      '**Validate painful urgency first**: Talk to 10 target users about their current workaround and budget before writing production code.',
+      '**Scope a sharp wedge MVP**: Solve one painful workflow 5x faster or cheaper instead of cloning a full enterprise suite.',
+      '**Build distribution from day one**: Document progress publicly, ship weekly changelogs, and onboard design partners manually.',
+      '**Track retention before vanity signups**: Measure whether week-2 users come back unprompted without reminders.',
+      '**Keep economics visible**: Know your customer acquisition channel, payback window, and top 3 churn reasons.',
+    ]
+    watchOut =
+      'Spending months perfecting features nobody committed to paying for or using weekly.'
+    firstStep =
+      'Write a one-paragraph problem statement and book 5 short user interviews within the next 48 hours.'
+  } else if (
+    /\b(learn|study|coding|programming|developer|engineer|interview|dsa|python|typescript|ai|ml|system\s+design)\b/.test(
+      lower,
+    )
+  ) {
+    title = `Learning Roadmap: ${capGoal}`
+    steps = [
+      '**Lock one core stack**: Commit to a single language/framework for 6 weeks instead of hopping tutorials.',
+      '**Learn by building real projects**: Build 3 progressively harder projects (CLI/script -> API/database -> deployed full app).',
+      '**Read primary docs and debug deeply**: Practice reading error traces and official reference docs rather than copy-pasting blindly.',
+      '**Use spaced repetition & active recall**: Re-implement key patterns from memory 3 days later and explain them in plain words.',
+      '**Ship publicly for feedback**: Publish code notes, benchmarks, or short breakdowns to sharpen clarity.',
+    ]
+    watchOut =
+      'Tutorial purgatory — watching hours of videos without writing and debugging code yourself.'
+    firstStep =
+      'Pick one small project you can finish in 3 days and write the first working prototype in the next 45 minutes.'
+  } else if (
+    /\b(focus|productive|productivity|time\s+management|habit|procrastinat|discipline|routine)\b/.test(
+      lower,
+    )
+  ) {
+    title = `Focus & Execution Playbook: ${capGoal}`
+    steps = [
+      '**Define 1-2 daily Must-Wins**: Write tomorrow top priority the night before so mornings start with execution, not deciding.',
+      '**Protect one 90-minute deep block**: Silence notifications and keep only the single workspace tab needed.',
+      '**Shrink activation energy**: Make the first step ridiculously small (open the doc, write 3 bullet points, run 1 test).',
+      '**Batch shallow admin**: Handle messages, email, and routine pings in two fixed 20-minute windows.',
+      '**Run a 10-minute Friday review**: Log what actually moved the needle and cut one recurring time sink.',
+    ]
+    watchOut =
+      'Treating busywork (reorganizing tools, clearing inbox all day) as progress on high-impact goals.'
+    firstStep =
+      'Set a 25-minute timer right now and finish just the first tangible slice of your #1 task.'
+  } else if (
+    /\b(write|writing|blog|article|newsletter|copywriting|storytelling)\b/.test(
+      lower,
+    )
+  ) {
+    title = `Writing Playbook: ${capGoal}`
+    steps = [
+      '**Start with one sharp thesis**: Every piece should answer one clear question or challenge one common assumption.',
+      '**Hook in line one**: Open with a concrete observation, metric, or tension instead of warm-up throat-clearing.',
+      '**Show proof over adjectives**: Replace vague words ("amazing", "huge") with specific numbers, examples, and trade-offs.',
+      '**Cut 25% on edit**: Remove filler words (`really`, `actually`, `basically`, `in order to`) and split dense walls of text.',
+      '**End with a clear takeaway or question**: Give readers something memorable to apply or respond to.',
+    ]
+    watchOut = 'Trying to cram five unrelated ideas into a single post or article.'
+    firstStep =
+      'Write a 3-bullet outline (Claim -> Proof -> Takeaway) before drafting full paragraphs.'
+  } else if (
+    /\b(job|career|resume|cv|network|interview|hired|salary|switch)\b/.test(lower)
+  ) {
+    title = `Career Playbook: ${capGoal}`
+    steps = [
+      '**Quantify outcomes**: Rewrite every resume bullet as Action + Metric + Impact instead of listing generic duties.',
+      '**Show proof of work**: Maintain 2-3 crisp public artifacts (case studies, shipped projects, technical write-ups).',
+      '**Prioritize warm referrals**: Reach out concisely to hiring managers or engineers with one specific insight about their product.',
+      '**Prepare tight STAR stories**: Keep 5 structured examples covering ownership, conflict, failure recovery, and scale.',
+      '**Run tight follow-ups**: Track applications in a simple sheet and iterate based on where callbacks stall.',
+    ]
+    watchOut =
+      'Spray-and-pray applying to 100 roles with an identical uncustomized resume.'
+    firstStep =
+      'Shortlist 5 target roles and tailor your top 3 impact bullets directly to their core problems today.'
+  } else if (
+    /\b(save|budget|invest|finance|money|wealth|debt|retire)\b/.test(lower)
+  ) {
+    title = `Personal Finance Framework: ${capGoal}`
+    steps = [
+      '**Map true monthly burn**: Separate fixed essentials, variable wants, and recurring subscriptions for 30 days.',
+      '**Build a liquid emergency buffer**: Target 3-6 months of core expenses in a safe liquid account before taking risk.',
+      '**Automate savings on payday**: Move your target savings percentage out automatically before discretionary spending.',
+      '**Eliminate high-interest debt first**: Pay down credit-card or high-APR balances aggressively before chasing market returns.',
+      '**Think long-term and diversified**: Focus on low-cost broad diversification aligned with your time horizon and risk tolerance.',
+    ]
+    watchOut =
+      'Chasing short-term hype or investing money you may need within the next 12-24 months. (General educational info, not financial advice.)'
+    firstStep =
+      'Audit your last 30 days of statements and automate one fixed monthly savings transfer today.'
+  } else {
+    steps = [
+      `**Clarify the exact outcome**: Define what success for "${cleanGoal}" looks like in measurable terms over the next 30 days.`,
+      '**Master the core 20% first**: Focus on the 2-3 fundamentals that drive most of the results before optimizing edge details.',
+      '**Build a fast feedback loop**: Practice in small, verifiable iterations and measure results weekly.',
+      '**Learn from real examples**: Study 2-3 proven practitioners or reference implementations and adapt their workflow to your constraints.',
+      '**Eliminate friction**: Schedule a repeatable daily or weekly slot so momentum does not depend on motivation.',
+    ]
+    watchOut =
+      'Over-planning in theory without shipping a small real-world test early.'
+    firstStep = `Take one concrete 20-minute action toward "${cleanGoal}" today and record what you learned.`
+  }
+
+  const blocks = [
+    `### ${title}`,
+    '',
+    steps.map((s, idx) => `${idx + 1}. ${s}`).join('\n'),
+    '',
+    `**Watch out for:** ${watchOut}`,
+    '',
+    `**First 24-hour move:** ${firstStep}`,
+  ]
+
+  if (externalKnowledge?.ok && externalKnowledge.summary) {
+    const refLead =
+      externalKnowledge.summary.split(/(?<=[.!?])\s+/)[0] ||
+      externalKnowledge.summary
+    blocks.push(
+      '',
+      `**Reference context (${externalKnowledge.sourceName || 'Reference'}):** ${refLead}`,
+    )
+  }
+
+  if (Array.isArray(citations) && citations.length > 0) {
+    const top = citations[0]
+    blocks.push(
+      '',
+      `**From QuantZing:** @${top.handle} recently shared: "${truncateAtWord(top.text, 120)}"`,
+    )
+  }
+
+  return blocks.join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// Multi-Turn Follow-Up Engine (Shorten, Translate, Tone/Thread Rewrite, Expand)
+// ---------------------------------------------------------------------------
+
+function resolveMultiTurnTarget(history = [], postContext = null) {
+  const validHistory = Array.isArray(history)
+    ? history.filter(
+        m =>
+          m &&
+          (m.role === 'user' || m.role === 'assistant') &&
+          typeof m.content === 'string' &&
+          m.content.trim().length > 0,
+      )
+    : []
+
+  let lastAssistant = ''
+  for (let i = validHistory.length - 1; i >= 0; i--) {
+    if (validHistory[i].role === 'assistant') {
+      lastAssistant = stripEmojis(validHistory[i].content).trim()
+      break
+    }
+  }
+
+  const isMetaFollowUp = text =>
+    /^(?:why|how|more|details?|explain\s+more|tell\s+me\s+more|go\s+deeper|elaborate|give\s+(?:me\s+)?an?\s+example|examples?|aur\s+batao|aur\s+samjhao|detail\s+mei?n|iska\s+matlab(?:\s+kya\s+hai)?|kyun|kaise|make\s+it\s+\w+|short(?:er)?|shorten(?:\s+it)?|1\s+line|one\s+line|ek\s+line(?:\s+mei?n)?|tldr|tl;dr|summarize(?:\s+(?:it|this))?|iska\s+short\s+version\s+banao|chh?ota\s+karo|translate\b|in\s+[a-z]+|hindi\s+mei?n|hinglish\s+mei?n|funnier|sharper|bolder|more\s+professional|aur\s+funny\s+banao|turn\s+(?:it\s+|this\s+)?into\s+a\s+thread|thread\s+banao)[\s?!.]*$/i.test(
+      text.trim(),
+    )
+
+  let lastUserPrompt = ''
+  let lastUserSubject = ''
+  for (let i = validHistory.length - 1; i >= 0; i--) {
+    if (validHistory[i].role === 'user') {
+      const cleaned = stripEmojis(validHistory[i].content).trim()
+      if (!lastUserPrompt) lastUserPrompt = cleaned
+      if (!isMetaFollowUp(cleaned)) {
+        lastUserSubject = extractKnowledgeSubject(cleaned)
+        break
+      }
+    }
+  }
+
+  if (!lastUserSubject && lastAssistant) {
+    const headingMatch = lastAssistant.match(/^#{1,3}\s+(.+)$/m)
+    if (headingMatch) {
+      lastUserSubject = stripEmojis(headingMatch[1])
+        .replace(
+          /^(?:Actionable Playbook|Playbook|Startup Playbook|Learning Roadmap|Focus & Execution Playbook|Writing Playbook|Career Playbook|Personal Finance Framework|Core Takeaway|Hindi Translation|Hinglish Translation)\s*:\s*/i,
+          '',
+        )
+        .replace(/\s*\([^)]*\)\s*$/, '')
+        .trim()
+    }
+  }
+
+  const postText = stripEmojis(postContext?.text || '').trim()
+  const postTopic = postText ? extractTopicFromPostText(postText) : null
+  const primaryText = lastAssistant || postText || ''
+  const topicSubject =
+    lastUserSubject || postTopic?.primaryTopic || postTopic?.searchQuery || ''
+
+  return {
+    lastAssistant,
+    lastUserPrompt,
+    lastUserSubject,
+    postText,
+    postTopic,
+    primaryText,
+    topicSubject,
+    sourceKind: lastAssistant ? 'assistant' : postText ? 'post' : 'none',
+    hasTarget: Boolean(primaryText || topicSubject),
+  }
+}
+
+function extractCleanProseSentences(rawText) {
+  const cleaned = stripEmojis(rawText || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/^#{1,4}\s+.*$/gm, '')
+    .replace(/^\s*>\s?/gm, '')
+    .replace(/\*Source:[^*\n]+\*/gi, '')
+    .replace(/Tap \*\*Confirm\*\*[^\n]*/gi, '')
+    .replace(/Want it shorter[^\n]*/gi, '')
+    .replace(/You can post the opener[^\n]*/gi, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/^\s*(?:[-*]|\d+\.)\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!cleaned) return []
+  return cleaned
+    .split(/(?<=[.!?])\s+/)
+    .map(s => s.trim())
+    .filter(s => s.length >= 12)
+}
+
+function extractCoreTldr(sourceText) {
+  const sentences = extractCleanProseSentences(sourceText)
+  const fallbackFlat = stripEmojis(sourceText || '').replace(/\s+/g, ' ').trim()
+  const primary = sentences[0] || fallbackFlat
+  const secondary =
+    sentences[1] && primary.length + sentences[1].length <= 290
+      ? sentences[1]
+      : ''
+  const summary = secondary ? `${primary} ${secondary}` : primary
+  const zingReady = truncateAtWord(primary || summary, 236)
+  return {
+    summary: truncateAtWord(summary, 320),
+    zingReady,
+  }
+}
+
+function rewriteWithTone(sourceText, tone, topic = '') {
+  const sentences = extractCleanProseSentences(sourceText)
+  const coreRaw =
+    sentences[0] ||
+    stripEmojis(sourceText || '')
+      .replace(/^#{1,4}\s+/gm, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  const coreNoFiller = coreRaw
+    .replace(
+      /\b(just|really|very|actually|basically|literally|in order to)\s+/gi,
+      '',
+    )
+    .replace(/\s+/g, ' ')
+    .trim()
+  const cleanCore = coreNoFiller || coreRaw || topic || 'building faster'
+  const secondPoint = sentences[1] || ''
+  const thirdPoint = sentences[2] || ''
+  const labelTopic =
+    topic || extractTopicFromPostText(cleanCore).primaryTopic || 'this topic'
+
+  if (tone === 'thread') {
+    const p1 = truncateAtWord(
+      `1/ Here is the distilled breakdown on ${labelTopic}: ${cleanCore}`,
+      272,
+    )
+    const p2 = truncateAtWord(
+      secondPoint
+        ? `2/ Why it matters: ${secondPoint}`
+        : `2/ The real nuance with ${labelTopic} is execution: clear trade-offs and measurable outcomes beat hype every time.`,
+      272,
+    )
+    const p3 = truncateAtWord(
+      thirdPoint
+        ? `3/ Bottom line: ${thirdPoint}`
+        : `3/ Takeaway: keep it practical, test fast, and watch what actually holds up in the real world. What is your take?`,
+      272,
+    )
+    return {
+      suggestedZingDraft: p1,
+      markdown: [
+        'Here is a crisp 3-post thread based on the previous context:',
+        '',
+        '**Post 1**',
+        `> ${p1}`,
+        '',
+        '**Post 2**',
+        `> ${p2}`,
+        '',
+        '**Post 3**',
+        `> ${p3}`,
+      ].join('\n'),
+    }
+  }
+
+  let rewritten = cleanCore
+  let label = 'Sharper Rewrite'
+  if (tone === 'funny') {
+    label = 'Funnier Version'
+    const lead = truncateAtWord(cleanCore.replace(/[.!?]+$/, ''), 165)
+    rewritten = truncateAtWord(
+      `Plot twist: ${lead.charAt(0).toLowerCase() + lead.slice(1)} — and somehow we all still act surprised every single week.`,
+      255,
+    )
+  } else if (tone === 'professional') {
+    label = 'Executive / Professional Version'
+    const lead = truncateAtWord(cleanCore.replace(/[.!?]+$/, ''), 205)
+    rewritten = truncateAtWord(
+      `Key takeaway: ${lead.charAt(0).toUpperCase() + lead.slice(1)}. Clear execution and measurable impact remain the primary differentiators.`,
+      260,
+    )
+  } else if (tone === 'bold') {
+    label = 'Bolder Version'
+    const lead = truncateAtWord(cleanCore.replace(/[.!?]+$/, ''), 185)
+    rewritten = truncateAtWord(
+      `Unpopular truth: ${lead.charAt(0).toLowerCase() + lead.slice(1)}. Everything else is just noise.`,
+      255,
+    )
+  } else {
+    label = 'Sharper Version'
+    const tightened = truncateAtWord(cleanCore, 235)
+    rewritten =
+      tightened.charAt(0).toUpperCase() +
+      tightened.slice(1) +
+      (/[.!?]$/.test(tightened) ? '' : '.')
+  }
+
+  return {
+    suggestedZingDraft: rewritten.slice(0, 275),
+    markdown: [
+      `### ${label}`,
+      '',
+      `> ${rewritten}`,
+      '',
+      'Want another pass (shorter, funnier, bolder, or a 3-post thread)? You can also confirm the card below to post it directly.',
+    ].join('\n'),
+  }
+}
+
+function classifyConversationalIntent(prompt, mode, postContext, history = []) {
   const trimmed = stripEmojis(prompt || '').trim()
   const lower = trimmed.toLowerCase()
   if (!trimmed || trimmed.startsWith('/')) return {kind: 'none'}
 
   // 1. Warm greetings (English + Hinglish/Hindi, single or compound)
   const greetingPhrase =
-    "(?:hi+|hey+|hello+|yo+|sup|hola|namaste|namaskar|good\\s+(?:morning|afternoon|evening|night)|kaise\\s+ho|kya\\s+haal(?:\\s+hai)?|what'?s\\s+up|wassup|how\\s+are\\s+you|how'?s\\s+it\\s+going)"
+    "(?:hi+|hey+|hello+|yo+|sup|hola|namaste|namaskar|good\\s+(?:morning|afternoon|evening|night)|kaise\\s+ho|kya\\s+haal(?:\\s+hai)?|sab\\s+badhiya|aur\\s+bhai|what'?s\\s+up|wassup|how\\s+are\\s+you|how'?s\\s+it\\s+going)"
   const greetingRe = new RegExp(
-    `^${greetingPhrase}(?:[\\s,!?.]+(?:quanty|there|bro|friend|ai|buddy|${greetingPhrase}))*[\\s!?.]*$`,
+    `^${greetingPhrase}(?:[\\s,!?.]+(?:quanty|there|bro|bhai|yaar|friend|ai|buddy|${greetingPhrase}))*[\\s!?.]*$`,
     'i',
   )
   if (greetingRe.test(trimmed)) {
@@ -937,20 +3011,106 @@ function classifyConversationalIntent(prompt, mode, postContext) {
 
   // 2. Identity & capability queries
   if (
-    /^(?:who\s+are\s+you|what\s+are\s+you|what\s+is\s+quanty|what\s+can\s+you\s+do|tell\s+me\s+about\s+yourself|who\s+(?:made|built|created)\s+you|help|commands|how\s+do\s+you\s+work|introduce\s+yourself)[\s!?.]*$/i.test(
+    /^(?:who\s+are\s+you|what\s+are\s+you|what\s+is\s+quanty|what\s+can\s+you\s+do|tell\s+me\s+about\s+yourself|who\s+(?:made|built|created)\s+you|help|commands|how\s+do\s+you\s+work|introduce\s+yourself|tum\s+kaun\s+ho|aap\s+kaun\s+ho)[\s!?.]*$/i.test(
       trimmed,
     )
   ) {
     return {kind: 'identity', lower}
   }
 
-  // 3. Thanks / casual closing
+  // 3. Thanks / casual closing (English + Hinglish)
   if (
-    /^(?:thanks?(?:\s+(?:a\s+lot|so\s+much|quanty))?|thank\s+you(?:\s+(?:so\s+much|quanty))?|thx|ty|cheers|cool|nice|awesome|great|got\s+it|ok(?:ay)?|sounds\s+good|bye|goodbye|see\s+you)[\s!?.]*$/i.test(
+    /^(?:thanks?(?:\s+(?:a\s+lot|so\s+much|quanty|bhai|yaar|bro))?|thank\s+you(?:\s+(?:so\s+much|quanty))?|shukriya|dhanyawa?d|thx|ty|cheers|cool|nice|awesome|great|got\s+it|ok(?:ay)?|sounds\s+good|theek\s+hai|thik\s+hai|sahi\s+hai|badhiya|mast|bye|goodbye|see\s+you)[\s!?.]*$/i.test(
       trimmed,
     )
   ) {
     return {kind: 'thanks', lower}
+  }
+
+  // 4. Safe deterministic math (arithmetic, functions, percentages, linear equations)
+  const mathResult = evaluateSafeMath(trimmed)
+  if (mathResult) {
+    return {kind: 'math', mathResult}
+  }
+
+  // 5. Multi-turn follow-ups (referencing previous assistant answer or attached postContext)
+  const target = resolveMultiTurnTarget(history, postContext)
+
+  const langReq = parseLanguageRequest(trimmed, target.hasTarget)
+  if (langReq && (langReq.inlineText || target.primaryText)) {
+    return {
+      kind: 'followup_translate',
+      targetLang: langReq.code,
+      langLabel: langReq.label,
+      romanize: langReq.romanize,
+      sourceText: langReq.inlineText || target.primaryText,
+      target,
+    }
+  }
+
+  const shortenFollowUpRe =
+    /^(?:(?:please|bhai|yaar)\s+)?(?:make\s+(?:it|this|that)\s+shorter|shorter|shorten(?:\s+(?:it|this|that))?|1\s+line|one\s+line|in\s+(?:1|one|2|two)\s+lines?|tldr|tl;dr|summarize(?:\s+(?:it|this|that))?|summary|give\s+(?:me\s+)?(?:the\s+)?short\s+version|short\s+version|too\s+long|in\s+brief|brief\s+version|iska\s+short\s+version\s+banao|short\s+version\s+banao|chh?ota\s+karo|ek\s+line\s+mei?n(?:\s+batao)?|1\s+line\s+mei?n(?:\s+batao)?|short\s+mei?n\s+batao|kam\s+shabdon\s+mei?n)[\s?!.]*$/i
+  if (target.primaryText && shortenFollowUpRe.test(trimmed)) {
+    return {
+      kind: 'followup_shorten',
+      sourceText: target.primaryText,
+      target,
+    }
+  }
+
+  if (target.primaryText) {
+    let rewriteTone = null
+    if (
+      /^(?:(?:please|bhai|yaar)\s+)?(?:make\s+(?:it|this|that)\s+)?(?:funnier|more\s+funny|wittier|more\s+witty|add\s+humor|aur\s+funny\s+banao|thoda\s+funny\s+(?:karo|banao)|funny\s+banao|mazedaar\s+banao)[\s?!.]*$/i.test(
+        trimmed,
+      )
+    ) {
+      rewriteTone = 'funny'
+    } else if (
+      /^(?:(?:please|bhai|yaar)\s+)?(?:make\s+(?:it|this|that)\s+)?(?:sharper|punchier|crisper|more\s+direct|tighten\s+(?:it|this)|polish\s+(?:it|this)|aur\s+sharp\s+banao)[\s?!.]*$/i.test(
+        trimmed,
+      )
+    ) {
+      rewriteTone = 'sharp'
+    } else if (
+      /^(?:(?:please|bhai|yaar)\s+)?(?:make\s+(?:it|this|that)\s+)?(?:more\s+professional|professional|more\s+formal|formal\s+tone|executive\s+tone|business\s+tone|professional\s+banao)[\s?!.]*$/i.test(
+        trimmed,
+      )
+    ) {
+      rewriteTone = 'professional'
+    } else if (
+      /^(?:(?:please|bhai|yaar)\s+)?(?:make\s+(?:it|this|that)\s+)?(?:bolder|spicier|more\s+bold|hot\s+take\s+version|aur\s+bold\s+banao|bold\s+banao)[\s?!.]*$/i.test(
+        trimmed,
+      )
+    ) {
+      rewriteTone = 'bold'
+    } else if (
+      /^(?:(?:please|bhai|yaar)\s+)?(?:turn\s+(?:it|this|that)\s+into\s+a\s+thread|make\s+(?:it|this|that)\s+(?:into\s+)?a\s+thread|expand\s+(?:it|this)\s+into\s+a\s+thread|split\s+(?:it|this)\s+into\s+a\s+thread|(?:iska\s+)?thread\s+banao|3-?post\s+thread)[\s?!.]*$/i.test(
+        trimmed,
+      )
+    ) {
+      rewriteTone = 'thread'
+    }
+    if (rewriteTone) {
+      return {
+        kind: 'followup_rewrite',
+        tone: rewriteTone,
+        sourceText: target.primaryText,
+        topic: target.topicSubject,
+        target,
+      }
+    }
+  }
+
+  const expandFollowUpRe =
+    /^(?:(?:please|bhai|yaar)\s+)?(?:explain\s+more|tell\s+me\s+more|go\s+deeper|deep\s+dive|elaborate(?:\s+more)?|more\s+details?|details|why(?:\s+is\s+that|\s+so)?|how\s+so|how\s+does\s+(?:it|that)\s+work|what\s+else|and\s+then|give\s+(?:me\s+)?an?\s+example|examples?|aur\s+batao|aur\s+samjhao|detail\s+mei?n\s+batao|iska\s+matlab(?:\s+kya\s+hai)?|kyun|kaise)[\s?!.]*$/i
+  if (target.hasTarget && expandFollowUpRe.test(trimmed)) {
+    return {
+      kind: 'followup_expand',
+      subject: target.topicSubject,
+      sourceText: target.primaryText,
+      target,
+    }
   }
 
   // 4. Creative drafting / rewriting requests (distinct from direct "post a zing saying ...")
@@ -979,6 +3139,37 @@ function classifyConversationalIntent(prompt, mode, postContext) {
     }
   }
 
+  // Hinglish draft requests: "ek mast zing likh de startups pe" / "startups pe ek mast zing likh de"
+  const hiDraftA = trimmed.match(
+    /^(?:(?:bhai|yaar|bro|please)\s+)?(?:ek\s+)?(?:mast|badhiya|badiya|solid|sharp|funny|viral|crisp|chh?ota|short|acch?a|banger|killer)?\s*(zing|post|tweet|thread|caption|hook)\s+(?:likh(?:\s+(?:do|de|dena))?|banao|bana\s+(?:do|de)|de\s+do)(?:\s+(?:about|on|for|pe|par|ke\s+upar|ke\s+liye))?\s*([\s\S]*)$/i,
+  )
+  if (hiDraftA) {
+    const kindWord = hiDraftA[1].toLowerCase()
+    const rawTopic = hiDraftA[2]
+      .trim()
+      .replace(/\s+(?:pe|par|ke\s+upar|ke\s+liye|bhai|yaar)[\s!?.]*$/i, '')
+      .replace(/^["':\-\s]+|["'\s]+$/g, '')
+    return {
+      kind: 'draft',
+      format: kindWord === 'thread' ? 'thread' : 'zing',
+      topic: rawTopic || postContext?.text || '',
+      langHint: 'hinglish',
+    }
+  }
+
+  const hiDraftB = trimmed.match(
+    /^(?:(?:bhai|yaar|bro)\s+)?([\s\S]+?)\s+(?:pe|par|ke\s+upar|ke\s+liye)\s+(?:ek\s+)?(?:mast|badhiya|badiya|solid|sharp|funny|viral|crisp|chh?ota|short|acch?a|banger)?\s*(zing|post|tweet|thread|caption|hook)\s+(?:likh(?:\s+(?:do|de|dena))?|banao|bana\s+(?:do|de))[\s!?.]*$/i,
+  )
+  if (hiDraftB) {
+    const kindWord = hiDraftB[2].toLowerCase()
+    return {
+      kind: 'draft',
+      format: kindWord === 'thread' ? 'thread' : 'zing',
+      topic: hiDraftB[1].trim(),
+      langHint: 'hinglish',
+    }
+  }
+
   if (mode === 'drafter') {
     const cleanedTopic = trimmed
       .replace(
@@ -993,20 +3184,57 @@ function classifyConversationalIntent(prompt, mode, postContext) {
     }
   }
 
-  // 5. General knowledge / factual explanation questions
-  const isQuantZingSpecific =
-    Boolean(postContext?.uri) ||
+  const isQuantZingAccountQuery =
     /@[a-zA-Z0-9._-]{3,}/.test(trimmed) ||
     /\b(analytics|impressions|my\s+stats|engagement\s+rate|creator\s+studio|notifications|unread|bookmarks|saved\s+zings|my\s+dms|direct\s+messages|inbox|convos|my\s+lists|zingspaces|audio\s+rooms|quantos|wallet|credits|engine\s+status|trending|trends|what'?s\s+trending|happening\s+on\s+quantzing)\b/i.test(
       lower,
     )
 
+  // 7. Sparkle / Attached Zing Breakdown when postContext?.text is present
+  if (postContext?.text && !isQuantZingAccountQuery) {
+    const postTopic = extractTopicFromPostText(postContext.text)
+    return {
+      kind: 'post_breakdown',
+      postTopic,
+      subject: postTopic.primaryTopic || postTopic.searchQuery,
+    }
+  }
+
+  // 8. Coding & technical prompts (suppresses unrelated Zing search noise!)
+  if (!isQuantZingAccountQuery) {
+    const coding = detectCodingPrompt(trimmed)
+    if (coding) {
+      return {
+        kind: 'coding',
+        language: coding.language,
+      }
+    }
+  }
+
+  // 9. Actionable advice / "how to..." / "tips for..." / "best way to..." playbooks
+  if (!isQuantZingAccountQuery) {
+    const advice = detectAdvicePrompt(trimmed)
+    if (advice) {
+      return {
+        kind: 'advice',
+        goal: advice.goal,
+        langHint: advice.langHint,
+        subject: extractKnowledgeSubject(advice.goal),
+      }
+    }
+  }
+
+  // 10. General knowledge / factual explanation questions (English + Hinglish)
   const looksLikeQuestion =
     /^(?:what|who|where|when|why|how|explain|tell\s+me\s+about|define|describe|compare|difference\s+between|overview\s+of|summary\s+of|meaning\s+of|is\s+|are\s+|can\s+you\s+explain)\b/i.test(
       trimmed,
-    ) || trimmed.endsWith('?')
+    ) ||
+    /\b(?:kya\s+(?:hai|hota\s+hai|hoti\s+hai|hote\s+hain)|ke\s+baa?re\s+mei?n|samjhao|samjha\s+(?:do|de)|kaise\s+kaam\s+kart|batao|bata\s+(?:do|de))\b/i.test(
+      trimmed,
+    ) ||
+    trimmed.endsWith('?')
 
-  if (!isQuantZingSpecific && (looksLikeQuestion || trimmed.length >= 3)) {
+  if (!isQuantZingAccountQuery && (looksLikeQuestion || trimmed.length >= 3)) {
     return {
       kind: 'knowledge',
       subject: extractKnowledgeSubject(trimmed),
@@ -1016,7 +3244,14 @@ function classifyConversationalIntent(prompt, mode, postContext) {
   return {kind: 'none'}
 }
 
-function buildSmartCreativeDraft({topic, format, sourceText, knowledge, citations}) {
+function buildSmartCreativeDraft({
+  topic,
+  format,
+  sourceText,
+  knowledge,
+  citations,
+  langHint,
+}) {
   const cleanTopic = stripEmojis(topic || '').trim()
   if (format === 'rewrite' && sourceText) {
     const base = stripEmojis(sourceText)
@@ -1081,6 +3316,32 @@ function buildSmartCreativeDraft({topic, format, sourceText, knowledge, citation
   const subject = cleanTopic || 'what we are building next'
   const capSubject = subject.charAt(0).toUpperCase() + subject.slice(1)
   const refHandle = citations?.[0]?.handle ? ` (building on @${citations[0].handle})` : ''
+
+  if (langHint === 'hinglish') {
+    const hiOne = truncateAtWord(
+      `${capSubject} ka asli game hype nahi, consistent execution aur real users ki problem solve karna hai. Jo team fast ship karti hai, wahi jeetti hai.`,
+      275,
+    )
+    const hiTwo = truncateAtWord(
+      `${capSubject} ke baare mein ek simple truth: log pitch deck bhool jaate hain, lekin jo product roz kaam aaye use kabhi nahi bhoolte. Aapka kya take hai?`,
+      275,
+    )
+    return {
+      suggestedZingDraft: hiOne,
+      markdown: [
+        `Ye rahe do crisp Hinglish Zing drafts **${capSubject}** par:`,
+        '',
+        '**Option 1 (Direct)**',
+        `> ${hiOne}`,
+        '',
+        '**Option 2 (Conversational)**',
+        `> ${hiTwo}`,
+        '',
+        'Aur funny, shorter, ya thread chahiye toh bolo — warna neeche **Confirm** karke Option 1 post kar sakte ho.',
+      ].join('\n'),
+    }
+  }
+
   const draftOne = factLead
     ? `${capSubject}: ${factLead.slice(0, 210)} What do you think comes next?`.slice(0, 275)
     : `${capSubject}${refHandle} is moving faster than most people expect. The winners are focusing on speed, clarity, and real-world utility over noise.`.slice(
@@ -3378,7 +5639,7 @@ export function createQuantyBridge(deps = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // Multi-Provider LLM Reasoning Cascade (QuantAI -> QuantRouter -> Gemini -> Groq -> OpenRouter/OpenAI -> Ollama)
+  // Multi-Provider LLM Reasoning Cascade (QuantAI -> QuantRouter -> Gemini -> Groq -> Anthropic -> DeepSeek -> OpenRouter -> OpenAI -> Ollama)
   // -------------------------------------------------------------------------
 
   async function callQuantOsReasoning({
@@ -3402,15 +5663,15 @@ export function createQuantyBridge(deps = {}) {
       'Never use robotic boilerplate or mention Bluesky or other third-party social networks.',
       allowToolProposals
         ? 'You never execute account write actions on your own. If the user asks to publish a Zing, reply, send a DM, publish an article, create a poll, host a Space, create a list, follow/unfollow, bookmark, update bio, or mute/block, explain the draft briefly and append a fenced ```quanty-actions JSON array [{"toolName":"...","arguments":{...}}].'
-        : 'Keep your reply concise, sharp, and strictly under 260 characters.',
+        : 'Keep your reply concise, sharp, directly grounded in context, and strictly under 260 characters.',
       groundingBlock ? `\nLIVE CONTEXT:\n${groundingBlock}` : '',
     ]
       .filter(Boolean)
       .join('\n')
 
-    const recentHistory = (Array.isArray(history) ? history.slice(-6) : [])
+    const recentHistory = (Array.isArray(history) ? history.slice(-8) : [])
       .filter(m => m && (m.role === 'user' || m.role === 'assistant') && m.content)
-      .map(m => ({role: m.role, content: String(m.content).slice(0, 1200)}))
+      .map(m => ({role: m.role, content: String(m.content).slice(0, 1600)}))
 
     const chatMessages = [
       {role: 'system', content: systemPrompt},
@@ -3420,9 +5681,9 @@ export function createQuantyBridge(deps = {}) {
 
     const maxTokens = allowToolProposals
       ? mode === 'deepsearch'
-        ? 950
-        : 600
-      : 180
+        ? 2800
+        : 2048
+      : 512
     const cloudTimeoutMs = allowToolProposals ? Math.max(timeoutMs, 10_000) : timeoutMs
 
     // Tier 1: quant-ai (/v1/agent/reason)
@@ -3459,8 +5720,14 @@ export function createQuantyBridge(deps = {}) {
           origin: 'quant-ai',
           content,
           model: aiRes.data?.model || model,
-          provider: aiRes.data?.routing?.provider || 'quant-ai',
-          billingMode: aiRes.data?.routing?.billingMode || undefined,
+          provider:
+            aiRes.data?.routing?.provider ||
+            aiRes.headers?.['x-quant-provider'] ||
+            'quant-ai',
+          billingMode:
+            aiRes.data?.routing?.billingMode ||
+            aiRes.headers?.['x-quant-billing-mode'] ||
+            undefined,
           latencyMs: aiRes.latencyMs,
         }
       }
@@ -3496,8 +5763,14 @@ export function createQuantyBridge(deps = {}) {
           origin: 'quant-router',
           content,
           model: routerRes.data?.model || model,
-          provider: routerRes.data?.provider || 'quant-router',
-          billingMode: routerRes.data?.billingMode || undefined,
+          provider:
+            routerRes.headers?.['x-quant-provider'] ||
+            routerRes.data?.provider ||
+            'quant-router',
+          billingMode:
+            routerRes.headers?.['x-quant-billing-mode'] ||
+            routerRes.data?.billingMode ||
+            undefined,
           latencyMs: routerRes.latencyMs,
         }
       }
