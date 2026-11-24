@@ -2,6 +2,8 @@
 
 This document provides guidance for working effectively in the **QuantZing** (`quantzing.com` · `quantzing.in`) codebase (`https://github.com/quantrinitylab/quant-zing`).
 
+> **MULTI-AGENT COORDINATION (Antigravity ↔ Kilo Code):** Before editing any file, ALWAYS read `C:\antigravity\quant-os\.brain\AGENT_COORDINATION.md` to check active file locks, Mobbin visual benchmarks, and zero-collision lane assignments!
+
 ## Project Overview
 
 **QuantZing** is a cross-platform real-time social media, live audio (**ZingSpaces**), long-form publishing (**Articles Studio**), creator monetization (**Creator Studio** 70/30 split), and AI (**Quanty** + inline `@quanty` thread replies) application built with React Native and Expo. It runs on Web, iOS, and Android, powered by the QuantZing Sovereign ATProto Hybrid PDS (`scripts/quantzing-pds.mjs`) and the open AT Protocol (atproto) network.

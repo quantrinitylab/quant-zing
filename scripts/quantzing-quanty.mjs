@@ -1232,7 +1232,7 @@ async function translateTextWithGoogle(
   rawText,
   targetLangCode = 'hi',
   {romanize = false, langLabel = 'Hindi'} = {},
-  timeoutMs = 2200,
+  timeoutMs = 3500,
 ) {
   const cleaned = cleanTextForTranslation(rawText).slice(0, 1200)
   if (!cleaned) {
@@ -5955,7 +5955,7 @@ export function createQuantyBridge(deps = {}) {
   // Stage 1 Deterministic Slash Command + Natural Language Intent Router
   // -------------------------------------------------------------------------
 
-  function parseIntent(prompt, mode, postContext) {
+  function parseIntent(prompt, mode, postContext, history = []) {
     const trimmed = stripEmojis(prompt || '').trim()
     const readCalls = []
     const writeProposals = []
@@ -6232,7 +6232,7 @@ export function createQuantyBridge(deps = {}) {
       return {readCalls, writeProposals, isExplicitSlash}
     }
 
-    const conversational = classifyConversationalIntent(trimmed, mode, postContext)
+    const conversational = classifyConversationalIntent(trimmed, mode, postContext, history)
 
     // Natural-language write intent patterns (always proposed, never auto-executed)
     const zingMatch = trimmed.match(
@@ -6371,12 +6371,19 @@ export function createQuantyBridge(deps = {}) {
       })
     }
 
-    // Pure greetings / identity / thanks: skip noisy feed/trends queries so responses feel instant & natural
+    // Pure greetings, identity, thanks, math, coding, translation, and follow-ups:
+    // skip noisy feed/trends queries so responses feel instant, deterministic & natural
     if (
       writeProposals.length === 0 &&
       (conversational.kind === 'greeting' ||
         conversational.kind === 'identity' ||
-        conversational.kind === 'thanks')
+        conversational.kind === 'thanks' ||
+        conversational.kind === 'math' ||
+        conversational.kind === 'coding' ||
+        conversational.kind === 'followup_shorten' ||
+        conversational.kind === 'followup_rewrite' ||
+        conversational.kind === 'followup_expand' ||
+        conversational.kind === 'followup_translate')
     ) {
       return {readCalls: [], writeProposals: [], isExplicitSlash, conversational}
     }
@@ -6527,6 +6534,72 @@ export function createQuantyBridge(deps = {}) {
       return {
         answer:
           "Anytime. Let me know what you'd like to explore, check, or draft next.",
+      }
+    }
+
+    // 1b. Deterministic Safe Math
+    if (proposedActions.length === 0 && conversational?.kind === 'math' && conversational.mathResult) {
+      return {
+        answer: conversational.mathResult.markdown || conversational.mathResult.summaryLine,
+      }
+    }
+
+    // 1c. Code Generation & Technical Assistance
+    if (proposedActions.length === 0 && conversational?.kind === 'coding') {
+      const codeAnswer = synthesizeCodingResponse(prompt, {language: conversational.language})
+      return {
+        answer: codeAnswer,
+      }
+    }
+
+    // 1d. Multi-Turn Follow-Ups (Shorten, Rewrite Tone, Expand)
+    if (proposedActions.length === 0 && conversational?.kind === 'followup_shorten') {
+      const tldr = extractCoreTldr(conversational.sourceText)
+      return {
+        answer: `### Core Takeaway (TL;DR)\n\n> ${tldr.summary}\n\n**Zing-ready draft:**\n\`${tldr.zingReady}\``,
+        suggestedZingDraft: tldr.zingReady,
+      }
+    }
+
+    if (proposedActions.length === 0 && conversational?.kind === 'followup_rewrite') {
+      const rw = rewriteWithTone(conversational.sourceText, conversational.tone, conversational.topic)
+      return {
+        answer: rw.markdown,
+        suggestedZingDraft: rw.suggestedZingDraft,
+      }
+    }
+
+    if (proposedActions.length === 0 && conversational?.kind === 'followup_expand') {
+      const expanded = buildActionablePlaybook(
+        conversational.subject || 'this topic',
+        prompt,
+        externalKnowledge,
+        citations,
+      )
+      return {
+        answer: expanded,
+      }
+    }
+
+    // 1e. Actionable Advice Playbook
+    if (proposedActions.length === 0 && conversational?.kind === 'advice') {
+      const playbook = buildActionablePlaybook(
+        conversational.goal,
+        prompt,
+        externalKnowledge,
+        citations,
+      )
+      return {
+        answer: playbook,
+      }
+    }
+
+    // 1f. Follow-up Translation Fallback
+    if (proposedActions.length === 0 && conversational?.kind === 'followup_translate') {
+      const label = conversational.langLabel || (conversational.targetLang === 'hi' ? 'Hindi' : 'Translation')
+      return {
+        answer: `### ${label} Translation\n\n> ${conversational.sourceText}`,
+        suggestedZingDraft: conversational.sourceText.slice(0, 280),
       }
     }
 
@@ -6875,7 +6948,7 @@ export function createQuantyBridge(deps = {}) {
 
     const auth = resolveAuth(req)
     const viewerDid = auth?.did || resolveOptionalViewerDid(req)
-    const intent = parseIntent(prompt, mode, postContext)
+    const intent = parseIntent(prompt, mode, postContext, history)
 
     const toolTraces = []
     const toolOutputs = []
@@ -7060,8 +7133,43 @@ export function createQuantyBridge(deps = {}) {
     let model
     let suggestedZingDraft
 
-    // Skip slow LLM call if an explicit write slash command already built a clean deterministic card
-    const shouldCallLlm = !(intent.isExplicitSlash && proposedActions.length > 0)
+    // Special handler: Fast zero-key translation
+    if (conversational?.kind === 'followup_translate') {
+      const transResult = await translateTextWithGoogle(
+        conversational.sourceText,
+        conversational.targetLang,
+        {
+          romanize: conversational.romanize,
+          langLabel: conversational.langLabel,
+        },
+        2200,
+      )
+      if (transResult.ok && transResult.translated) {
+        answer = [
+          `### ${conversational.langLabel} Translation`,
+          '',
+          `> ${transResult.translated}`,
+          '',
+          ...(transResult.nativeScript && conversational.romanize
+            ? [`*Devanagari*: ${transResult.nativeScript}`, '']
+            : []),
+          'You can ask to make it shorter, rephrase in another tone, or confirm below to publish as a Zing.',
+        ].join('\n')
+        suggestedZingDraft = transResult.translated.slice(0, 280)
+        engineOrigin = 'quanty-translation'
+      }
+    }
+
+    // Skip slow LLM call if an explicit write slash command already built a clean deterministic card,
+    // or if a deterministic handler (math, coding, translation, follow-up) should take precedence when offline
+    const isDeterministicInstant = Boolean(
+      answer ||
+      conversational?.kind === 'math' ||
+      conversational?.kind === 'coding' ||
+      conversational?.kind === 'followup_shorten' ||
+      conversational?.kind === 'followup_rewrite'
+    )
+    const shouldCallLlm = !answer && !(intent.isExplicitSlash && proposedActions.length > 0)
     if (shouldCallLlm) {
       const llm = await callQuantOsReasoning({
         prompt,
@@ -7102,7 +7210,15 @@ export function createQuantyBridge(deps = {}) {
       })
       answer = local.answer
       suggestedZingDraft = local.suggestedZingDraft
-      engineOrigin = externalKnowledge?.ok ? 'quanty-knowledge' : 'live-network'
+      if (conversational?.kind === 'math') {
+        engineOrigin = 'quanty-math'
+      } else if (conversational?.kind === 'coding') {
+        engineOrigin = 'quanty-coding'
+      } else if (conversational?.kind?.startsWith('followup_')) {
+        engineOrigin = 'quanty-followup'
+      } else {
+        engineOrigin = externalKnowledge?.ok ? 'quanty-knowledge' : 'live-network'
+      }
     }
 
     // Attach a clean Phase 1 "Post this Zing" action card for creative drafts & drafter mode
