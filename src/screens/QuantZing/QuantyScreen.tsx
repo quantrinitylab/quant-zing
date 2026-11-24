@@ -3,6 +3,8 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   TextInput,
@@ -78,6 +80,7 @@ export interface QuantyRouteParams {
   postUri?: string
   postText?: string
   authorHandle?: string
+  triggerId?: number
 }
 
 interface QuickActionItem {
@@ -313,6 +316,34 @@ export function QuantyScreen() {
   )
   const [savedThreads, setSavedThreads] = useState<QuantyThreadSummary[]>([])
   const [showThreadsDrawer, setShowThreadsDrawer] = useState(false)
+  const [historySearch, setHistorySearch] = useState('')
+
+  const groupedThreads = useMemo(() => {
+    const q = historySearch.trim().toLowerCase()
+    const filtered = q
+      ? savedThreads.filter(t => t.title.toLowerCase().includes(q))
+      : savedThreads
+    const now = new Date()
+    const todayStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    ).getTime()
+    const yesterdayStart = todayStart - 86400000
+
+    const today: QuantyThreadSummary[] = []
+    const yesterday: QuantyThreadSummary[] = []
+    const earlier: QuantyThreadSummary[] = []
+
+    for (const t of filtered) {
+      const time = new Date(t.updatedAt || t.createdAt).getTime()
+      if (time >= todayStart) today.push(t)
+      else if (time >= yesterdayStart) yesterday.push(t)
+      else earlier.push(t)
+    }
+
+    return {today, yesterday, earlier, totalCount: filtered.length}
+  }, [savedThreads, historySearch])
   const [attachedPost, setAttachedPost] = useState<QuantyPostContext | null>(
     () =>
       routeParams.postText
@@ -681,8 +712,9 @@ export function QuantyScreen() {
 
   // Auto-run when opened from ANY Zing card's sparkle button or deep-link prompt
   useEffect(() => {
-    const key = `${routeParams.postUri || ''}|${routeParams.postText || ''}|${routeParams.prompt || ''}`
+    const key = `${routeParams.triggerId || ''}|${routeParams.postUri || ''}|${routeParams.postText || ''}|${routeParams.prompt || ''}`
     if (!routeParams.postText && !routeParams.prompt) return
+    if (isSendingRef.current) return
     if (autoRunKeyRef.current === key) return
     autoRunKeyRef.current = key
 
@@ -973,7 +1005,7 @@ export function QuantyScreen() {
         ]}>
         <View
           style={[
-            gtMobile
+            IS_WEB && gtMobile
               ? web({
                   display: 'grid',
                   gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
@@ -1269,7 +1301,7 @@ export function QuantyScreen() {
 
   const isEmpty = messages.length === 0
 
-  return (
+  const screenContent = (
     <Layout.Screen testID="quantyScreen" style={{backgroundColor: colors.bg}}>
       {/* Minimalist 52px Grok Top Header */}
       <Layout.Header.Outer noBottomBorder={isEmpty}>
@@ -1408,60 +1440,101 @@ export function QuantyScreen() {
                 </Pressable>
               </View>
 
-              {savedThreads.length === 0 ? (
+              <TextInput
+                value={historySearch}
+                onChangeText={setHistorySearch}
+                placeholder="Search Quanty history..."
+                placeholderTextColor={colors.muted}
+                style={[
+                  a.text_xs,
+                  a.px_sm,
+                  a.py_2xs,
+                  a.mb_xs,
+                  {
+                    borderRadius: 10,
+                    backgroundColor: colors.bg,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    color: colors.text,
+                  },
+                ]}
+              />
+
+              {groupedThreads.totalCount === 0 ? (
                 <Text style={[a.text_xs, a.py_xs, {color: colors.muted}]}>
-                  No saved chats yet.
+                  {historySearch ? 'No matching chats found.' : 'No saved chats yet.'}
                 </Text>
               ) : (
-                savedThreads.slice(0, 10).map(thread => {
-                  const isCurrent = thread.id === activeThreadId
-                  return (
-                    <View
-                      key={thread.id}
-                      style={[
-                        a.flex_row,
-                        a.align_center,
-                        a.justify_between,
-                        a.gap_xs,
-                        a.px_sm,
-                        a.py_xs,
-                        {
-                          borderRadius: 12,
-                          backgroundColor: isCurrent
-                            ? userBubbleBg
-                            : 'transparent',
-                        },
-                      ]}>
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={thread.title}
-                        onPress={() => void handleSelectThread(thread)}
-                        style={[a.flex_1, a.gap_2xs, web({cursor: 'pointer'})]}>
-                        <Text
-                          numberOfLines={1}
-                          style={[
-                            a.text_sm,
-                            a.font_semi_bold,
-                            {color: colors.text},
-                          ]}>
-                          {stripEmojisAndSymbols(thread.title)}
-                        </Text>
-                        <Text style={[a.text_2xs, {color: colors.muted}]}>
-                          {thread.messageCount}{' '}
-                          {thread.messageCount === 1 ? 'message' : 'messages'}
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`Delete chat ${thread.title}`}
-                        onPress={() => void handleDeleteThread(thread.id)}
-                        hitSlop={8}
-                        style={[a.p_xs, web({cursor: 'pointer'})]}>
-                        <TrashIcon size="xs" fill={colors.muted} />
-                      </Pressable>
+                [
+                  {label: 'Today', list: groupedThreads.today},
+                  {label: 'Yesterday', list: groupedThreads.yesterday},
+                  {label: 'Earlier', list: groupedThreads.earlier},
+                ]
+                  .filter(g => g.list.length > 0)
+                  .map(group => (
+                    <View key={group.label} style={[a.gap_2xs, a.mb_2xs]}>
+                      <Text
+                        style={[
+                          {
+                            fontSize: 10,
+                            fontWeight: '700',
+                            color: colors.accent,
+                            letterSpacing: 0.5,
+                          },
+                        ]}>
+                        {group.label.toUpperCase()}
+                      </Text>
+                      {group.list.map(thread => {
+                        const isCurrent = thread.id === activeThreadId
+                        return (
+                          <View
+                            key={thread.id}
+                            style={[
+                              a.flex_row,
+                              a.align_center,
+                              a.justify_between,
+                              a.gap_xs,
+                              a.px_sm,
+                              a.py_xs,
+                              {
+                                borderRadius: 12,
+                                backgroundColor: isCurrent
+                                  ? userBubbleBg
+                                  : 'transparent',
+                              },
+                            ]}>
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={thread.title}
+                              onPress={() => void handleSelectThread(thread)}
+                              style={[a.flex_1, a.gap_2xs, web({cursor: 'pointer'})]}>
+                              <Text
+                                numberOfLines={1}
+                                style={[
+                                  a.text_sm,
+                                  a.font_semi_bold,
+                                  {color: colors.text},
+                                ]}>
+                                {stripEmojisAndSymbols(thread.title)}
+                              </Text>
+                              <Text style={[a.text_2xs, {color: colors.muted}]}>
+                                {thread.messageCount}{' '}
+                                {thread.messageCount === 1 ? 'message' : 'messages'}
+                              </Text>
+                            </Pressable>
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`Delete chat ${thread.title}`}
+                              onPress={() => void handleDeleteThread(thread.id)}
+                              hitSlop={8}
+                              style={[a.p_xs, web({cursor: 'pointer'})]}>
+                              <TrashIcon size="xs" fill={colors.muted} />
+                            </Pressable>
+                          </View>
+                        )
+                      })}
                     </View>
-                  )
-                })
+                  ))
               )}
             </View>
           )}
@@ -1710,7 +1783,7 @@ export function QuantyScreen() {
                 ) : (
                   <View
                     style={[
-                      gtMobile
+                      IS_WEB && gtMobile
                         ? web({
                             display: 'grid',
                             gridTemplateColumns:
@@ -2091,6 +2164,35 @@ export function QuantyScreen() {
 
               {/* Elevated Grok Follow-Up Composer */}
               <View style={{paddingTop: 4}}>
+                {attachedPost && (
+                  <View style={[a.flex_row, a.flex_wrap, {gap: 6, paddingBottom: 8}]}>
+                    {[
+                      {label: 'Fact-check claims', p: 'Fact-check claims in this post'},
+                      {label: '1-line summary', p: 'give me a 1-line summary of this'},
+                      {label: 'Counter-arguments', p: 'What are the counter-arguments to this?'},
+                      {label: 'Draft reply', p: 'Draft a smart reply to this Zing'},
+                      {label: 'Translate to Hindi', p: 'Translate this post to Hindi'},
+                    ].map(chip => (
+                      <Pressable
+                        key={chip.label}
+                        accessibilityRole="button"
+                        onPress={() => void runQuery(chip.p, 'deepsearch', attachedPost)}
+                        style={[
+                          a.px_sm,
+                          a.py_2xs,
+                          a.rounded_full,
+                          {
+                            backgroundColor: composerBg,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                          },
+                          web({cursor: 'pointer'}),
+                        ]}>
+                        <Text style={[a.text_xs, {color: colors.text}]}>{chip.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
                 {renderGrokComposer('chat')}
               </View>
             </View>
@@ -2099,4 +2201,16 @@ export function QuantyScreen() {
       </Layout.Content>
     </Layout.Screen>
   )
+
+  if (!IS_WEB) {
+    return (
+      <KeyboardAvoidingView
+        style={{flex: 1}}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        {screenContent}
+      </KeyboardAvoidingView>
+    )
+  }
+
+  return screenContent
 }

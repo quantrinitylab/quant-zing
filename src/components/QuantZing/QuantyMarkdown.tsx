@@ -1,5 +1,5 @@
 import {useMemo} from 'react'
-import {Linking, View} from 'react-native'
+import {Linking, Platform, View} from 'react-native'
 
 import {
   type QuantySourceCitation,
@@ -134,7 +134,7 @@ function renderInlineSegments({
               color: textColor,
               backgroundColor: surfaceColor,
               borderColor,
-              fontFamily: 'monospace',
+              fontFamily: Platform.select({ios: 'Menlo', default: 'monospace'}),
               paddingHorizontal: 4,
               borderRadius: 4,
             },
@@ -225,41 +225,33 @@ export function QuantyMarkdown({
   const colors = useMemo(() => getQuantyThemeColors(t.name), [t.name])
 
   const blocks = useMemo(() => {
-    const sanitized = stripEmojisAndSymbols(content)
-    const rawLines = sanitized.split('\n')
+    const raw = String(content || '')
+    const parts = raw.split(/(```[\s\S]*?```)/g)
     const out: Array<
       | {kind: 'code'; code: string}
       | {kind: 'line'; line: string}
     > = []
 
-    let inCode = false
-    let codeBuf: string[] = []
-
-    for (const rawLine of rawLines) {
-      if (rawLine.trim().startsWith('```')) {
-        if (inCode) {
-          out.push({kind: 'code', code: codeBuf.join('\n')})
-          codeBuf = []
-          inCode = false
-        } else {
-          inCode = true
-        }
-        continue
-      }
-      if (inCode) {
-        codeBuf.push(rawLine)
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]
+      if (i % 2 === 1) {
+        // Strip the outer ``` and optional language tag, keeping exact code indentation
+        const inner = part.replace(/^```[^\n]*\n?/, '').replace(/\n?```$/, '')
+        out.push({kind: 'code', code: inner})
       } else {
-        out.push({kind: 'line', line: rawLine.trimEnd()})
+        const sanitized = stripEmojisAndSymbols(part)
+        const rawLines = sanitized.split('\n')
+        for (const rawLine of rawLines) {
+          out.push({kind: 'line', line: rawLine.trimEnd()})
+        }
       }
-    }
-    if (inCode && codeBuf.length > 0) {
-      out.push({kind: 'code', code: codeBuf.join('\n')})
     }
     return out
   }, [content])
 
   const baseTextStyle = compact ? a.text_xs : a.text_sm
   const headingStyle = compact ? a.text_sm : a.text_md
+  const monoFont = Platform.select({ios: 'Menlo', default: 'monospace'})
 
   return (
     <View style={[a.gap_xs]}>
@@ -281,7 +273,7 @@ export function QuantyMarkdown({
                 style={[
                   a.text_xs,
                   a.leading_snug,
-                  {color: colors.text, fontFamily: 'monospace'},
+                  {color: colors.text, fontFamily: monoFont},
                 ]}>
                 {block.code}
               </Text>

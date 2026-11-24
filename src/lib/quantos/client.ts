@@ -47,7 +47,17 @@ export interface QuantySourceCitation {
   isVerified?: boolean
 }
 
-export type QuantyEngineOrigin = 'quant-ai' | 'quant-router' | 'live-network'
+export type QuantyEngineOrigin =
+  | 'quant-ai'
+  | 'quant-router'
+  | 'anthropic'
+  | 'deepseek'
+  | 'quanty-knowledge'
+  | 'quanty-math'
+  | 'quanty-coding'
+  | 'quanty-followup'
+  | 'quanty-translation'
+  | 'live-network'
 
 export interface QuantyAskRequest {
   prompt: string
@@ -237,21 +247,41 @@ export function getQuantZingColors(
   }
 }
 
-/**
- * Strips stray emojis, dingbats, geometric box symbols, and variation selectors
- * from scraped feed headlines, snippets, and generated summaries while
- * preserving normal punctuation and line breaks.
- */
-export function stripEmojisAndSymbols(text: string): string {
-  if (!text) return ''
+function stripEmojiCharsOnly(text: string): string {
   return text
     .replace(/[0-9#*]\uFE0F?\u20E3/g, '')
     .replace(
       /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{25A0}-\u{25FF}\u{2B00}-\u{2BFF}\u{231A}-\u{231B}\u{23E9}-\u{23F3}\u{23F8}-\u{23FA}\u{203C}\u{2049}\u{2139}\u{2194}-\u{2199}\u{21A9}-\u{21AA}\u{FE0E}\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu,
       '',
     )
-    .replace(/[ \t]{2,}/g, ' ')
-    .replace(/ *\n */g, '\n')
+}
+
+/**
+ * Strips stray emojis, dingbats, geometric box symbols, and variation selectors
+ * from scraped feed headlines, snippets, and generated summaries while
+ * preserving normal punctuation, line breaks, and whitespace inside fenced code blocks.
+ */
+export function stripEmojisAndSymbols(text: string): string {
+  if (!text) return ''
+  const raw = String(text)
+  if (!raw.includes('```')) {
+    return stripEmojiCharsOnly(raw)
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/ *\n */g, '\n')
+      .trim()
+  }
+  const parts = raw.split(/(```[\s\S]*?```)/g)
+  return parts
+    .map((part, idx) => {
+      const cleaned = stripEmojiCharsOnly(part)
+      if (idx % 2 === 1) {
+        return cleaned
+      }
+      return cleaned
+        .replace(/[ \t]{2,}/g, ' ')
+        .replace(/ *\n */g, '\n')
+    })
+    .join('')
     .trim()
 }
 
@@ -2309,12 +2339,14 @@ export interface QuantZingArticleRecord {
 
 export async function fetchQuantZingArticles(params?: {
   actor?: string
+  author?: string
   status?: 'all' | 'published' | 'draft'
   limit?: number
   accessJwt?: string
 }): Promise<QuantZingArticleRecord[]> {
   const qs = new URLSearchParams()
   if (params?.actor) qs.set('actor', params.actor)
+  if (params?.author) qs.set('author', params.author)
   if (params?.status) qs.set('status', params.status)
   if (params?.limit) qs.set('limit', String(params.limit))
   const suffix = qs.toString() ? `?${qs.toString()}` : ''
@@ -2327,6 +2359,8 @@ export async function fetchQuantZingArticles(params?: {
   })
   return Array.isArray(data?.articles) ? data.articles : []
 }
+
+export const fetchArticles = fetchQuantZingArticles
 
 export async function fetchQuantZingArticle(
   id: string,
@@ -2507,6 +2541,7 @@ export interface QuantZingSpaceParticipant {
   avatar?: string
   role: 'host' | 'speaker' | 'listener'
   handRaised: boolean
+  muted?: boolean
   joinedAt: string
 }
 
@@ -2683,9 +2718,65 @@ export async function sendSpaceReaction(
   return data.space
 }
 
-export function getSpaceEventsUrl(slug: string): string {
+export function getSpaceEventsUrl(
+  slug: string,
+  opts?: {clientId?: string; accessJwt?: string},
+): string {
   const origin = getQuantZingApiOrigin()
-  return `${origin}/api/quantzing/spaces/${encodeURIComponent(slug)}/events`
+  const qs = new URLSearchParams()
+  if (opts?.clientId) qs.set('clientId', opts.clientId)
+  if (opts?.accessJwt) qs.set('token', opts.accessJwt)
+  const suffix = qs.toString() ? `?${qs.toString()}` : ''
+  return `${origin}/api/quantzing/spaces/${encodeURIComponent(slug)}/events${suffix}`
+}
+
+export async function setSpaceMute(
+  slug: string,
+  muted: boolean,
+  accessJwt: string,
+  targetDid?: string,
+): Promise<QuantZingSpace> {
+  const data = await quantzingApiFetch<{ok: boolean; space: QuantZingSpace}>(
+    `/api/quantzing/spaces/${encodeURIComponent(slug)}/mute`,
+    {
+      method: 'POST',
+      accessJwt,
+      body: {muted, targetDid},
+    },
+  )
+  return data.space
+}
+
+export async function sendSpaceSignal(
+  slug: string,
+  payload: Record<string, unknown>,
+  accessJwt: string,
+): Promise<{ok: boolean; messageId?: string}> {
+  return await quantzingApiFetch<{ok: boolean; messageId?: string}>(
+    `/api/quantzing/spaces/${encodeURIComponent(slug)}/signal`,
+    {
+      method: 'POST',
+      accessJwt,
+      body: payload,
+    },
+  )
+}
+
+export async function pollSpaceSignals(
+  slug: string,
+  clientId: string,
+  afterSeq: number,
+  accessJwt?: string,
+): Promise<{ok: boolean; signals: Array<Record<string, unknown>>; nextSeq: number}> {
+  const qs = new URLSearchParams({clientId, afterSeq: String(afterSeq)})
+  return await quantzingApiFetch<{
+    ok: boolean
+    signals: Array<Record<string, unknown>>
+    nextSeq: number
+  }>(`/api/quantzing/spaces/${encodeURIComponent(slug)}/signal?${qs.toString()}`, {
+    method: 'GET',
+    accessJwt,
+  })
 }
 
 // --- D. QuantZing Pro (/api/quantzing/pro/*) ---

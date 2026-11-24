@@ -28,6 +28,7 @@ import {
   sendQuantyChat,
   setActiveQuantySession,
   subscribeActiveQuantySession,
+  subscribeQuantyDockOpenRequests,
 } from '#/lib/quantos/quantyBridge'
 import {getCurrentRoute} from '#/lib/routes/helpers'
 import {useSession} from '#/state/session'
@@ -130,6 +131,11 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
   const [inputFocused, setInputFocused] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [attachedPost, setAttachedPost] = useState<{
+    uri?: string
+    text?: string
+    authorHandle?: string
+  } | null>(null)
   const [activeThreadId, setActiveThreadId] = useState<string | null>(
     () => initialSession.threadId,
   )
@@ -142,6 +148,8 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
   messagesRef.current = messages
   const activeThreadIdRef = useRef<string | null>(activeThreadId)
   activeThreadIdRef.current = activeThreadId
+  const attachedPostRef = useRef(attachedPost)
+  attachedPostRef.current = attachedPost
 
   const colors = useMemo(() => getQuantZingColors(t.name), [t.name])
 
@@ -202,35 +210,47 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
   const handleOpenFullQuanty = useCallback(
     (carryPrompt?: string) => {
       setIsOpen(false)
-      const params = carryPrompt?.trim()
-        ? {prompt: carryPrompt.trim()}
-        : undefined
+      const params: Record<string, any> = {}
+      if (carryPrompt?.trim()) params.prompt = carryPrompt.trim()
+      if (attachedPost) {
+        params.postUri = attachedPost.uri
+        params.postText = attachedPost.text
+        params.authorHandle = attachedPost.authorHandle
+      }
       try {
         navigation.dispatch(
           CommonActions.navigate({
             name: 'Quanty',
-            params,
+            params: Object.keys(params).length > 0 ? params : undefined,
           }),
         )
       } catch {
         if (IS_WEB && typeof window !== 'undefined') {
-          const query = carryPrompt?.trim()
-            ? `?prompt=${encodeURIComponent(carryPrompt.trim())}`
-            : ''
+          const qs = new URLSearchParams()
+          if (params.prompt) qs.set('prompt', params.prompt)
+          if (params.postUri) qs.set('postUri', params.postUri)
+          if (params.postText) qs.set('postText', params.postText)
+          if (params.authorHandle) qs.set('authorHandle', params.authorHandle)
+          const query = qs.toString() ? `?${qs.toString()}` : ''
           window.location.assign(`/quanty${query}`)
         }
       }
     },
-    [navigation],
+    [navigation, attachedPost],
   )
 
   const handleQuickSend = useCallback(
-    async (overridePrompt?: string) => {
+    async (
+      overridePrompt?: string,
+      overridePostContext?: {uri?: string; text?: string; authorHandle?: string} | null,
+    ) => {
       const text = stripEmojisAndSymbols((overridePrompt ?? prompt).trim())
       if (!text || isLoading) return
 
       const inferredMode = text.startsWith('/') ? 'control' : 'ask'
       const currentThreadId = activeThreadIdRef.current
+      const activePostContext =
+        overridePostContext !== undefined ? overridePostContext : attachedPostRef.current
 
       const userMsg: QuantyThreadMessage = {
         id: `qu_${Date.now()}`,
@@ -271,6 +291,7 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
             {
               prompt: text,
               mode: inferredMode,
+              postContext: activePostContext || undefined,
               history: historySnapshot,
               threadId: ensuredThreadId || undefined,
               allowAutoReadTools: true,
@@ -374,6 +395,19 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
       updateSharedMessages,
     ],
   )
+
+  useEffect(() => {
+    return subscribeQuantyDockOpenRequests(req => {
+      setIsOpen(true)
+      if (req.postContext) {
+        setAttachedPost(req.postContext)
+      }
+      if (req.prompt) {
+        setPrompt(req.prompt)
+        void handleQuickSend(req.prompt, req.postContext)
+      }
+    })
+  }, [handleQuickSend])
 
   const slashSuggestions = useMemo<QuantySlashCommandHint[]>(() => {
     const trimmed = prompt.trimStart()
@@ -720,6 +754,70 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
               </Text>
             </Pressable>
           ))}
+        </View>
+      )}
+
+      {/* Attached Zing Pill & 1-Tap Chips */}
+      {attachedPost && (
+        <View style={[a.px_sm, a.pb_xs]}>
+          <View
+            style={[
+              a.flex_row,
+              a.align_center,
+              a.justify_between,
+              a.px_sm,
+              a.py_2xs,
+              a.mb_xs,
+              {
+                borderRadius: 12,
+                backgroundColor: userBubbleBg,
+                borderWidth: 1,
+                borderColor: colors.border,
+              },
+            ]}>
+            <View style={[a.flex_row, a.align_center, a.gap_xs, {flex: 1}]}>
+              <SparkleIcon size="xs" fill={colors.accent} />
+              <Text numberOfLines={1} style={[a.text_xs, {color: colors.text, flex: 1}]}>
+                <Text style={[a.font_semi_bold, {color: colors.accent}]}>
+                  @{attachedPost.authorHandle || 'zing'}:{' '}
+                </Text>
+                {attachedPost.text || attachedPost.uri}
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Remove attached post"
+              onPress={() => setAttachedPost(null)}
+              style={[{padding: 4}, web({cursor: 'pointer'})]}>
+              <CloseIcon size="xs" fill={colors.muted} />
+            </Pressable>
+          </View>
+          <View style={[a.flex_row, a.flex_wrap, {gap: 6}]}>
+            {[
+              {label: '1-line summary', p: 'give me a 1-line summary'},
+              {label: 'Fact-check', p: 'fact check this post'},
+              {label: 'Translate to Hindi', p: 'translate this to hindi'},
+              {label: 'Draft reply', p: 'draft a smart reply to this post'},
+            ].map(chip => (
+              <Pressable
+                key={chip.label}
+                accessibilityRole="button"
+                onPress={() => void handleQuickSend(chip.p, attachedPost)}
+                style={[
+                  a.px_xs,
+                  a.py_2xs,
+                  {
+                    borderRadius: 99,
+                    backgroundColor: composerBg,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  },
+                  web({cursor: 'pointer'}),
+                ]}>
+                <Text style={[a.text_2xs, {color: colors.text}]}>{chip.label}</Text>
+              </Pressable>
+            ))}
+          </View>
         </View>
       )}
 

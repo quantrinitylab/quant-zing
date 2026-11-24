@@ -706,3 +706,39 @@ export function subscribeActiveQuantySession(
     sessionListeners.delete(listener)
   }
 }
+
+export type {QuantyEngineOrigin} from '#/lib/quantos/client'
+
+export interface QuantyDockOpenRequest {
+  prompt?: string
+  postContext?: {uri?: string; text?: string; authorHandle?: string} | null
+  triggerId: number
+}
+
+let quantyDockTriggerCounter = 1
+const dockOpenListeners = new Set<(req: QuantyDockOpenRequest) => void>()
+
+export function requestOpenQuantyDock(
+  req: Omit<QuantyDockOpenRequest, 'triggerId'>,
+): void {
+  const fullReq: QuantyDockOpenRequest = {
+    ...req,
+    triggerId: quantyDockTriggerCounter++,
+  }
+  for (const listener of dockOpenListeners) {
+    try {
+      listener(fullReq)
+    } catch {
+      // Ignore subscriber errors
+    }
+  }
+}
+
+export function subscribeQuantyDockOpenRequests(
+  listener: (req: QuantyDockOpenRequest) => void,
+): () => void {
+  dockOpenListeners.add(listener)
+  return () => {
+    dockOpenListeners.delete(listener)
+  }
+}

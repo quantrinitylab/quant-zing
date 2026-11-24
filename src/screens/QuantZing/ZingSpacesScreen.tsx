@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useState} from 'react'
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {ActivityIndicator, Pressable, TextInput, View} from 'react-native'
 import {AtUri} from '@atproto/syntax'
 import {useNavigation} from '@react-navigation/native'
@@ -13,21 +13,31 @@ import {
   getSpaceEventsUrl,
   joinZingSpace,
   leaveZingSpace,
+  pollSpaceSignals,
   type QuantySourceCitation,
   type QuantZingSpace,
   type QuantZingSpaceReactionKind,
   searchLiveZings,
   sendSpaceReaction,
+  sendSpaceSignal,
   setSpaceHand,
+  setSpaceMute,
   stripEmojisAndSymbols,
   updateZingSpace,
 } from '#/lib/quantos/client'
+import {
+  isWebRtcAudioSupported,
+  type SpaceAudioState,
+  ZingSpaceAudioMesh,
+} from '#/lib/quantos/spaceAudioWebRtc'
 import {type NavigationProp} from '#/lib/routes/types'
 import {useRequireAuth, useSession} from '#/state/session'
 import {atoms as a, useTheme, web} from '#/alf'
 import {Clock_Stroke2_Corner0_Rounded as ClockIcon} from '#/components/icons/Clock'
+import {Mute_Stroke2_Corner0_Rounded as MuteIcon} from '#/components/icons/Mute'
 import {PaperPlane_Stroke2_Corner0_Rounded as ShareIcon} from '#/components/icons/PaperPlane'
 import {RaisingHand4Finger_Stroke2_Corner2_Rounded as HandIcon} from '#/components/icons/RaisingHand'
+import {SpeakerVolumeFull_Stroke2_Corner0_Rounded as SpeakerIcon} from '#/components/icons/SpeakerVolumeFull'
 import {StreamingLive_Stroke2_Corner0_Rounded as LiveIcon} from '#/components/icons/StreamingLive'
 import {Trash_Stroke2_Corner0_Rounded as TrashIcon} from '#/components/icons/Trash'
 import * as Layout from '#/components/Layout'
@@ -125,6 +135,20 @@ export function ZingSpacesScreen() {
   const [actionBusy, setActionBusy] = useState(false)
   const [elapsedSec, setElapsedSec] = useState(0)
 
+  const clientIdRef = useRef<string>(
+    `cl_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`,
+  )
+  const meshRef = useRef<ZingSpaceAudioMesh | null>(null)
+  const [audioState, setAudioState] = useState<SpaceAudioState>({
+    supported: isWebRtcAudioSupported(),
+    connectedPeers: 0,
+    micActive: false,
+    muted: true,
+    audioBlocked: false,
+    micError: null,
+    speakingLevels: {},
+  })
+
   // Live #spaces / #live feed post discovery
   const [discoveryPosts, setDiscoveryPosts] = useState<QuantySourceCitation[]>(
     [],
@@ -179,6 +203,26 @@ export function ZingSpacesScreen() {
     [activeSpaceSlug, spaces],
   )
 
+  const viewerParticipant = useMemo(
+    () =>
+      activeSpace?.participants.find(p => p.did === viewerDid) || null,
+    [activeSpace, viewerDid],
+  )
+  const isViewerHost = Boolean(
+    activeSpace && viewerDid && activeSpace.hostDid === viewerDid,
+  )
+  const canViewerSpeak = Boolean(
+    isViewerHost || viewerParticipant?.role === 'speaker',
+  )
+  const viewerHandRaised = Boolean(viewerParticipant?.handRaised)
+
+  // Sync canSpeak permission to WebRTC audio mesh
+  useEffect(() => {
+    if (meshRef.current) {
+      meshRef.current.setCanSpeak(canViewerSpeak)
+    }
+  }, [canViewerSpeak])
+
   // Real server startedAt elapsed timer
   useEffect(() => {
     if (!activeSpace || activeSpace.status !== 'live') {
@@ -198,30 +242,117 @@ export function ZingSpacesScreen() {
     return () => clearInterval(timer)
   }, [activeSpace])
 
-  // Real-time SSE stream on web + polling fallback for active space
+  // Real-time SSE stream on web + polling fallback + WebRTC Audio Mesh for active space
   useEffect(() => {
-    if (!activeSpaceSlug) return
+    if (!activeSpaceSlug) {
+      if (meshRef.current) {
+        meshRef.current.destroy()
+        meshRef.current = null
+      }
+      return
+    }
+
+    const mesh = new ZingSpaceAudioMesh({
+      slug: activeSpaceSlug,
+      myDid: viewerDid || `guest_${clientIdRef.current}`,
+      myClientId: clientIdRef.current,
+      canSpeak: canViewerSpeak,
+      callbacks: {
+        sendSignal: async payload => {
+          if (!accessJwt) return
+          await sendSpaceSignal(activeSpaceSlug, payload, accessJwt).catch(() => {})
+        },
+        onStateChange: state => {
+          setAudioState(state)
+        },
+      },
+    })
+    meshRef.current = mesh
+    void mesh.start()
 
     let eventSource: EventSource | null = null
+    let pollSeq = 0
+    let pollTimer: ReturnType<typeof setInterval> | null = null
+
     if (IS_WEB && typeof EventSource !== 'undefined') {
       try {
-        eventSource = new EventSource(getSpaceEventsUrl(activeSpaceSlug))
-        const handleEvent = (ev: MessageEvent) => {
+        const sseUrl = getSpaceEventsUrl(activeSpaceSlug, {
+          clientId: clientIdRef.current,
+          accessJwt: accessJwt || undefined,
+        })
+        eventSource = new EventSource(sseUrl)
+        eventSource.addEventListener('space_update', (ev: MessageEvent) => {
           try {
             const parsed = JSON.parse(ev.data)
             const room = parsed?.space || parsed
             if (room && typeof room.slug === 'string') {
               upsertSpaceInState(room as QuantZingSpace)
             }
-          } catch {
-            // Ignore heartbeat or non-JSON frame
-          }
+          } catch {}
+        })
+        eventSource.addEventListener('space_peers', (ev: MessageEvent) => {
+          try {
+            const parsed = JSON.parse(ev.data)
+            if (Array.isArray(parsed?.peers)) {
+              mesh.handlePeersSnapshot(parsed.peers)
+            }
+          } catch {}
+        })
+        eventSource.addEventListener('peer_joined', (ev: MessageEvent) => {
+          try {
+            const peer = JSON.parse(ev.data)
+            if (peer && peer.clientId) {
+              mesh.handlePeerJoined(peer)
+            }
+          } catch {}
+        })
+        eventSource.addEventListener('peer_left', (ev: MessageEvent) => {
+          try {
+            const data = JSON.parse(ev.data)
+            if (data?.clientId) {
+              mesh.handlePeerLeft(data.clientId)
+            }
+          } catch {}
+        })
+        eventSource.addEventListener('space_signal', (ev: MessageEvent) => {
+          try {
+            const signal = JSON.parse(ev.data)
+            if (signal) {
+              void mesh.handleSignal(signal)
+            }
+          } catch {}
+        })
+        eventSource.onmessage = (ev: MessageEvent) => {
+          try {
+            const parsed = JSON.parse(ev.data)
+            const room = parsed?.space || parsed
+            if (room && typeof room.slug === 'string') {
+              upsertSpaceInState(room as QuantZingSpace)
+            }
+          } catch {}
         }
-        eventSource.addEventListener('space_update', handleEvent as any)
-        eventSource.onmessage = handleEvent
       } catch {
         eventSource = null
       }
+    }
+
+    if (!eventSource) {
+      pollTimer = setInterval(async () => {
+        try {
+          const res = await pollSpaceSignals(
+            activeSpaceSlug,
+            clientIdRef.current,
+            pollSeq,
+            accessJwt,
+          )
+          if (res?.ok && Array.isArray(res.signals)) {
+            pollSeq = res.nextSeq || pollSeq
+            for (const sig of res.signals) {
+              void mesh.handleSignal(sig as any)
+            }
+          }
+        } catch {}
+      }, 2000)
     }
 
     const pollInterval = setInterval(() => {
@@ -240,9 +371,31 @@ export function ZingSpacesScreen() {
           eventSource.close()
         } catch {}
       }
+      if (pollTimer) {
+        clearInterval(pollTimer)
+      }
       clearInterval(pollInterval)
+      mesh.destroy()
+      if (meshRef.current === mesh) {
+        meshRef.current = null
+      }
     }
-  }, [accessJwt, activeSpaceSlug, upsertSpaceInState])
+  }, [accessJwt, activeSpaceSlug, canViewerSpeak, upsertSpaceInState, viewerDid])
+
+  const handleToggleMic = useCallback(async () => {
+    if (!meshRef.current || !activeSpace) return
+    const nextMuted = !audioState.muted
+    await meshRef.current.setMuted(nextMuted)
+    if (accessJwt) {
+      void setSpaceMute(activeSpace.slug, nextMuted, accessJwt).catch(() => {})
+    }
+  }, [accessJwt, activeSpace, audioState.muted])
+
+  const handleResumeAudio = useCallback(async () => {
+    if (meshRef.current) {
+      await meshRef.current.resumeAudioContextBestEffort()
+    }
+  }, [])
 
   const loadLiveDiscovery = useCallback(async () => {
     setLoadingDiscovery(true)
@@ -582,16 +735,6 @@ export function ZingSpacesScreen() {
     [navigation],
   )
 
-  const viewerParticipant = useMemo(
-    () =>
-      activeSpace?.participants.find(p => p.did === viewerDid) || null,
-    [activeSpace, viewerDid],
-  )
-  const isViewerHost = Boolean(
-    activeSpace && viewerDid && activeSpace.hostDid === viewerDid,
-  )
-  const viewerHandRaised = Boolean(viewerParticipant?.handRaised)
-
   return (
     <Layout.Screen
       testID="zingSpacesScreen"
@@ -684,6 +827,9 @@ export function ZingSpacesScreen() {
 
                 <View
                   style={[
+                    a.flex_row,
+                    a.align_center,
+                    a.gap_2xs,
                     a.px_sm,
                     a.py_2xs,
                     a.rounded_full,
@@ -693,8 +839,18 @@ export function ZingSpacesScreen() {
                       borderColor: colors.border,
                     },
                   ]}>
+                  <View
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: 3,
+                      backgroundColor: audioState.supported ? colors.rezing : colors.muted,
+                    }}
+                  />
                   <Text style={[{fontSize: 11, color: colors.muted}]}>
-                    Live Stage · Real-Time Sync
+                    {audioState.supported
+                      ? `WebRTC Voice Live · ${audioState.connectedPeers + 1} connected`
+                      : 'Stage Sync · Web Voice on Browser'}
                   </Text>
                 </View>
 
@@ -780,6 +936,38 @@ export function ZingSpacesScreen() {
               </Text>
             </View>
 
+            {/* Tap-to-hear Autoplay Blocked Banner */}
+            {audioState.audioBlocked && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Tap to hear live audio"
+                onPress={handleResumeAudio}
+                style={[
+                  a.flex_row,
+                  a.align_center,
+                  a.justify_between,
+                  a.px_md,
+                  a.py_xs,
+                  a.rounded_sm,
+                  {
+                    backgroundColor: colors.accentSubtle,
+                    borderWidth: 1,
+                    borderColor: colors.accent,
+                  },
+                  web({cursor: 'pointer'}),
+                ]}>
+                <View style={[a.flex_row, a.align_center, a.gap_xs]}>
+                  <SpeakerIcon size="xs" fill={colors.accent} />
+                  <Text style={[a.text_xs, a.font_semi_bold, {color: colors.accent}]}>
+                    Audio paused by browser policy. Tap to Hear Live Audio.
+                  </Text>
+                </View>
+                <Text style={[a.text_2xs, a.font_bold, {color: colors.accent}]}>
+                  UNMUTE STAGE
+                </Text>
+              </Pressable>
+            )}
+
             {/* Persisted Participant Stage Grid */}
             <View
               style={[
@@ -805,6 +993,11 @@ export function ZingSpacesScreen() {
                   participant.role === 'host' || participant.role === 'speaker'
                 const canManageRole =
                   isViewerHost && participant.role !== 'host'
+                const isSpeaking = Boolean(
+                  audioState.speakingLevels[participant.did] &&
+                    audioState.speakingLevels[participant.did] > 0.035 &&
+                    !participant.muted,
+                )
 
                 return (
                   <View
@@ -821,13 +1014,22 @@ export function ZingSpacesScreen() {
                           backgroundColor: isSpeakerOrHost
                             ? colors.accentSubtle
                             : colors.surface,
-                          borderWidth: 2,
-                          borderColor: participant.handRaised
-                            ? colors.accent
-                            : isSpeakerOrHost
-                              ? colors.rezing
-                              : colors.border,
+                          borderWidth: isSpeaking ? 3 : 2,
+                          borderColor: isSpeaking
+                            ? colors.rezing
+                            : participant.handRaised
+                              ? colors.accent
+                              : isSpeakerOrHost
+                                ? colors.rezing
+                                : colors.border,
                         },
+                        web(
+                          isSpeaking
+                            ? ({
+                                boxShadow: `0 0 12px ${colors.rezing}88`,
+                              } as any)
+                            : {},
+                        ),
                       ]}>
                       <Text
                         style={[
@@ -851,44 +1053,86 @@ export function ZingSpacesScreen() {
                       style={[
                         {fontSize: 11},
                         {
-                          color: participant.handRaised
-                            ? colors.accent
-                            : isSpeakerOrHost
-                              ? colors.rezing
-                              : colors.muted,
+                          color: isSpeaking
+                            ? colors.rezing
+                            : participant.handRaised
+                              ? colors.accent
+                              : isSpeakerOrHost
+                                ? colors.rezing
+                                : colors.muted,
+                          fontWeight: isSpeaking ? '700' : '400',
                         },
                       ]}>
                       {participant.role.toUpperCase()}
-                      {participant.handRaised ? ' · HAND UP' : ''}
+                      {isSpeaking
+                        ? ' · SPEAKING'
+                        : participant.muted
+                          ? ' · MUTED'
+                          : participant.handRaised
+                            ? ' · HAND UP'
+                            : ''}
                     </Text>
                     {canManageRole && (
-                      <Pressable
-                        accessibilityRole="button"
-                        onPress={() =>
-                          handlePromoteOrDemote(
-                            participant.did,
-                            participant.role,
-                          )
-                        }
-                        style={[
-                          a.px_xs,
-                          {
-                            paddingVertical: 2,
-                            borderRadius: 999,
-                            backgroundColor: colors.surface,
-                            borderWidth: 1,
-                            borderColor: colors.border,
-                          },
-                        ]}>
-                        <Text
+                      <View style={[a.flex_row, a.gap_2xs]}>
+                        <Pressable
+                          accessibilityRole="button"
+                          onPress={() =>
+                            handlePromoteOrDemote(
+                              participant.did,
+                              participant.role,
+                            )
+                          }
                           style={[
-                            {fontSize: 10, fontWeight: '700', color: colors.accent},
+                            a.px_xs,
+                            {
+                              paddingVertical: 2,
+                              borderRadius: 999,
+                              backgroundColor: colors.surface,
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                            },
                           ]}>
-                          {participant.role === 'listener'
-                            ? 'Make Speaker'
-                            : 'To Listener'}
-                        </Text>
-                      </Pressable>
+                          <Text
+                            style={[
+                              {fontSize: 10, fontWeight: '700', color: colors.accent},
+                            ]}>
+                            {participant.role === 'listener'
+                              ? 'Make Speaker'
+                              : 'To Listener'}
+                          </Text>
+                        </Pressable>
+                        {participant.role === 'speaker' && !participant.muted && (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Mute speaker"
+                            onPress={() =>
+                              accessJwt &&
+                              void setSpaceMute(
+                                activeSpace.slug,
+                                true,
+                                accessJwt,
+                                participant.did,
+                              )
+                            }
+                            style={[
+                              a.px_xs,
+                              {
+                                paddingVertical: 2,
+                                borderRadius: 999,
+                                backgroundColor: colors.surface,
+                                borderWidth: 1,
+                                borderColor: colors.border,
+                              },
+                            ]}>
+                            <Text
+                              style={[
+                                {fontSize: 10, fontWeight: '700', color: colors.muted},
+                              ]}>
+                              Mute
+                            </Text>
+                          </Pressable>
+                        )}
+                      </View>
                     )}
                   </View>
                 )
@@ -934,6 +1178,47 @@ export function ZingSpacesScreen() {
                 a.gap_sm,
               ]}>
               <View style={[a.flex_row, a.flex_wrap, a.align_center, a.gap_xs]}>
+                {canViewerSpeak && (
+                  <Pressable
+                    testID="zingSpaceMicToggleBtn"
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      audioState.muted ? 'Unmute microphone' : 'Mute microphone'
+                    }
+                    onPress={handleToggleMic}
+                    style={[
+                      a.flex_row,
+                      a.align_center,
+                      a.gap_xs,
+                      a.px_md,
+                      a.py_xs,
+                      a.rounded_full,
+                      {
+                        backgroundColor: audioState.muted
+                          ? colors.surface
+                          : colors.rezing,
+                        borderWidth: 1,
+                        borderColor: audioState.muted
+                          ? colors.border
+                          : colors.rezing,
+                      },
+                      web({cursor: 'pointer'}),
+                    ]}>
+                    {audioState.muted ? (
+                      <MuteIcon size="xs" fill={colors.text} />
+                    ) : (
+                      <SpeakerIcon size="xs" fill="#000000" />
+                    )}
+                    <Text
+                      style={[
+                        a.text_xs,
+                        a.font_semi_bold,
+                        {color: audioState.muted ? colors.text : '#000000'},
+                      ]}>
+                      {audioState.muted ? 'Unmute Mic' : 'Mute Mic'}
+                    </Text>
+                  </Pressable>
+                )}
                 <Pressable
                   testID="zingSpaceRaiseHandBtn"
                   accessibilityRole="button"
