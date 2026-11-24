@@ -61,12 +61,7 @@ module.exports = function (_config) {
    */
   const SHARE_PLATFORM_QUERIES = getNativeQueries()
 
-  const IOS_ICON_FILE =
-    PLATFORM === 'web' // web build doesn't like .icon files
-      ? './assets/app-icons/ios_icon_default_next.png'
-      : IS_TESTFLIGHT
-        ? './assets/app-icons/ios_icon_testflight.icon'
-        : './assets/app-icons/ios_icon_default.icon'
+  const IOS_ICON_FILE = './assets/app-icons/ios_icon_default_next.png'
 
   return {
     expo: {

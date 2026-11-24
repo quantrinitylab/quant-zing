@@ -24,10 +24,8 @@ function asUri(value: string) {
   return value as `${string}:${string}`
 }
 
-const kawaii = Asset.fromModule(require('../../../assets/kawaii.png')).uri // 1920x1080
-const kawaiiSmol = Asset.fromModule(
-  require('../../../assets/kawaii_smol.png'),
-).uri // 246x138
+const brandLogo = Asset.fromModule(require('../../../assets/logo.png')).uri
+const brandLogoSmall = Asset.fromModule(require('../../../assets/logo.png')).uri
 const welcome = Asset.fromModule(
   require('../../../assets/images/welcome-modal-bg.jpg'),
 ).uri // 1432x1025
@@ -210,10 +208,10 @@ function ImageContent() {
           <ImageFrame uri={welcome} width={120} height={160} />
         </Gallery.Item>
         <Gallery.Item label={l`Square frame`}>
-          <ImageFrame uri={kawaii} width={140} height={140} />
+          <ImageFrame uri={brandLogo} width={140} height={140} />
         </Gallery.Item>
         <Gallery.Item label={l`Landscape frame`}>
-          <ImageFrame uri={kawaiiSmol} width={220} height={124} />
+          <ImageFrame uri={brandLogoSmall} width={220} height={124} />
         </Gallery.Item>
       </Gallery.Root>
       <CaptionText>120×160, 140×140, 220×124</CaptionText>
@@ -231,9 +229,9 @@ function ImageAdapter() {
 
   const adapterImages: app.bsky.embed.images.ViewImage[] = [
     {
-      thumb: asUri(kawaii),
-      fullsize: asUri(kawaii),
-      alt: l`A kawaii scene`,
+      thumb: asUri(brandLogo),
+      fullsize: asUri(brandLogo),
+      alt: l`QuantZing brand artwork`,
       // Landscape wider than the carousel allows, so it's cropped
       aspectRatio: {width: 1920, height: 1080},
     },
@@ -244,9 +242,9 @@ function ImageAdapter() {
       aspectRatio: {width: 1432, height: 1025},
     },
     {
-      thumb: asUri(kawaiiSmol),
-      fullsize: asUri(kawaiiSmol),
-      alt: l`A small kawaii scene with no ratio on record`,
+      thumb: asUri(brandLogoSmall),
+      fullsize: asUri(brandLogoSmall),
+      alt: l`QuantZing brand mark with no ratio on record`,
       // No ratio: starts square, then learns it from the loaded thumbnail
       aspectRatio: undefined,
     },
@@ -337,7 +335,7 @@ function MixedContent() {
             <Card width={140} height={240} title={l`Tall`} tone="negative" />
           </Gallery.Item>
           <Gallery.Item label={l`Image`}>
-            <ImageFrame uri={kawaii} width={180} height={120} />
+            <ImageFrame uri={brandLogo} width={180} height={120} />
           </Gallery.Item>
           <Gallery.Item
             label={l`Wide card`}

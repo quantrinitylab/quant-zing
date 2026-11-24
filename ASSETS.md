@@ -10,15 +10,15 @@ This document records the licensing status of first-party QuantZing brand assets
 
 | Directory / Path | Rights Holder | Covered by Source MIT License? | QuantZing Status / Downstream Rule |
 | :--- | :--- | :--- | :--- |
-| **QuantZing Brand Marks** (`src/view/icons/Logo.tsx`, `src/view/icons/Logotype.tsx`, `public/index.html`, `web/index.html`) | QuantZing (Quantrinity Lab / QuantOS) | Brand mark (Trademarks reserved) | First-party QuantZing Q-Bolt emblem and wordmark |
+| **QuantZing Brand Marks** (`src/view/icons/Logo.tsx`, `src/view/icons/Logotype.tsx`, `public/index.html`) | QuantZing (Quantrinity Lab / QuantOS) | Brand mark (Trademarks reserved) | First-party QuantZing Q-Bolt emblem and wordmark |
 | [`assets/fonts/inter/`](#1-permissively-licensed-assets-safe-to-redistribute), Inter files in `bskyogcard/src/assets/fonts/` | The Inter Project Authors | Separate — SIL OFL 1.1 | **Keep, with the OFL notice in `NOTICE.md`** |
 | [Noto fonts downloaded by `bskyogcard/scripts/install-fonts.ts`](#1-permissively-licensed-assets-safe-to-redistribute) | Adobe, Google LLC, and The Noto Project Authors | Separate — SIL OFL 1.1 | **Keep, with the OFL notice in `NOTICE.md`** |
 | [`assets/icons/flags/`](#1-permissively-licensed-assets-safe-to-redistribute) | @catamphetamine | Separate — MIT | **Keep, with the license in `assets/icons/flags/LICENSE`** |
 | [`bskyweb/static/media/MaterialIcons.*.ttf`](#1-permissively-licensed-assets-safe-to-redistribute) | Google, Inc. | Separate — Apache 2.0 | **Keep, with the Apache 2.0 notice in `NOTICE.md`** |
-| [`assets/icons/brands/AppleLogo.svg`, `AndroidLogo.svg`, `assets/icons/community/`](#2-third-party-nominative-trademarks) | Apple Inc., Google LLC, and respective platform owners | No | Nominative identification of external platforms |
-| [`assets/illustrations/`](#3-legacy-upstream-carved-out-directories) | Owen D. Pomery, via Brilliant Artists Ltd (upstream license) | No | Carved out from MIT; replace before commercial binary distribution |
-| [`assets/icons/ui/`](#3-legacy-upstream-carved-out-directories) | Iconists (David & Storm GbR) | No | Carved out from MIT; license directly or replace for third-party forks |
-| [`assets/images/`](#3-legacy-upstream-carved-out-directories) | Mixed upstream provenance | No | Carved out from MIT; replace or omit in commercial binary builds |
+| [`assets/icons/brands/AppleLogo.svg`, `AndroidLogo.svg`, `assets/icons/community/`](#3-third-party-nominative-trademarks) | Apple Inc., Google LLC, and respective platform owners | No | Nominative identification of external platforms |
+| ~~assets/illustrations/~~ (purged) | Owen D. Pomery, via Brilliant Artists Ltd (upstream license) | No | **Purged from repository**; replaced by QuantZing monochrome welcome screens (`src/view/com/auth/NativeSplashScreen.tsx`, `src/view/com/auth/SplashScreen.web.tsx`) |
+| [`assets/icons/ui/`](#4-legacy-upstream-carved-out-directories) | Iconists (David & Storm GbR) | No | Carved out from MIT; license directly or replace for third-party forks |
+| [`assets/images/`](#4-legacy-upstream-carved-out-directories) | Mixed upstream provenance | No | Carved out from MIT; replace or omit in commercial binary builds |
 
 ---
 
@@ -50,9 +50,9 @@ Logos in `assets/icons/brands/` (`AppleLogo.svg`, `AndroidLogo.svg`), `assets/ic
 ## 4. Legacy Upstream Carved-Out Directories
 
 Per upstream repository disclosures:
-- **`assets/illustrations/`**: Commissioned illustration files originally licensed exclusively to Bluesky Social PBC by Owen D. Pomery. QuantZing's web and native onboarding flows use QuantZing's native X-Dark brand components (`Logo.tsx` and `Splash.web.tsx`). Do not use `assets/illustrations/` in commercial distributions.
+- **~~assets/illustrations/~~ (purged)**: Commissioned illustration files originally licensed exclusively to Bluesky Social PBC by Owen D. Pomery have been removed from the QuantZing repository. QuantZing's web and native onboarding flows use QuantZing's monochrome first-party brand components (`src/view/icons/Logo.tsx`, `src/view/com/auth/NativeSplashScreen.tsx`, and `src/view/com/auth/SplashScreen.web.tsx`).
 - **`assets/icons/ui/`**: Glyph files from the Central icon system (Iconists / David & Storm GbR). Any downstream commercial distribution must either hold an Iconists license or substitute open-source SVG icons.
-- **`assets/kawaii.png`, `assets/kawaii_smol.png`, and `assets/images/`**: Legacy upstream community/product graphics not covered by the MIT source code license.
+- **~~assets/kawaii.png~~ and ~~assets/kawaii_smol.png~~ (purged), and `assets/images/`**: Legacy upstream mascot graphics (`kawaii.png` / `kawaii_smol.png`) have been purged; remaining `assets/images/` files are legacy upstream product graphics not covered by the MIT source code license.
 
 ---
 

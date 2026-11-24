@@ -17,13 +17,11 @@
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
-  "license": "MIT",
       "version": "10.28.1",
       "onFail": "warn"
     },
     "runtime": {
       "name": "node",
-  "license": "MIT",
       "version": ">=24.7.0",
       "onFail": "warn"
     }

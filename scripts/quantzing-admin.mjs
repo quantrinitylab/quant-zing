@@ -190,9 +190,10 @@ export function hasPermission(role, permission) {
 export function isProtectedAccount(account) {
   if (!account || typeof account !== 'object') return false
   return Boolean(
-    account.verified === true ||
+    normalizeRole(account.role) !== 'user' ||
+      account.officialAccount === true ||
       account.isOfficial === true ||
-      isStaffRole(account.role),
+      account.staffVerified === true,
   )
 }
 
@@ -221,8 +222,11 @@ export function maskEmailForRole(email, role) {
 // ---------------------------------------------------------------------------
 
 function getRequestHostname(req) {
+  const trustForwarded = process.env.QUANTZING_TRUST_FORWARDED_HOST === '1'
   const raw = String(
-    req?.headers?.['x-forwarded-host'] || req?.headers?.host || '',
+    (trustForwarded ? req?.headers?.['x-forwarded-host'] : '') ||
+      req?.headers?.host ||
+      '',
   )
     .split(',')[0]
     .trim()
@@ -451,6 +455,13 @@ function safeTokenEquals(a, b) {
   return crypto.timingSafeEqual(bufA, bufB)
 }
 
+function hashInviteToken(token) {
+  return crypto
+    .createHash('sha256')
+    .update(String(token || ''), 'utf8')
+    .digest('hex')
+}
+
 // ---------------------------------------------------------------------------
 // DB Schema Extensions & Founder Admin Bootstrap
 // ---------------------------------------------------------------------------
@@ -474,6 +485,21 @@ export function ensureAdminState(db, helpers) {
   if (!Array.isArray(db.staffInvites)) {
     db.staffInvites = []
     mutated = true
+  } else {
+    for (const inv of db.staffInvites) {
+      if (inv && typeof inv === 'object' && inv.token && !inv.tokenHash) {
+        const rawTok = String(inv.token)
+        inv.tokenHash = hashInviteToken(rawTok)
+        inv.invitePreview =
+          inv.invitePreview ||
+          (rawTok.length >= 10
+            ? `${rawTok.slice(0, 6)}...${rawTok.slice(-4)}`
+            : '***')
+        delete inv.token
+        delete inv.inviteUrl
+        mutated = true
+      }
+    }
   }
   if (!db.takedowns || typeof db.takedowns !== 'object') {
     db.takedowns = {posts: {}, accounts: {}}
@@ -577,7 +603,9 @@ export function ensureAdminState(db, helpers) {
       suspendedUntil: null,
       warnings: [],
       verified: true,
+      staffVerified: true,
       isOfficial: true,
+      officialAccount: true,
       profile: {
         displayName: 'QuantZing Founder',
         description:
@@ -601,6 +629,14 @@ export function ensureAdminState(db, helpers) {
     }
     if (!founderAcc.isOfficial) {
       founderAcc.isOfficial = true
+      mutated = true
+    }
+    if (!founderAcc.officialAccount) {
+      founderAcc.officialAccount = true
+      mutated = true
+    }
+    if (!founderAcc.staffVerified) {
+      founderAcc.staffVerified = true
       mutated = true
     }
     if (founderAvatarBlob && !founderAcc.profile?.avatar) {
@@ -649,6 +685,14 @@ export function ensureAdminState(db, helpers) {
     }
     if (officialAcc.department !== 'Leadership') {
       officialAcc.department = 'Leadership'
+      mutated = true
+    }
+    if (!officialAcc.officialAccount) {
+      officialAcc.officialAccount = true
+      mutated = true
+    }
+    if (!officialAcc.staffVerified) {
+      officialAcc.staffVerified = true
       mutated = true
     }
   }
@@ -743,11 +787,21 @@ export function checkAccountEnforcement(db, account, {saveDb = null} = {}) {
       account.status = 'active'
       account.suspendedUntil = null
       account.statusReason = ''
+      if (db?.accounts?.[account.did] && db.accounts[account.did] !== account) {
+        db.accounts[account.did].status = 'active'
+        db.accounts[account.did].suspendedUntil = null
+        db.accounts[account.did].statusReason = ''
+      }
       if (db?.takedowns?.accounts?.[account.did]) {
         delete db.takedowns.accounts[account.did]
       }
       if (typeof saveDb === 'function') {
         saveDb(db)
+      } else if (db && typeof db.upsertAccount === 'function') {
+        db.upsertAccount(account)
+        if (typeof db.deleteTakedownAccount === 'function') {
+          db.deleteTakedownAccount(account.did)
+        }
       }
       return {allowed: true}
     }
@@ -816,6 +870,12 @@ export function isPostHiddenForViewer(db, postRec, viewerDid, getCollectionMap) 
       if (db._store.isMuted(viewerDid, postRec.repo)) return true
       if (db._store.findBlockUri(viewerDid, postRec.repo)) return true
       if (db._store.findBlockUri(postRec.repo, viewerDid)) return true
+      if (
+        typeof db._store.isAuthorInViewerMutedOrBlockedList === 'function' &&
+        db._store.isAuthorInViewerMutedOrBlockedList(viewerDid, postRec.repo)
+      ) {
+        return true
+      }
     }
     return false
   }
@@ -1496,8 +1556,13 @@ export async function handleQuantZingAdmin(req, res, ctx) {
         return true
       }
 
+      const tokenHash = hashInviteToken(token)
       const invite = (db.staffInvites || []).find(inv =>
-        safeTokenEquals(inv?.token, token),
+        inv?.tokenHash
+          ? safeTokenEquals(inv.tokenHash, tokenHash)
+          : inv?.token
+            ? safeTokenEquals(inv.token, token)
+            : false,
       )
       if (!invite) {
         helpers.sendXrpcError(req, res, 404, 'NotFound', 'Invite not found')
@@ -1571,8 +1636,13 @@ export async function handleQuantZingAdmin(req, res, ctx) {
         return true
       }
 
+      const tokenHash = hashInviteToken(token)
       const invite = (db.staffInvites || []).find(inv =>
-        safeTokenEquals(inv?.token, token),
+        inv?.tokenHash
+          ? safeTokenEquals(inv.tokenHash, tokenHash)
+          : inv?.token
+            ? safeTokenEquals(inv.token, token)
+            : false,
       )
       if (!invite) {
         helpers.sendXrpcError(req, res, 404, 'NotFound', 'Invite not found')
@@ -2919,8 +2989,10 @@ export async function handleQuantZingAdmin(req, res, ctx) {
         }
       } else if (action === 'verify') {
         target.verified = true
+        target.staffVerified = true
       } else if (action === 'unverify') {
         target.verified = false
+        target.staffVerified = false
       } else if (action === 'warn') {
         if (
           auth.role !== 'super_admin' &&
@@ -3505,9 +3577,11 @@ export async function handleQuantZingAdmin(req, res, ctx) {
         .map(inv => {
           const isExpired =
             inv.status === 'pending' && Date.parse(inv.expiresAt) <= nowMs
-          const invitePreview = inv.token
-            ? `${inv.token.slice(0, 6)}...${inv.token.slice(-4)}`
-            : ''
+          const invitePreview =
+            inv.invitePreview ||
+            (inv.token
+              ? `${inv.token.slice(0, 6)}...${inv.token.slice(-4)}`
+              : '')
           return {
             id: inv.id,
             email: inv.email,
@@ -3522,12 +3596,6 @@ export async function handleQuantZingAdmin(req, res, ctx) {
             acceptedByDid: inv.acceptedByDid || null,
             acceptedAt: inv.acceptedAt || null,
             invitePreview,
-            ...(inv.status === 'pending' && !isExpired
-              ? {
-                  inviteUrl:
-                    inv.inviteUrl || buildInviteUrl(req, origin, inv.token),
-                }
-              : {}),
           }
         })
 
@@ -3588,11 +3656,14 @@ export async function handleQuantZingAdmin(req, res, ctx) {
         .slice(0, 500)
 
       const token = crypto.randomBytes(16).toString('hex')
+      const tokenHash = hashInviteToken(token)
+      const invitePreview = `${token.slice(0, 6)}...${token.slice(-4)}`
       const nowMs = Date.now()
       const inviteUrl = buildInviteUrl(req, origin, token)
       const invite = {
         id: `inv_${helpers.generateTid()}`,
-        token,
+        tokenHash,
+        invitePreview,
         email,
         role: normalizedRole,
         department,
@@ -3604,7 +3675,6 @@ export async function handleQuantZingAdmin(req, res, ctx) {
         status: 'pending',
         acceptedByDid: null,
         acceptedAt: null,
-        inviteUrl,
       }
 
       db.staffInvites = Array.isArray(db.staffInvites) ? db.staffInvites : []
@@ -3629,8 +3699,11 @@ export async function handleQuantZingAdmin(req, res, ctx) {
         ok: true,
         invite: {
           ...invite,
-          invitePreview: `${token.slice(0, 6)}...${token.slice(-4)}`,
+          token,
+          inviteUrl,
+          invitePreview,
         },
+        token,
         inviteUrl,
       })
       return true

@@ -1365,7 +1365,7 @@ msgstr "A reply to a message sent before you joined"
 #. Contains a post that originally appeared in English. Consider translating the post text if it makes sense in your language, and noting that the post was translated from English.
 #: src/components/dialogs/nuxs/LiveNowBetaDialog.tsx:147
 msgid "A screenshot of a post from @esb.lol, showing the user is currently livestreaming content on Twitch. The post reads: \"Hello! I'm live on Twitch, and I'm testing QuantZing's latest feature too!\""
-msgstr "A screenshot of a post from @esb.lol, showing the user is currently livestreaming content on Twitch. The post reads: \"Hello! I'm live on Twitch, and I'm testing QuantZing's latest feature too!\""
+msgstr "A screenshot of a Zing from @esb.lol, showing the user is currently livestreaming content on Twitch. The Zing reads: \"Hello! I'm live on Twitch, and I'm testing QuantZing's latest feature too!\""
 
 #. Contains a post that originally appeared in English. Consider translating the post text if it makes sense in your language, and noting that the post was translated from English.
 #: src/components/dialogs/nuxs/BookmarksAnnouncement.tsx:121
@@ -6130,7 +6130,7 @@ msgstr ""
 #. Description of a feature flag (Feed rendering improvements)
 #: src/analytics/features/index.ts:156
 msgid "Feeds and lists keep only nearby posts in the page, so performance stays steady however far you scroll."
-msgstr "Feeds and lists keep only nearby posts in the page, so performance stays steady however far you scroll."
+msgstr "Feeds and lists keep only nearby Zings in the page, so performance stays steady however far you scroll."
 
 #: src/screens/SavedFeeds.tsx:227
 #: src/screens/SavedFeeds.tsx:398
@@ -9770,7 +9770,7 @@ msgstr "On"
 
 #: src/screens/Settings/components/AlgoVisibilityOptOut.tsx:43
 msgid "On QuantZing, this means your posts will only appear in the Discover feed to people who follow you. Other apps can choose to use this preference in their own algorithmic recommendations."
-msgstr "On QuantZing, this means your posts will only appear in the Discover feed to people who follow you. Other apps can choose to use this preference in their own algorithmic recommendations."
+msgstr "On QuantZing, this means your Zings will only appear in the Discover feed to people who follow you. Other apps can choose to use this preference in their own algorithmic recommendations."
 
 #: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:58
 msgid "On this screen, you can discover apps, explore what people are making, and keep up with people you follow."
@@ -10841,7 +10841,7 @@ msgstr "Zing by @{0}"
 #. placeholder {0}: postAuthor.handle
 #: src/components/PostControls/ShareMenu/ShareSheetItems.tsx:63
 msgid "Post by @{0} on QuantZing"
-msgstr "Post by @{0} on QuantZing"
+msgstr "Zing by @{0} on QuantZing"
 
 #: src/components/PostControls/PostMenu/PostMenuItems.tsx:203
 msgctxt "toast"
@@ -10880,7 +10880,7 @@ msgstr "Zing Interaction Settings"
 
 #: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:187
 msgid "Post it to QuantZing or share anywhere."
-msgstr "Post it to QuantZing or share anywhere."
+msgstr "Zing it to QuantZing or share anywhere."
 
 #. Accessibility label for button that opens dialog to choose post language settings
 #: src/view/com/composer/select-language/PostLanguageSelect.tsx:193
@@ -14858,7 +14858,7 @@ msgstr "This person is blocking you"
 #. placeholder {1}: niceDate(i18n, indexedAt)
 #: src/screens/PostThread/components/ThreadItemAnchor.tsx:667
 msgid "This post claims to have been created on <0>{0}</0>, but was first seen by QuantZing on <1>{1}</1>."
-msgstr "This post claims to have been created on <0>{0}</0>, but was first seen by QuantZing on <1>{1}</1>."
+msgstr "This Zing claims to have been created on <0>{0}</0>, but was first seen by QuantZing on <1>{1}</1>."
 
 #: src/components/WhoCanReply.tsx:296
 msgid "This post has an unknown type of threadgate on it. Your app may be out of date."
@@ -16901,7 +16901,7 @@ msgstr ""
 
 #: src/screens/Settings/components/DeleteAccountDialog.tsx:219
 msgid "You can also <0>temporarily deactivate</0> your account instead. Your profile, posts, feeds, and lists will no longer be visible to other QuantZing users. You can reactivate your account at any time by logging in."
-msgstr "You can also <0>temporarily deactivate</0> your account instead. Your profile, posts, feeds, and lists will no longer be visible to other QuantZing users. You can reactivate your account at any time by logging in."
+msgstr "You can also <0>temporarily deactivate</0> your account instead. Your profile, Zings, feeds, and lists will no longer be visible to other QuantZing users. You can reactivate your account at any time by logging in."
 
 #: src/view/com/posts/FollowingEmptyState.tsx:61
 #: src/view/com/posts/FollowingEndOfFeed.tsx:62
@@ -17665,7 +17665,7 @@ msgstr ""
 
 #: src/screens/Settings/components/DeactivateAccountDialog.tsx:75
 msgid "Your profile, posts, feeds, and lists will no longer be visible to other QuantZing users. You can reactivate your account at any time by logging in."
-msgstr "Your profile, posts, feeds, and lists will no longer be visible to other QuantZing users. You can reactivate your account at any time by logging in."
+msgstr "Your profile, Zings, feeds, and lists will no longer be visible to other QuantZing users. You can reactivate your account at any time by logging in."
 
 #: src/screens/Profile/Header/PronounsDialog.tsx:129
 msgid "Your pronouns show next to your handle on your profile."

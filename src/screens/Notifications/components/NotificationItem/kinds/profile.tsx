@@ -284,7 +284,7 @@ export function UnverifiedNotification({
 }
 
 /**
- * Someone signed up for Bluesky with one of the viewer's starter packs.
+ * Someone signed up for QuantZing with one of the viewer's starter packs.
  * Pressing the row opens their profile.
  */
 export function StarterPackJoinedNotification({
@@ -321,7 +321,7 @@ export function StarterPackJoinedNotification({
 }
 
 /**
- * One of the viewer's contacts joined Bluesky. Pressing the row opens their
+ * One of the viewer's contacts joined QuantZing. Pressing the row opens their
  * profile.
  */
 export function ContactMatchNotification({
@@ -353,7 +353,7 @@ export function ContactMatchNotification({
           }>
           <Item.PrimaryText>
             <Trans>
-              Your contact <Item.Name profile={actor} /> is on Bluesky
+              Your contact <Item.Name profile={actor} /> is on QuantZing
             </Trans>
           </Item.PrimaryText>
         </Item.HeadlineWithButton>

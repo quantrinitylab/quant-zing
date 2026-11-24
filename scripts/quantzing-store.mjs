@@ -111,10 +111,20 @@ function isVideoEmbedValue(embed) {
 function isMediaEmbedValue(embed) {
   if (!embed || typeof embed !== 'object') return false
   const t = embed.$type
-  if (t === 'app.bsky.embed.images' || t === 'app.bsky.embed.video') return true
+  if (
+    t === 'app.bsky.embed.images' ||
+    t === 'app.bsky.embed.video' ||
+    t === 'app.bsky.embed.gallery'
+  ) {
+    return true
+  }
   if (t === 'app.bsky.embed.recordWithMedia') {
     const mt = embed.media?.$type
-    return mt === 'app.bsky.embed.images' || mt === 'app.bsky.embed.video'
+    return (
+      mt === 'app.bsky.embed.images' ||
+      mt === 'app.bsky.embed.video' ||
+      mt === 'app.bsky.embed.gallery'
+    )
   }
   return false
 }
@@ -551,7 +561,7 @@ CREATE TABLE IF NOT EXISTS spaces (
   topic TEXT NOT NULL DEFAULT '',
   host_did TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'live',
-  audio_mode TEXT NOT NULL DEFAULT 'text_stage_ready',
+  audio_mode TEXT NOT NULL DEFAULT 'webrtc_signaling',
   allow_recording INTEGER NOT NULL DEFAULT 0,
   co_host_enabled INTEGER NOT NULL DEFAULT 0,
   started_at TEXT,
@@ -1008,6 +1018,37 @@ export class QuantZingStore {
       deleteNotificationsByUri: db.prepare(
         'DELETE FROM notifications WHERE uri = ?',
       ),
+      deleteNotificationsByReasonSubject: db.prepare(
+        'DELETE FROM notifications WHERE reason_subject = ?',
+      ),
+      deleteBookmarksByUri: db.prepare('DELETE FROM bookmarks WHERE uri = ?'),
+      deletePostCounterByUri: db.prepare(
+        'DELETE FROM post_counters WHERE uri = ?',
+      ),
+      deletePostViewsByUri: db.prepare(
+        'DELETE FROM post_views_dedup WHERE uri = ?',
+      ),
+      deletePollVotesByUri: db.prepare(
+        'DELETE FROM poll_votes WHERE post_uri = ?',
+      ),
+      isAuthorInMutedOrBlockedList: db.prepare(`
+        SELECT 1 AS ok FROM records li
+        WHERE li.collection = 'app.bsky.graph.listitem'
+          AND li.subject_did = ?
+          AND (
+            EXISTS (
+              SELECT 1 FROM muted_lists ml
+              WHERE ml.viewer_did = ? AND ml.list_uri = li.list_uri
+            )
+            OR EXISTS (
+              SELECT 1 FROM records lb
+              WHERE lb.did = ?
+                AND lb.collection = 'app.bsky.graph.listblock'
+                AND lb.subject_uri = li.list_uri
+            )
+          )
+        LIMIT 1
+      `),
       upsertStaffUser: db.prepare(`
         INSERT INTO staff_users(did, handle, role, department, status, last_ops_login_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1124,7 +1165,7 @@ export class QuantZingStore {
     const extra = safeJsonParse(row.extra_json, {})
     const profile = {
       ...(extra.profile || {}),
-      displayName: row.display_name || '',
+      displayName: row.display_name ?? '',
       description: row.description || '',
       avatar: safeJsonParse(row.avatar_json, null),
       banner: safeJsonParse(row.banner_json, null),
@@ -1132,6 +1173,9 @@ export class QuantZingStore {
       ...(row.website ? {website: row.website} : {}),
       ...(row.pinned_post_json
         ? {pinnedPost: safeJsonParse(row.pinned_post_json, null)}
+        : {}),
+      ...(Array.isArray(extra.profileLinks)
+        ? {links: extra.profileLinks}
         : {}),
       createdAt: extra.profileCreatedAt || row.created_at,
     }
@@ -1151,7 +1195,9 @@ export class QuantZingStore {
       statusReason: row.status_reason || '',
       suspendedUntil: row.suspended_until || null,
       verified: Boolean(row.verified),
+      staffVerified: Boolean(extra.staffVerified),
       isOfficial: Boolean(row.is_official),
+      officialAccount: Boolean(extra.officialAccount || row.is_official),
       isSystemQuanty: Boolean(row.is_system_quanty),
       emailConfirmed: row.email_confirmed !== 0,
       emailAuthFactor: Boolean(row.email_auth_factor),
@@ -1164,6 +1210,11 @@ export class QuantZingStore {
         row.notification_preferences_json,
         {},
       ),
+      chatNotificationPreferences:
+        extra.chatNotificationPreferences || undefined,
+      appPasswords: Array.isArray(extra.appPasswords) ? extra.appPasswords : [],
+      deactivatedAt: extra.deactivatedAt || null,
+      deleteAfter: extra.deleteAfter || null,
       profile,
       followersCount: Number(row.followers_count || 0),
       followsCount: Number(row.follows_count || 0),
@@ -1216,13 +1267,57 @@ export class QuantZingStore {
     const now = new Date().toISOString()
     const profile = account.profile || {}
     const existing = this._stmts.getAccountByDid.get(account.did)
+    const existingExtra = existing ? safeJsonParse(existing.extra_json, {}) : {}
     const createdAt = account.createdAt || existing?.created_at || now
     const email =
       account.email && String(account.email).trim()
         ? String(account.email).trim().toLowerCase()
         : null
     const extra = {
-      profileCreatedAt: profile.createdAt || createdAt,
+      profileCreatedAt:
+        profile.createdAt || existingExtra.profileCreatedAt || createdAt,
+      ...(Array.isArray(profile.links) ? {profileLinks: profile.links} : {}),
+      ...(account.staffVerified === true
+        ? {staffVerified: true}
+        : account.staffVerified === false
+          ? {}
+          : existingExtra.staffVerified === true
+            ? {staffVerified: true}
+            : {}),
+      ...(account.officialAccount === true || account.isOfficial === true
+        ? {officialAccount: true}
+        : account.officialAccount === false
+          ? {}
+          : existingExtra.officialAccount === true
+            ? {officialAccount: true}
+            : {}),
+      ...(account.chatNotificationPreferences !== undefined
+        ? {chatNotificationPreferences: account.chatNotificationPreferences}
+        : existingExtra.chatNotificationPreferences !== undefined
+          ? {
+              chatNotificationPreferences:
+                existingExtra.chatNotificationPreferences,
+            }
+          : {}),
+      ...(Array.isArray(account.appPasswords)
+        ? {appPasswords: account.appPasswords}
+        : Array.isArray(existingExtra.appPasswords)
+          ? {appPasswords: existingExtra.appPasswords}
+          : {}),
+      ...(account.deactivatedAt !== undefined
+        ? account.deactivatedAt
+          ? {deactivatedAt: account.deactivatedAt}
+          : {}
+        : existingExtra.deactivatedAt
+          ? {deactivatedAt: existingExtra.deactivatedAt}
+          : {}),
+      ...(account.deleteAfter !== undefined
+        ? account.deleteAfter
+          ? {deleteAfter: account.deleteAfter}
+          : {}
+        : existingExtra.deleteAfter
+          ? {deleteAfter: existingExtra.deleteAfter}
+          : {}),
     }
     const prefsJson = JSON.stringify(
       Array.isArray(account.preferences) ? account.preferences : [],
@@ -1385,6 +1480,208 @@ export class QuantZingStore {
       .run(verified ? 1 : 0, new Date().toISOString(), String(did))
   }
 
+  deleteTakedownAccount(did) {
+    if (!did) return
+    this.db
+      .prepare('DELETE FROM takedowns_accounts WHERE did = ?')
+      .run(String(did))
+  }
+
+  updateAccountPassword(did, salt, hash) {
+    const now = new Date().toISOString()
+    this.db
+      .prepare(
+        'UPDATE accounts SET password_salt = ?, password_hash = ?, token_version = COALESCE(token_version, 1) + 1, updated_at = ? WHERE did = ?',
+      )
+      .run(String(salt), String(hash), now, String(did))
+    return this.getAccountByDid(did)
+  }
+
+  updateAccountEmail(did, email, {emailConfirmed, emailAuthFactor} = {}) {
+    const now = new Date().toISOString()
+    const cleanEmail = email ? String(email).trim().toLowerCase() : null
+    const existing = this.getAccountByDid(did)
+    if (!existing) return null
+    const nextConfirmed =
+      emailConfirmed !== undefined
+        ? emailConfirmed
+          ? 1
+          : 0
+        : existing.emailConfirmed !== false
+          ? 1
+          : 0
+    const nextAuthFactor =
+      emailAuthFactor !== undefined
+        ? emailAuthFactor
+          ? 1
+          : 0
+        : existing.emailAuthFactor
+          ? 1
+          : 0
+    this.db
+      .prepare(
+        'UPDATE accounts SET email = ?, email_confirmed = ?, email_auth_factor = ?, updated_at = ? WHERE did = ?',
+      )
+      .run(cleanEmail, nextConfirmed, nextAuthFactor, now, String(did))
+    return this.getAccountByDid(did)
+  }
+
+  setAccountActive(did, active, {deleteAfter = null} = {}) {
+    const existing = this.getAccountByDid(did)
+    if (!existing) return null
+    existing.active = Boolean(active)
+    existing.deactivatedAt = active ? null : new Date().toISOString()
+    existing.deleteAfter = active ? null : deleteAfter || null
+    return this.upsertAccount(existing)
+  }
+
+  getAllRecordsForRepo(did) {
+    return this.db
+      .prepare(
+        'SELECT * FROM records WHERE did = ? ORDER BY collection ASC, rkey ASC',
+      )
+      .all(String(did))
+      .map(r => this._rowToRecord(r))
+  }
+
+  deleteChatAccountData(did) {
+    const targetDid = String(did)
+    const now = new Date().toISOString()
+    this.inTransaction(() => {
+      this.db
+        .prepare('UPDATE convo_members SET left_at = ? WHERE did = ?')
+        .run(now, targetDid)
+      this.db
+        .prepare('DELETE FROM convo_messages WHERE sender_did = ?')
+        .run(targetDid)
+      this.db
+        .prepare('DELETE FROM convo_logs WHERE actor_did = ?')
+        .run(targetDid)
+    })
+  }
+
+  exportChatAccountData(did) {
+    const targetDid = String(did)
+    const memberRows = this.db
+      .prepare('SELECT convo_id FROM convo_members WHERE did = ?')
+      .all(targetDid)
+    const convoIds = memberRows.map(r => r.convo_id)
+    const lines = []
+    for (const convoId of convoIds) {
+      const convo = this.getConvoById(convoId)
+      if (!convo) continue
+      lines.push(
+        JSON.stringify({
+          $type: 'chat.bsky.convo.defs#convoView',
+          id: convo.id,
+          rev: convo.rev,
+          members: convo.allMemberDids,
+          createdAt: convo.createdAt,
+          updatedAt: convo.updatedAt,
+        }),
+      )
+      const msgs = this.db
+        .prepare(
+          'SELECT * FROM convo_messages WHERE convo_id = ? ORDER BY rev ASC',
+        )
+        .all(convoId)
+      for (const m of msgs) {
+        const deletedFor = safeJsonParse(m.deleted_for_json, [])
+        if (deletedFor.includes(targetDid)) continue
+        lines.push(
+          JSON.stringify({
+            $type: 'chat.bsky.convo.defs#messageView',
+            id: m.id,
+            convoId: m.convo_id,
+            rev: m.rev,
+            sender: {did: m.sender_did},
+            text: m.text,
+            sentAt: m.sent_at,
+          }),
+        )
+      }
+    }
+    return lines.join('\n') + (lines.length > 0 ? '\n' : '')
+  }
+
+  deleteAccountCompletely(did) {
+    const targetDid = String(did)
+    this.inTransaction(() => {
+      const ownedPosts = this.db
+        .prepare(
+          "SELECT uri FROM records WHERE did = ? AND collection = 'app.bsky.feed.post'",
+        )
+        .all(targetDid)
+      for (const p of ownedPosts) {
+        this._stmts.deletePostFts.run(p.uri)
+        this._stmts.deletePostTags.run(p.uri)
+        this._stmts.deleteNotificationsByUri.run(p.uri)
+        this._stmts.deleteNotificationsByReasonSubject.run(p.uri)
+        this._stmts.deleteBookmarksByUri.run(p.uri)
+        this._stmts.deletePostCounterByUri.run(p.uri)
+        this._stmts.deletePostViewsByUri.run(p.uri)
+        this._stmts.deletePollVotesByUri.run(p.uri)
+      }
+      this.db.prepare('DELETE FROM records WHERE did = ?').run(targetDid)
+      this.db.prepare('DELETE FROM post_tags WHERE did = ?').run(targetDid)
+      this.db.prepare('DELETE FROM bookmarks WHERE did = ?').run(targetDid)
+      this.db.prepare('DELETE FROM drafts WHERE did = ?').run(targetDid)
+      this.db
+        .prepare('DELETE FROM mutes WHERE viewer_did = ? OR target_did = ?')
+        .run(targetDid, targetDid)
+      this.db
+        .prepare('DELETE FROM muted_lists WHERE viewer_did = ?')
+        .run(targetDid)
+      this.db
+        .prepare('DELETE FROM muted_threads WHERE viewer_did = ?')
+        .run(targetDid)
+      this.db
+        .prepare('DELETE FROM blocks WHERE viewer_did = ? OR target_did = ?')
+        .run(targetDid, targetDid)
+      this.db
+        .prepare(
+          'DELETE FROM notifications WHERE recipient_did = ? OR actor_did = ?',
+        )
+        .run(targetDid, targetDid)
+      this.db.prepare('DELETE FROM convo_members WHERE did = ?').run(targetDid)
+      this.db
+        .prepare('DELETE FROM convo_messages WHERE sender_did = ?')
+        .run(targetDid)
+      this.db
+        .prepare('DELETE FROM convo_logs WHERE actor_did = ?')
+        .run(targetDid)
+      this.db.prepare('DELETE FROM preferences WHERE did = ?').run(targetDid)
+      this.db.prepare('DELETE FROM staff_users WHERE did = ?').run(targetDid)
+      this.db.prepare('DELETE FROM staff_sessions WHERE did = ?').run(targetDid)
+      this.db
+        .prepare('DELETE FROM articles WHERE author_did = ?')
+        .run(targetDid)
+      this.db
+        .prepare('DELETE FROM space_participants WHERE did = ?')
+        .run(targetDid)
+      this.db
+        .prepare('DELETE FROM space_reactions WHERE did = ?')
+        .run(targetDid)
+      this.db
+        .prepare('DELETE FROM poll_votes WHERE voter_did = ?')
+        .run(targetDid)
+      this.db
+        .prepare('DELETE FROM pro_subscriptions WHERE did = ?')
+        .run(targetDid)
+      this.db
+        .prepare('DELETE FROM creator_monetization WHERE did = ?')
+        .run(targetDid)
+      this.db
+        .prepare('DELETE FROM quanty_threads WHERE did = ?')
+        .run(targetDid)
+      this.db
+        .prepare('DELETE FROM takedowns_accounts WHERE did = ?')
+        .run(targetDid)
+      this._stmts.deleteAccountFts.run(targetDid)
+      this.db.prepare('DELETE FROM accounts WHERE did = ?').run(targetDid)
+    })
+  }
+
   // -------------------------------------------------------------------------
   // Canonical AT-URI Resolution
   // -------------------------------------------------------------------------
@@ -1523,6 +1820,28 @@ export class QuantZingStore {
     if (!viewerDid || !listUri) return false
     const canonical = this.canonicalizeUri(listUri)
     return Boolean(this._stmts.isListMuted.get(String(viewerDid), canonical))
+  }
+
+  isAuthorInViewerMutedOrBlockedList(viewerDid, authorDid) {
+    if (!viewerDid || !authorDid || viewerDid === authorDid) return false
+    return Boolean(
+      this._stmts.isAuthorInMutedOrBlockedList.get(
+        String(authorDid),
+        String(viewerDid),
+        String(viewerDid),
+      ),
+    )
+  }
+
+  findListItemUri(did, listUri, subjectDid) {
+    if (!did || !listUri || !subjectDid) return undefined
+    const canonicalList = this.canonicalizeUri(listUri)
+    const row = this.db
+      .prepare(
+        "SELECT uri FROM records WHERE did = ? AND collection = 'app.bsky.graph.listitem' AND list_uri = ? AND subject_did = ? LIMIT 1",
+      )
+      .get(String(did), canonicalList, String(subjectDid))
+    return row?.uri || undefined
   }
 
   isPostTakenDown(uri) {
@@ -1840,6 +2159,11 @@ export class QuantZingStore {
     if (collection === 'app.bsky.feed.post') {
       this._stmts.deletePostFts.run(existing.uri)
       this._stmts.deletePostTags.run(existing.uri)
+      this._stmts.deleteNotificationsByReasonSubject.run(existing.uri)
+      this._stmts.deleteBookmarksByUri.run(existing.uri)
+      this._stmts.deletePostCounterByUri.run(existing.uri)
+      this._stmts.deletePostViewsByUri.run(existing.uri)
+      this._stmts.deletePollVotesByUri.run(existing.uri)
       this._stmts.bumpAccountPosts.run(-1, String(did))
       if (existing.parent_uri) {
         this._stmts.bumpReplyCount.run(existing.parent_uri, 0, -1)
@@ -2015,6 +2339,8 @@ export class QuantZingStore {
   queryPosts({
     authorDids = null,
     includeReplies = false,
+    repliesOnly = false,
+    authorThreadsOnly = false,
     onlyVideo = false,
     onlyMedia = false,
     tags = null,
@@ -2030,7 +2356,13 @@ export class QuantZingStore {
       wheres.push(`r.did IN (${authorDids.map(() => '?').join(',')})`)
       params.push(...authorDids)
     }
-    if (!includeReplies) {
+    if (repliesOnly) {
+      wheres.push('r.is_reply = 1')
+    } else if (authorThreadsOnly) {
+      wheres.push(
+        "(r.is_reply = 0 OR (r.parent_uri LIKE ('at://' || r.did || '/%') AND (r.root_uri IS NULL OR r.root_uri LIKE ('at://' || r.did || '/%'))))",
+      )
+    } else if (!includeReplies) {
       wheres.push('r.is_reply = 0')
     }
     if (onlyVideo) {
@@ -2180,20 +2512,25 @@ export class QuantZingStore {
     }
   }
 
-  getQuotesForPost(postUri, {limit = 50, cursor = null} = {}) {
+  getQuotesForPost(postUri, {limit = 50, cursor = null, sort = 'latest'} = {}) {
     const canonical = this.canonicalizeUri(postUri)
     const lim = Math.min(100, Math.max(1, Number(limit) || 50))
     const offset = cursor ? Math.max(0, parseInt(String(cursor), 10) || 0) : 0
+    const orderClause =
+      String(sort || '').toLowerCase() === 'top'
+        ? '(COALESCE(pc.like_count, 0) * 3 + COALESCE(pc.repost_count, 0) * 5 + COALESCE(pc.reply_count, 0) * 4 + COALESCE(pc.quote_count, 0) * 4 + COALESCE(pc.bookmark_count, 0) * 2 + COALESCE(pc.view_count, 0) * 0.15) DESC, r.indexed_at DESC'
+        : 'r.indexed_at DESC'
     const rows = this.db
       .prepare(
         `
         SELECT r.* FROM records r
         JOIN accounts a ON a.did = r.did
+        LEFT JOIN post_counters pc ON pc.uri = r.uri
         WHERE r.collection = 'app.bsky.feed.post'
           AND r.quote_uri = ?
           AND a.status NOT IN ('banned', 'suspended')
           AND NOT EXISTS (SELECT 1 FROM takedowns_posts tp WHERE tp.uri = r.uri)
-        ORDER BY r.indexed_at DESC
+        ORDER BY ${orderClause}
         LIMIT ? OFFSET ?
       `,
       )
@@ -2404,32 +2741,118 @@ export class QuantZingStore {
   searchPosts({
     query = '',
     authorDid = null,
+    authorDids = null,
+    excludeAuthorDids = null,
+    mentions = null,
     tags = [],
+    excludeTags = [],
     sort = 'latest',
     since = null,
     until = null,
     lang = null,
+    langs = null,
+    domains = null,
+    urls = null,
+    hasMedia = false,
+    hasVideo = false,
+    followingOnly = false,
+    viewerDid = null,
+    excludeReplies = false,
+    repliesOnly = false,
     limit = 25,
     cursor = null,
   } = {}) {
-    const lim = Math.min(50, Math.max(1, Number(limit) || 25))
+    const lim = Math.min(100, Math.max(1, Number(limit) || 25))
     const offset = cursor ? Math.max(0, parseInt(String(cursor), 10) || 0) : 0
     const rawTerms = String(query || '')
       .trim()
       .split(/\s+/)
       .filter(Boolean)
 
-    let effectiveAuthorDid = authorDid
+    const effectiveAuthorDids = new Set(
+      [
+        ...(authorDid ? [String(authorDid)] : []),
+        ...(Array.isArray(authorDids) ? authorDids.map(String) : []),
+      ].filter(Boolean),
+    )
+    const effectiveExcludeAuthorDids = new Set(
+      (Array.isArray(excludeAuthorDids) ? excludeAuthorDids.map(String) : []).filter(
+        Boolean,
+      ),
+    )
+    const effectiveMentions = Array.isArray(mentions)
+      ? mentions.map(m => String(m || '').trim()).filter(Boolean)
+      : []
     const textTerms = []
-    const effectiveTags = tags.map(t =>
-      String(t || '').trim().toLowerCase().replace(/^#/, ''),
-    ).filter(Boolean)
+    const effectiveTags = (Array.isArray(tags) ? tags : [])
+      .map(t => String(t || '').trim().toLowerCase().replace(/^#/, ''))
+      .filter(Boolean)
+    const effectiveExcludeTags = (Array.isArray(excludeTags) ? excludeTags : [])
+      .map(t => String(t || '').trim().toLowerCase().replace(/^#/, ''))
+      .filter(Boolean)
+    const effectiveLangs = [
+      ...(lang ? [String(lang).trim().toLowerCase()] : []),
+      ...(Array.isArray(langs)
+        ? langs.map(l => String(l || '').trim().toLowerCase())
+        : []),
+    ].filter(Boolean)
+    const effectiveDomains = (Array.isArray(domains) ? domains : [])
+      .map(d =>
+        String(d || '')
+          .trim()
+          .toLowerCase()
+          .replace(/^https?:\/\//, '')
+          .replace(/\/.*$/, ''),
+      )
+      .filter(Boolean)
+    const effectiveUrls = (Array.isArray(urls) ? urls : [])
+      .map(u => String(u || '').trim())
+      .filter(Boolean)
+    let effectiveSince = since ? String(since).trim() : null
+    let effectiveUntil = until ? String(until).trim() : null
 
     for (const t of rawTerms) {
-      if (t.toLowerCase().startsWith('from:')) {
-        const acc = this.findAccount(t.slice(5).replace(/^@/, ''))
-        if (acc) effectiveAuthorDid = acc.did
-        else return {records: [], cursor: undefined}
+      const lower = t.toLowerCase()
+      if (lower.startsWith('from:')) {
+        const rawAuthor = t.slice(5).replace(/^@/, '').trim()
+        if (rawAuthor.toLowerCase() === 'me') {
+          if (!viewerDid) return {records: [], cursor: undefined, hitsTotal: 0}
+          effectiveAuthorDids.add(viewerDid)
+        } else {
+          const acc = this.findAccount(rawAuthor)
+          if (acc) effectiveAuthorDids.add(acc.did)
+          else return {records: [], cursor: undefined, hitsTotal: 0}
+        }
+      } else if (lower.startsWith('-from:')) {
+        const rawAuthor = t.slice(6).replace(/^@/, '').trim()
+        if (rawAuthor.toLowerCase() === 'me') {
+          if (viewerDid) effectiveExcludeAuthorDids.add(viewerDid)
+        } else {
+          const acc = this.findAccount(rawAuthor)
+          if (acc) effectiveExcludeAuthorDids.add(acc.did)
+        }
+      } else if (lower.startsWith('mentions:') || lower.startsWith('to:')) {
+        const rawMention = t.slice(t.indexOf(':') + 1).replace(/^@/, '').trim()
+        if (rawMention) effectiveMentions.push(rawMention)
+      } else if (lower.startsWith('lang:')) {
+        const l = t.slice(5).trim().toLowerCase()
+        if (l) effectiveLangs.push(l)
+      } else if (lower.startsWith('domain:')) {
+        const d = t
+          .slice(7)
+          .trim()
+          .toLowerCase()
+          .replace(/^https?:\/\//, '')
+          .replace(/\/.*$/, '')
+        if (d) effectiveDomains.push(d)
+      } else if (lower.startsWith('since:')) {
+        const s = t.slice(6).trim()
+        if (s) effectiveSince = s
+      } else if (lower.startsWith('until:')) {
+        const u = t.slice(6).trim()
+        if (u) effectiveUntil = u
+      } else if (t.startsWith('-#') && t.length > 2) {
+        effectiveExcludeTags.push(t.slice(2).toLowerCase())
       } else if (t.startsWith('#') && t.length > 1) {
         effectiveTags.push(t.slice(1).toLowerCase())
       } else {
@@ -2446,9 +2869,48 @@ export class QuantZingStore {
     ]
     const params = []
 
-    if (effectiveAuthorDid) {
-      wheres.push('r.did = ?')
-      params.push(effectiveAuthorDid)
+    if (effectiveAuthorDids.size > 0) {
+      const list = [...effectiveAuthorDids]
+      wheres.push(`r.did IN (${list.map(() => '?').join(',')})`)
+      params.push(...list)
+    }
+    if (effectiveExcludeAuthorDids.size > 0) {
+      const list = [...effectiveExcludeAuthorDids]
+      wheres.push(`r.did NOT IN (${list.map(() => '?').join(',')})`)
+      params.push(...list)
+    }
+    if (followingOnly) {
+      if (!viewerDid) return {records: [], cursor: undefined, hitsTotal: 0}
+      const followed = this.getFollowedDids(viewerDid)
+      if (followed.length === 0) {
+        return {records: [], cursor: undefined, hitsTotal: 0}
+      }
+      wheres.push(`r.did IN (${followed.map(() => '?').join(',')})`)
+      params.push(...followed)
+    }
+    for (const rawM of effectiveMentions) {
+      const cleanedM = rawM.replace(/^@/, '').trim()
+      if (!cleanedM) continue
+      const mAcc =
+        cleanedM.toLowerCase() === 'me'
+          ? viewerDid
+            ? this.getAccountByDid(viewerDid)
+            : null
+          : this.findAccount(cleanedM)
+      if (mAcc) {
+        const shortHandle = mAcc.handle.split('.')[0]
+        wheres.push(
+          '(r.value_json LIKE ? OR LOWER(r.text_content) LIKE ? OR LOWER(r.text_content) LIKE ?)',
+        )
+        params.push(
+          `%"${mAcc.did}"%`,
+          `%@${mAcc.handle.toLowerCase()}%`,
+          `%@${shortHandle.toLowerCase()}%`,
+        )
+      } else {
+        wheres.push('(r.value_json LIKE ? OR LOWER(r.text_content) LIKE ?)')
+        params.push(`%${cleanedM}%`, `%@${cleanedM.toLowerCase()}%`)
+      }
     }
     for (const tag of effectiveTags) {
       wheres.push(
@@ -2456,17 +2918,58 @@ export class QuantZingStore {
       )
       params.push(tag)
     }
-    if (since) {
+    for (const exTag of effectiveExcludeTags) {
+      wheres.push(
+        'NOT EXISTS (SELECT 1 FROM post_tags pt WHERE pt.uri = r.uri AND pt.tag = ?)',
+      )
+      params.push(exTag)
+    }
+    if (effectiveSince) {
       wheres.push('r.created_at >= ?')
-      params.push(String(since))
+      params.push(effectiveSince)
     }
-    if (until) {
+    if (effectiveUntil) {
+      const untilVal = /^\d{4}-\d{2}-\d{2}$/.test(effectiveUntil)
+        ? `${effectiveUntil}T23:59:59.999Z`
+        : effectiveUntil
       wheres.push('r.created_at <= ?')
-      params.push(String(until))
+      params.push(untilVal)
     }
-    if (lang) {
-      wheres.push('r.value_json LIKE ?')
-      params.push(`%"${String(lang).replace(/"/g, '')}"%`)
+    if (effectiveLangs.length > 0) {
+      const langClauses = effectiveLangs.map(() => 'LOWER(r.value_json) LIKE ?')
+      wheres.push(`(${langClauses.join(' OR ')})`)
+      for (const l of effectiveLangs) {
+        params.push(`%"${l.replace(/"/g, '')}"%`)
+      }
+    }
+    if (effectiveDomains.length > 0) {
+      const domClauses = effectiveDomains.map(
+        () => '(LOWER(r.value_json) LIKE ? OR LOWER(r.text_content) LIKE ?)',
+      )
+      wheres.push(`(${domClauses.join(' OR ')})`)
+      for (const d of effectiveDomains) {
+        params.push(`%${d}%`, `%${d}%`)
+      }
+    }
+    if (effectiveUrls.length > 0) {
+      const urlClauses = effectiveUrls.map(
+        () => '(LOWER(r.value_json) LIKE ? OR LOWER(r.text_content) LIKE ?)',
+      )
+      wheres.push(`(${urlClauses.join(' OR ')})`)
+      for (const u of effectiveUrls) {
+        const lu = u.toLowerCase()
+        params.push(`%${lu}%`, `%${lu}%`)
+      }
+    }
+    if (hasVideo) {
+      wheres.push('r.has_video = 1')
+    } else if (hasMedia) {
+      wheres.push('r.has_media = 1')
+    }
+    if (repliesOnly) {
+      wheres.push('r.is_reply = 1')
+    } else if (excludeReplies) {
+      wheres.push('r.is_reply = 0')
     }
 
     const orderClause =
@@ -2475,6 +2978,7 @@ export class QuantZingStore {
         : 'r.created_at DESC, r.uri DESC'
 
     let rows = []
+    let hitsTotal = 0
     if (ftsQuery) {
       try {
         rows = this.db
@@ -2491,6 +2995,20 @@ export class QuantZingStore {
           `,
           )
           .all(ftsQuery, ...params, lim + 1, offset)
+        if (rows.length > 0) {
+          const cntRow = this.db
+            .prepare(
+              `
+              SELECT COUNT(*) AS cnt FROM posts_fts f
+              JOIN records r ON r.uri = f.uri
+              JOIN accounts a ON a.did = r.did
+              WHERE posts_fts MATCH ?
+                AND ${wheres.join(' AND ')}
+            `,
+            )
+            .get(ftsQuery, ...params)
+          hitsTotal = Number(cntRow?.cnt || rows.length)
+        }
       } catch {
         rows = []
       }
@@ -2518,6 +3036,16 @@ export class QuantZingStore {
         `,
         )
         .all(...likeParams, lim + 1, offset)
+      const cntRow = this.db
+        .prepare(
+          `
+          SELECT COUNT(*) AS cnt FROM records r
+          JOIN accounts a ON a.did = r.did
+          WHERE ${likeWheres.join(' AND ')}
+        `,
+        )
+        .get(...likeParams)
+      hitsTotal = Number(cntRow?.cnt || rows.length)
     } else if (!cleanTextQuery) {
       rows = this.db
         .prepare(
@@ -2531,6 +3059,16 @@ export class QuantZingStore {
         `,
         )
         .all(...params, lim + 1, offset)
+      const cntRow = this.db
+        .prepare(
+          `
+          SELECT COUNT(*) AS cnt FROM records r
+          JOIN accounts a ON a.did = r.did
+          WHERE ${wheres.join(' AND ')}
+        `,
+        )
+        .get(...params)
+      hitsTotal = Number(cntRow?.cnt || rows.length)
     }
 
     const hasMore = rows.length > lim
@@ -2538,6 +3076,7 @@ export class QuantZingStore {
     return {
       records,
       cursor: hasMore ? String(offset + records.length) : undefined,
+      hitsTotal,
     }
   }
 
@@ -3711,7 +4250,7 @@ export class QuantZingStore {
       topic: row.topic || '',
       hostDid: row.host_did,
       status: row.status || 'live',
-      audioMode: row.audio_mode || 'text_stage_ready',
+      audioMode: row.audio_mode || 'webrtc_signaling',
       allowRecording: Boolean(row.allow_recording),
       coHostEnabled: Boolean(row.co_host_enabled),
       startedAt: row.started_at || row.created_at,
@@ -3759,6 +4298,7 @@ export class QuantZingStore {
     title,
     topic = '',
     status = 'live',
+    audioMode = 'webrtc_signaling',
     scheduledFor = null,
     allowRecording = false,
     coHostEnabled = false,
@@ -3767,6 +4307,7 @@ export class QuantZingStore {
     const id = `spc_${Date.now().toString(36)}_${crypto.randomBytes(3).toString('hex')}`
     const slug = makeSlug(title)
     const cleanStatus = status === 'scheduled' ? 'scheduled' : 'live'
+    const cleanAudioMode = String(audioMode || 'webrtc_signaling')
     const startedAt = cleanStatus === 'live' ? now : null
     this.inTransaction(() => {
       this.db
@@ -3775,7 +4316,7 @@ export class QuantZingStore {
           INSERT INTO spaces(
             id, slug, title, topic, host_did, status, audio_mode,
             allow_recording, co_host_enabled, started_at, scheduled_for, ended_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, 'text_stage_ready', ?, ?, ?, ?, NULL, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
         `,
         )
         .run(
@@ -3785,6 +4326,7 @@ export class QuantZingStore {
           String(topic || '').slice(0, 120),
           String(hostDid),
           cleanStatus,
+          cleanAudioMode,
           allowRecording ? 1 : 0,
           coHostEnabled ? 1 : 0,
           startedAt,
@@ -3853,7 +4395,7 @@ export class QuantZingStore {
       if (demoteDid && demoteDid !== existing.hostDid) {
         this.db
           .prepare(
-            "UPDATE space_participants SET role = 'listener' WHERE space_id = ? AND did = ?",
+            "UPDATE space_participants SET role = 'listener', muted = 1 WHERE space_id = ? AND did = ?",
           )
           .run(existing.id, String(demoteDid))
       }
@@ -3875,15 +4417,19 @@ export class QuantZingStore {
     if (!existing) return null
     const now = new Date().toISOString()
     const role = existing.hostDid === did ? 'host' : 'listener'
+    const initialMuted = role === 'host' ? 0 : 1
     this.db
       .prepare(
         `
         INSERT INTO space_participants(space_id, did, role, hand_raised, muted, joined_at, left_at)
-        VALUES (?, ?, ?, 0, 0, ?, NULL)
-        ON CONFLICT(space_id, did) DO UPDATE SET left_at = NULL, joined_at = excluded.joined_at
+        VALUES (?, ?, ?, 0, ?, ?, NULL)
+        ON CONFLICT(space_id, did) DO UPDATE SET
+          left_at = NULL,
+          joined_at = excluded.joined_at,
+          muted = CASE WHEN space_participants.role = 'listener' THEN 1 ELSE space_participants.muted END
       `,
       )
-      .run(existing.id, String(did), role, now)
+      .run(existing.id, String(did), role, initialMuted, now)
     this.db
       .prepare('UPDATE spaces SET updated_at = ? WHERE id = ?')
       .run(now, existing.id)
@@ -3912,15 +4458,43 @@ export class QuantZingStore {
     if (!existing) return null
     const now = new Date().toISOString()
     const role = existing.hostDid === did ? 'host' : 'listener'
+    const initialMuted = role === 'host' ? 0 : 1
     this.db
       .prepare(
         `
         INSERT INTO space_participants(space_id, did, role, hand_raised, muted, joined_at, left_at)
-        VALUES (?, ?, ?, ?, 0, ?, NULL)
+        VALUES (?, ?, ?, ?, ?, ?, NULL)
         ON CONFLICT(space_id, did) DO UPDATE SET hand_raised = excluded.hand_raised, left_at = NULL
       `,
       )
-      .run(existing.id, String(did), role, raised ? 1 : 0, now)
+      .run(existing.id, String(did), role, raised ? 1 : 0, initialMuted, now)
+    this.db
+      .prepare('UPDATE spaces SET updated_at = ? WHERE id = ?')
+      .run(now, existing.id)
+    return this.getSpaceBySlug(existing.slug)
+  }
+
+  setSpaceMuted(slug, did, muted) {
+    const existing = this.getSpaceBySlug(slug)
+    if (!existing) return null
+    const now = new Date().toISOString()
+    const participant = this.db
+      .prepare(
+        'SELECT role FROM space_participants WHERE space_id = ? AND did = ?',
+      )
+      .get(existing.id, String(did))
+    const role =
+      participant?.role || (existing.hostDid === did ? 'host' : 'listener')
+    const effectiveMuted = role === 'listener' ? 1 : muted ? 1 : 0
+    this.db
+      .prepare(
+        `
+        INSERT INTO space_participants(space_id, did, role, hand_raised, muted, joined_at, left_at)
+        VALUES (?, ?, ?, 0, ?, ?, NULL)
+        ON CONFLICT(space_id, did) DO UPDATE SET muted = excluded.muted, left_at = NULL
+      `,
+      )
+      .run(existing.id, String(did), role, effectiveMuted, now)
     this.db
       .prepare('UPDATE spaces SET updated_at = ? WHERE id = ?')
       .run(now, existing.id)

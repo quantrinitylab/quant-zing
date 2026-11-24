@@ -136,8 +136,8 @@ export function useModerationCauseDescription(
       let sourceDisplayName = labeler?.creator.displayName
       if (!source) {
         if (cause.label.src === api.moderation.did) {
-          source = 'moderation.bsky.app'
-          sourceDisplayName = 'Bluesky Moderation Service'
+          source = 'moderation.quantzing.com'
+          sourceDisplayName = 'QuantZing Moderation Service'
         } else {
           source = _(msg`an unknown labeler`)
         }

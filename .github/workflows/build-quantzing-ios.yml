@@ -22,6 +22,9 @@ on:
         default: 'https://quantzing.quantrinity.in'
         type: string
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -44,34 +47,45 @@ jobs:
       - name: Checkout QuantZing repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 24 & pnpm
+      - name: Setup pnpm 10.28.1
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.28.1'
+
+      - name: Setup Node.js 24 & pnpm cache
         uses: actions/setup-node@v4
         with:
-          node-version: '24.7.0'
-
-      - name: Enable Corepack & pnpm
-        run: |
-          corepack enable
-          pnpm --version
+          node-version: '24'
+          cache: 'pnpm'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify sovereign iOS app.config.js & TypeScript
+      - name: Verify sovereign iOS app.config.js, locales & TypeScript
         env:
           EXPO_APPLE_TEAM_ID: ${{ secrets.EXPO_APPLE_TEAM_ID }}
         run: |
+          pnpm intl:compile
           node -e "
             const rawCfg = require('./app.config.js')({});
             const cfg = rawCfg.expo || rawCfg;
             if (cfg.ios.bundleIdentifier !== 'com.quantzing.app') {
               throw new Error('Unexpected bundleIdentifier: ' + cfg.ios.bundleIdentifier);
             }
+            if (cfg.ios.icon !== './assets/app-icons/ios_icon_default_next.png') {
+              throw new Error('Unexpected iOS icon (must use QuantZing Q-Bolt): ' + cfg.ios.icon);
+            }
             const raw = JSON.stringify(cfg);
-            if (raw.includes('B3LX46C5HS') || raw.includes('group.app.bsky') || raw.includes('xyz.blueskyweb.app')) {
+            if (
+              raw.includes('B3LX46C5HS') ||
+              raw.includes('group.app.bsky') ||
+              raw.includes('xyz.blueskyweb.app') ||
+              raw.includes('ios_icon_default.icon') ||
+              raw.includes('ios_icon_testflight.icon')
+            ) {
               throw new Error('Sovereignty check failed in app.config.js');
             }
-            console.log('Verified iOS config:', cfg.name, cfg.ios.bundleIdentifier, 'plugins:', cfg.plugins.length);
+            console.log('Verified iOS config:', cfg.name, cfg.ios.bundleIdentifier, 'icon:', cfg.ios.icon, 'plugins:', cfg.plugins.length);
           "
           pnpm run typecheck:ios
 
@@ -130,6 +144,10 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EXPO_APPLE_TEAM_ID: ${{ secrets.EXPO_APPLE_TEAM_ID }}
         run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "ERROR: EXPO_TOKEN secret is required for signed .ipa builds."
+            exit 1
+          fi
           if [ -z "$EXPO_APPLE_TEAM_ID" ]; then
             echo "ERROR: EXPO_APPLE_TEAM_ID secret is required for signed .ipa builds."
             exit 1

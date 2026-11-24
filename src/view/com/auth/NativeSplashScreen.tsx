@@ -1,46 +1,17 @@
-import {useMemo, useState} from 'react'
+import {useMemo} from 'react'
 import {View} from 'react-native'
 import Animated, {FadeIn, FadeOut} from 'react-native-reanimated'
-import {useSafeAreaFrame} from 'react-native-safe-area-context'
-import {BlurView} from 'expo-blur'
-import {Image, type ImageContentPosition} from 'expo-image'
 import {msg} from '@lingui/core/macro'
 import {useLingui} from '@lingui/react'
 import {Trans} from '@lingui/react/macro'
 
+import {webLinks} from '#/lib/constants'
 import {useHaptics} from '#/lib/haptics'
 import {Logo} from '#/view/icons/Logo'
-import {Logotype} from '#/view/icons/Logotype'
 import {atoms as a, useBreakpoints, useTheme} from '#/alf'
 import {Button, ButtonText} from '#/components/Button'
-// @ts-expect-error
-import phoneArt from '../../../../assets/illustrations/illustration-mobile.webp'
-// @ts-expect-error
-import darkPhoneArt from '../../../../assets/illustrations/illustration-mobile-dark.webp'
-// @ts-expect-error
-import darkSafeArt from '../../../../assets/illustrations/illustration-mobile-dark-safe.webp'
-// @ts-expect-error
-import safeArt from '../../../../assets/illustrations/illustration-mobile-safe.webp'
-
-const ART = {
-  phone: {light: phoneArt, dark: darkPhoneArt},
-  safe: {light: safeArt, dark: darkSafeArt},
-}
-
-/**
- * The phone art extends the illustration with extra sky above and flat green
- * ground below for the buttons to sit on. Those extensions only line up with
- * the artwork in the middle: further out they cut through a cloud and a man's
- * legs. Cover-cropping keeps the cuts offscreen up to 9:16, which is as wide as
- * phones get, so anything wider shows the unextended "safe" art instead.
- */
-const MAX_PHONE_ART_ASPECT_RATIO = 0.57
-
-/**
- * When the safe art is cropped top and bottom, take more from the bottom so
- * the logo stays on the sky.
- */
-const SAFE_ART_POSITION: ImageContentPosition = {top: '25%', left: '50%'}
+import {InlineLinkText} from '#/components/Link'
+import {Text} from '#/components/Typography'
 
 export function NativeSplashScreen({
   onPressSignin,
@@ -52,112 +23,156 @@ export function NativeSplashScreen({
   const t = useTheme()
   const {gtPhone} = useBreakpoints()
   const {_} = useLingui()
-  const isDarkMode = t.name !== 'light'
-
   const haptics = useHaptics()
 
-  /*
-   * The root frame is right on the first render, so phones never flash the
-   * safe art. After that, follow the measured size: on web the frame doesn't
-   * update when the window is resized.
-   */
-  const frame = useSafeAreaFrame()
-  const [size, setSize] = useState<{width: number; height: number}>()
-  const {width, height} = size ?? frame
-  const isPhoneShaped = width / height <= MAX_PHONE_ART_ASPECT_RATIO
-
-  const styles = useMemo(() => {
-    const logoFill = isDarkMode ? 'white' : t.palette.primary_500
-    return {
-      logoFill,
-      logoShadow: isDarkMode
-        ? [
-            {
-              shadowColor: logoFill,
-              shadowRadius: 8,
-              shadowOpacity: 0.5,
-              shadowOffset: {
-                width: 0,
-                height: 0,
-              },
-            },
-          ]
-        : [],
+  const palette = useMemo(() => {
+    if (t.name === 'dark') {
+      return {
+        bg: '#000000',
+        text: '#E7E9EA',
+        muted: '#71767B',
+        border: '#2F3336',
+        ctaBg: '#EFF3F4',
+        ctaText: '#0F1419',
+        outlineBorder: '#536471',
+      }
     }
-  }, [t, isDarkMode])
+    if (t.name === 'dim') {
+      return {
+        bg: '#15202B',
+        text: '#F7F9F9',
+        muted: '#8B98A5',
+        border: '#38444D',
+        ctaBg: '#EFF3F4',
+        ctaText: '#0F1419',
+        outlineBorder: '#536471',
+      }
+    }
+    return {
+      bg: '#FFFFFF',
+      text: '#0F1419',
+      muted: '#536471',
+      border: '#EFF3F4',
+      ctaBg: '#0F1419',
+      ctaText: '#FFFFFF',
+      outlineBorder: '#CFD9DE',
+    }
+  }, [t.name])
 
   return (
-    <>
+    <Animated.View
+      entering={FadeIn.duration(120)}
+      exiting={FadeOut.duration(90)}
+      style={[a.flex_1, {backgroundColor: palette.bg}]}>
       <View
-        style={[a.absolute, a.inset_0]}
-        onLayout={evt => {
-          const layout = evt.nativeEvent.layout
-          if (layout.width > 0 && layout.height > 0) {
-            setSize({width: layout.width, height: layout.height})
-          }
-        }}>
-        <Image
-          accessibilityIgnoresInvertColors
-          source={
-            ART[isPhoneShaped ? 'phone' : 'safe'][isDarkMode ? 'dark' : 'light']
-          }
-          contentPosition={isPhoneShaped ? 'center' : SAFE_ART_POSITION}
-          style={[a.absolute, a.inset_0]}
-        />
-      </View>
+        style={[
+          a.flex_1,
+          a.w_full,
+          a.self_center,
+          a.justify_between,
+          a.px_2xl,
+          gtPhone && {maxWidth: 460},
+        ]}>
+        <View style={[a.flex_1, a.justify_center, {gap: 24, paddingTop: 24}]}>
+          <Logo width={68} />
 
-      <Animated.View
-        entering={FadeIn.duration(90)}
-        exiting={FadeOut.duration(90)}
-        style={[a.flex_1]}>
-        <View
-          style={[a.justify_center, a.align_center, {gap: 6, paddingTop: 46}]}>
-          <Logo width={76} fill={styles.logoFill} style={styles.logoShadow} />
-          <Logotype
-            width={91}
-            fill={styles.logoFill}
-            style={styles.logoShadow}
-          />
+          <View style={{gap: 10}}>
+            <Text
+              style={[
+                a.font_bold,
+                {
+                  fontSize: gtPhone ? 48 : 38,
+                  lineHeight: gtPhone ? 54 : 44,
+                  letterSpacing: -1.1,
+                  color: palette.text,
+                },
+              ]}>
+              <Trans>Happening now.</Trans>
+            </Text>
+            <Text
+              style={[
+                a.font_bold,
+                {
+                  fontSize: gtPhone ? 26 : 22,
+                  lineHeight: gtPhone ? 32 : 28,
+                  color: palette.text,
+                },
+              ]}>
+              <Trans>Join QuantZing today.</Trans>
+            </Text>
+          </View>
         </View>
-
-        <View style={[a.flex_1]} />
 
         <View
           testID="signinOrCreateAccount"
-          style={[
-            a.px_5xl,
-            a.gap_md,
-            isPhoneShaped ? a.pb_sm : a.pb_xl,
-            gtPhone && [a.w_full, a.self_center, {maxWidth: 600}],
-          ]}>
+          style={[a.w_full, a.gap_md, a.pb_xl]}>
           <Button
             testID="createAccountButton"
             onPress={() => {
               onPressCreateAccount()
               haptics.tap()
             }}
-            label={_(msg`Create new account`)}
+            label={_(msg`Create account`)}
             accessibilityHint={_(
-              msg`Opens flow to create a new Bluesky account`,
+              msg`Opens flow to create a new QuantZing account`,
             )}
             size="large"
-            color={isDarkMode ? 'secondary_inverted' : 'secondary'}
+            variant="solid"
+            color="primary"
             style={[
+              a.rounded_full,
               {
-                shadowColor: t.palette.black,
-                shadowRadius: 8,
-                shadowOpacity: 0.1,
-                shadowOffset: {
-                  width: 0,
-                  height: 5,
-                },
-                elevation: 16,
+                height: 48,
+                backgroundColor: palette.ctaBg,
               },
             ]}>
-            <ButtonText>
+            <ButtonText
+              style={[a.font_bold, a.text_md, {color: palette.ctaText}]}>
               <Trans>Create account</Trans>
             </ButtonText>
           </Button>
+
+          <Text style={[a.text_xs, {color: palette.muted, lineHeight: 17}]}>
+            <Trans>
+              By signing up, you agree to the{' '}
+              <InlineLinkText
+                label={_(msg`Terms of Service`)}
+                to={webLinks.tos}
+                style={[a.text_xs, {color: '#1D9BF0'}]}>
+                Terms of Service
+              </InlineLinkText>{' '}
+              and{' '}
+              <InlineLinkText
+                label={_(msg`Privacy Policy`)}
+                to={webLinks.privacy}
+                style={[a.text_xs, {color: '#1D9BF0'}]}>
+                Privacy Policy
+              </InlineLinkText>
+              .
+            </Trans>
+          </Text>
+
+          <View
+            style={[
+              a.flex_row,
+              a.align_center,
+              a.gap_sm,
+              {paddingVertical: 2},
+            ]}>
+            <View
+              style={[a.flex_1, {height: 1, backgroundColor: palette.border}]}
+            />
+            <Text style={[a.text_xs, {color: palette.muted}]}>
+              <Trans>or</Trans>
+            </Text>
+            <View
+              style={[a.flex_1, {height: 1, backgroundColor: palette.border}]}
+            />
+          </View>
+
+          <Text style={[a.text_sm, a.font_bold, {color: palette.text}]}>
+            <Trans>Already have an account?</Trans>
+          </Text>
 
           <Button
             testID="signInButton"
@@ -167,35 +182,26 @@ export function NativeSplashScreen({
             }}
             label={_(msg`Sign in`)}
             accessibilityHint={_(
-              msg`Opens flow to sign in to your existing Bluesky account`,
+              msg`Opens flow to sign in to your existing QuantZing account`,
             )}
             size="large"
-            /*
-             * Only the phone art has flat ground under this button, so
-             * elsewhere it gets the same dark glass as the lightbox chrome to
-             * stay legible over the busy part of the illustration. The fill
-             * goes on the button because the web BlurView overrides its own.
-             */
-            style={
-              !isPhoneShaped && [
-                a.overflow_hidden,
-                {backgroundColor: 'rgba(0, 0, 0, 0.5)'},
-              ]
-            }
-            hoverStyle={{opacity: 0.5}}>
-            {!isPhoneShaped && (
-              <BlurView
-                intensity={20}
-                tint="dark"
-                style={[a.absolute, a.inset_0]}
-              />
-            )}
-            <ButtonText style={{color: 'white'}}>
+            variant="solid"
+            color="secondary"
+            style={[
+              a.rounded_full,
+              {
+                height: 48,
+                backgroundColor: 'transparent',
+                borderWidth: 1,
+                borderColor: palette.outlineBorder,
+              },
+            ]}>
+            <ButtonText style={[a.font_bold, a.text_md, {color: '#1D9BF0'}]}>
               <Trans>Sign in</Trans>
             </ButtonText>
           </Button>
         </View>
-      </Animated.View>
-    </>
+      </View>
+    </Animated.View>
   )
 }

@@ -235,8 +235,11 @@ const OPS_SECURITY_HEADERS = {
 }
 
 function getRequestHostname(req) {
+  const trustForwarded = process.env.QUANTZING_TRUST_FORWARDED_HOST === '1'
   const raw = String(
-    req?.headers?.['x-forwarded-host'] || req?.headers?.host || '',
+    (trustForwarded ? req?.headers?.['x-forwarded-host'] : '') ||
+      req?.headers?.host ||
+      '',
   )
     .split(',')[0]
     .trim()

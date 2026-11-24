@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
     name: Build Sovereign Web Bundle & Deploy to vm-quantzing
@@ -21,7 +25,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: '10.28.1'
 
       - uses: actions/setup-node@v4
         with:
@@ -31,11 +35,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: TypeScript & PDS syntax check
+      - name: Compile locales & run syntax/TypeScript checks
         run: |
+          pnpm intl:compile
           node --check ./scripts/quantzing-pds.mjs
+          node --check ./scripts/quantzing-store.mjs
+          node --check ./scripts/quantzing-quanty.mjs
           node --check ./scripts/serve-quantzing.mjs
           node --check ./scripts/quantzing-admin.mjs
+          node --check ./deploy/quantzing-adapter.mjs
           node --check ./ops-portal/app.js
           bash -n ./deploy/backup-quantzing.sh
           bash -n ./deploy/monitor-quantzing.sh
@@ -48,7 +56,24 @@ jobs:
         run: |
           pnpm exec expo export --platform web --max-workers 2
           node ./scripts/post-web-build.js
-          tar -czf /tmp/quantzing-release.tar.gz dist ops-portal scripts/serve-quantzing.mjs scripts/quantzing-pds.mjs scripts/quantzing-admin.mjs deploy/quantzing-adapter.mjs deploy/backup-quantzing.sh deploy/monitor-quantzing.sh deploy/logrotate-quantzing deploy/setup-oci-hardening.sh deploy/systemd package.json
+          tar -czf /tmp/quantzing-release.tar.gz \
+            dist \
+            ops-portal \
+            scripts/serve-quantzing.mjs \
+            scripts/quantzing-pds.mjs \
+            scripts/quantzing-store.mjs \
+            scripts/quantzing-quanty.mjs \
+            scripts/quantzing-admin.mjs \
+            deploy/quantzing-adapter.mjs \
+            deploy/backup-quantzing.sh \
+            deploy/monitor-quantzing.sh \
+            deploy/logrotate-quantzing \
+            deploy/setup-oci-hardening.sh \
+            deploy/systemd \
+            assets/app-icons/android_icon_default_next.png \
+            assets/app-icons/ios_icon_default_next.png \
+            assets/favicon.png \
+            package.json
 
       - name: Deploy to Oracle Cloud vm-quantzing
         if: ${{ secrets.QUANTZING_OCI_SSH_KEY != '' }}

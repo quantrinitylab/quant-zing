@@ -76,11 +76,7 @@ import {ModerationModlistsScreen} from '#/view/screens/ModerationModlists'
 import {ModerationMutedAccounts} from '#/view/screens/ModerationMutedAccounts'
 import {NotFoundScreen} from '#/view/screens/NotFound'
 import {PostThreadScreen} from '#/view/screens/PostThread'
-
 import {ProfileScreen} from '#/view/screens/Profile'
-import {StorybookScreen} from '#/view/screens/Storybook'
-
-
 import {BottomBar} from '#/view/shell/bottom-bar/BottomBar'
 import {createNativeStackNavigatorWithAuth} from '#/view/shell/createNativeStackNavigatorWithAuth'
 import {DesktopLeftNav} from '#/view/shell/desktop/LeftNav'
@@ -362,13 +358,17 @@ function commonScreens(Stack: typeof Flat, unreadCountLabel?: string) {
         getComponent={() => ProfileLabelerLikedByScreen}
         options={{title: title(msg`Liked by`)}}
       />
-      {Boolean(__DEV__) && (
+      {__DEV__ ? (
         <Stack.Screen
           name="Debug"
-          getComponent={() => StorybookScreen}
+          getComponent={() =>
+            (
+              require('#/view/screens/Storybook') as typeof import('#/view/screens/Storybook')
+            ).StorybookScreen
+          }
           options={{title: title(msg`Storybook`), requireAuth: true}}
         />
-      )}
+      ) : null}
       <Stack.Screen
         name="DebugMod"
         getComponent={() => DebugModScreen}
@@ -1152,7 +1152,11 @@ function RoutesContainer({children}: React.PropsWithChildren<{}>) {
 
     if (IS_WEB) {
       void Referrer.getReferrerInfo().then(referrerInfo => {
-        if (referrerInfo && referrerInfo.hostname !== 'bsky.app') {
+        if (
+          referrerInfo &&
+          referrerInfo.hostname !== 'quantzing.quantrinity.in' &&
+          referrerInfo.hostname !== 'quantzing.com'
+        ) {
           ax.metric('deepLink:referrerReceived', {
             to: window.location.href,
             referrer: referrerInfo?.referrer,

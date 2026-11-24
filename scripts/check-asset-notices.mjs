@@ -17,8 +17,9 @@ import {fileURLToPath} from 'node:url'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SOURCES = ['ASSETS.md', 'NOTICE.md']
 
-/** Tokens that look like paths but are not: package names, URLs, prose. */
-const NOT_A_PATH = /^(https?:|@|[A-Z_]+$)/
+/** Tokens that look like paths but are not: package names, URLs, GitHub repo slugs, prose. */
+const NOT_A_PATH =
+  /^(https?:|@|[A-Z_]+$|(?:bluesky-social|quantrinitylab)\/[a-z0-9._-]+$)/
 
 /** Extract `backticked` tokens that are plausibly repo paths. */
 function extractPaths(markdown) {

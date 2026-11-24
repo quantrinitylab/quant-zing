@@ -67,7 +67,42 @@ const VIDEO_AUTH_SCOPES = [
   'quantzing.ops',
 ]
 const activeVideoUploads = new Map()
-const spaceSseClients = new Map() // slug -> Set<http.ServerResponse>
+const spaceSseClients = new Map() // slug -> Set<{res, did, handle, clientId, connectedAt}>
+const spaceSignalBuffers = new Map() // slug -> Array<signalEnvelope>
+const passwordResetTokens = new Map() // token -> {did, email, expiresAtMs}
+const emailConfirmTokens = new Map() // token -> {did, email, expiresAtMs}
+const accountDeleteTokens = new Map() // token -> {did, expiresAtMs}
+
+const SHORT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+function generateShortCode(length = 8) {
+  let out = ''
+  for (let i = 0; i < length; i++) {
+    out += SHORT_CODE_ALPHABET[crypto.randomInt(0, SHORT_CODE_ALPHABET.length)]
+  }
+  return out
+}
+
+function pruneExpiringTokenMap(map) {
+  const now = Date.now()
+  for (const [k, v] of map.entries()) {
+    if (!v || !v.expiresAtMs || v.expiresAtMs <= now) {
+      map.delete(k)
+    }
+  }
+}
+
+function generateAppPasswordPlaintext() {
+  const chars = 'abcdefghijkmnpqrstuvwxyz23456789'
+  const groups = []
+  for (let g = 0; g < 4; g++) {
+    let seg = ''
+    for (let i = 0; i < 4; i++) {
+      seg += chars[crypto.randomInt(0, chars.length)]
+    }
+    groups.push(seg)
+  }
+  return groups.join('-')
+}
 
 function pruneExpiredVideoUploads() {
   const now = Date.now()
@@ -100,10 +135,20 @@ function isVideoEmbed(embed) {
 function isMediaEmbed(embed) {
   if (!embed || typeof embed !== 'object') return false
   const t = embed.$type
-  if (t === 'app.bsky.embed.images' || t === 'app.bsky.embed.video') return true
+  if (
+    t === 'app.bsky.embed.images' ||
+    t === 'app.bsky.embed.video' ||
+    t === 'app.bsky.embed.gallery'
+  ) {
+    return true
+  }
   if (t === 'app.bsky.embed.recordWithMedia') {
     const mt = embed.media?.$type
-    return mt === 'app.bsky.embed.images' || mt === 'app.bsky.embed.video'
+    return (
+      mt === 'app.bsky.embed.images' ||
+      mt === 'app.bsky.embed.video' ||
+      mt === 'app.bsky.embed.gallery'
+    )
   }
   return false
 }
@@ -502,6 +547,19 @@ function mintTokens(storeOrDb, did) {
   }
 }
 
+function resolveCanonicalAccountForStoreOrDb(storeOrDb, account) {
+  if (!account || !account.did) return account
+  if (storeOrDb && storeOrDb._isCompatView) {
+    storeOrDb.accounts = storeOrDb.accounts || {}
+    if (storeOrDb.accounts[account.did]) {
+      return storeOrDb.accounts[account.did]
+    }
+    storeOrDb.accounts[account.did] = account
+    return account
+  }
+  return account
+}
+
 function verifyJwt(storeOrDb, token, expectedScope = null) {
   if (!token || typeof token !== 'string') return null
   const parts = token.split('.')
@@ -540,8 +598,12 @@ function verifyJwt(storeOrDb, token, expectedScope = null) {
   if (expectedScope && payload.scope !== expectedScope) {
     return null
   }
-  const account = store.getAccountByDid(payload.sub)
+  let account =
+    storeOrDb?._isCompatView && storeOrDb.accounts?.[payload.sub]
+      ? storeOrDb.accounts[payload.sub]
+      : store.getAccountByDid(payload.sub)
   if (!account) return null
+  account = resolveCanonicalAccountForStoreOrDb(storeOrDb, account)
   return {expired: false, payload, account}
 }
 
@@ -1518,12 +1580,25 @@ function getAdminHelpers(store = getActiveStore()) {
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
+function isRestrictedAdminOrOpsUrl(rawUrl) {
+  const pathname = String(rawUrl || '/').split('?')[0]
+  return (
+    pathname === '/api/quantzing/admin' ||
+    pathname.startsWith('/api/quantzing/admin/') ||
+    pathname === '/api/quantzing/ops' ||
+    pathname.startsWith('/api/quantzing/ops/')
+  )
+}
+
 function getServerOrigin(req) {
+  const trustForwarded = process.env.QUANTZING_TRUST_FORWARDED_HOST === '1'
   const proto = String(req?.headers?.['x-forwarded-proto'] || 'http')
     .split(',')[0]
     .trim()
   const host = String(
-    req?.headers?.['x-forwarded-host'] || req?.headers?.host || 'localhost:3008',
+    (trustForwarded ? req?.headers?.['x-forwarded-host'] : '') ||
+      req?.headers?.host ||
+      'localhost:3008',
   )
     .split(',')[0]
     .trim()
@@ -1531,14 +1606,49 @@ function getServerOrigin(req) {
 }
 
 function corsHeaders(req, extra = {}) {
-  return {
-    'access-control-allow-origin': req?.headers?.origin || '*',
+  const base = {
     'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     'access-control-allow-headers':
       req?.headers?.['access-control-request-headers'] ||
       'content-type,authorization,atproto-proxy,atproto-accept-labelers,x-atproto-device-id,x-atproto-session-id,accept-language,x-bsky-topics,x-quant-service-token,x-quant-owner-id',
     'access-control-expose-headers': 'content-type,x-quantzing-pds,retry-after',
     'x-quantzing-pds': 'sovereign-pure',
+  }
+
+  if (isRestrictedAdminOrOpsUrl(req?.url)) {
+    const reqOrigin = String(req?.headers?.origin || '').trim()
+    const trustForwarded = process.env.QUANTZING_TRUST_FORWARDED_HOST === '1'
+    const reqHost = String(
+      (trustForwarded ? req?.headers?.['x-forwarded-host'] : '') ||
+        req?.headers?.host ||
+        '',
+    )
+      .split(',')[0]
+      .trim()
+      .toLowerCase()
+    let allowedOrigin = null
+    if (reqOrigin && reqHost) {
+      try {
+        const parsedOrigin = new URL(reqOrigin)
+        if (parsedOrigin.host.toLowerCase() === reqHost) {
+          allowedOrigin = reqOrigin
+        }
+      } catch {}
+    }
+    return {
+      ...base,
+      ...(allowedOrigin ? {'access-control-allow-origin': allowedOrigin} : {}),
+      vary: 'Origin',
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'DENY',
+      'referrer-policy': 'no-referrer',
+      ...extra,
+    }
+  }
+
+  return {
+    'access-control-allow-origin': req?.headers?.origin || '*',
+    ...base,
     ...extra,
   }
 }
@@ -1747,10 +1857,6 @@ function createDefaultPreferences() {
       pinned: [DISCOVER_FEED_URI],
       saved: [DISCOVER_FEED_URI],
     },
-    {
-      $type: 'app.bsky.actor.defs#personalDetailsPref',
-      birthDate: '1998-01-01T00:00:00.000Z',
-    },
   ]
 }
 
@@ -1773,7 +1879,32 @@ function createDefaultNotificationPreferences() {
 }
 
 function findLocalAccount(storeOrDb, identifierOrDid) {
-  return unwrapStore(storeOrDb).findAccount(identifierOrDid)
+  if (!identifierOrDid) return null
+  if (storeOrDb && storeOrDb._isCompatView && storeOrDb.accounts) {
+    const raw = String(identifierOrDid).trim()
+    if (raw && storeOrDb.accounts[raw]) {
+      return storeOrDb.accounts[raw]
+    }
+    const lower = raw.toLowerCase().replace(/^@/, '')
+    if (lower) {
+      for (const acc of Object.values(storeOrDb.accounts)) {
+        if (!acc) continue
+        const h = String(acc.handle || '').toLowerCase()
+        const e = String(acc.email || '').toLowerCase()
+        if (
+          h === lower ||
+          (!lower.includes('.') &&
+            (h === `${lower}${QUANTZING_DOMAIN}` ||
+              h === `${lower}${QUANTZING_ALT_DOMAIN}`)) ||
+          (lower.includes('@') && e === lower)
+        ) {
+          return acc
+        }
+      }
+    }
+  }
+  const found = unwrapStore(storeOrDb).findAccount(identifierOrDid)
+  return resolveCanonicalAccountForStoreOrDb(storeOrDb, found)
 }
 
 function getCollectionMap(storeOrDb, did, collection, create = false) {
@@ -1808,25 +1939,14 @@ function getAllLocalRecords(storeOrDb, collection) {
 function syncProfileFromRecord(account, value) {
   if (!value || typeof value !== 'object') return
   account.profile = {
-    ...(account.profile || {}),
-    displayName:
-      value.displayName !== undefined
-        ? value.displayName
-        : account.profile?.displayName,
-    description:
-      value.description !== undefined
-        ? value.description
-        : account.profile?.description,
-    avatar: value.avatar !== undefined ? value.avatar : account.profile?.avatar,
-    banner: value.banner !== undefined ? value.banner : account.profile?.banner,
-    pronouns:
-      value.pronouns !== undefined ? value.pronouns : account.profile?.pronouns,
-    website:
-      value.website !== undefined ? value.website : account.profile?.website,
-    pinnedPost:
-      value.pinnedPost !== undefined
-        ? value.pinnedPost
-        : account.profile?.pinnedPost,
+    displayName: typeof value.displayName === 'string' ? value.displayName : '',
+    description: typeof value.description === 'string' ? value.description : '',
+    avatar: value.avatar ?? undefined,
+    banner: value.banner ?? undefined,
+    pronouns: value.pronouns ?? undefined,
+    website: value.website ?? undefined,
+    pinnedPost: value.pinnedPost ?? undefined,
+    links: Array.isArray(value.links) ? value.links : undefined,
     createdAt:
       value.createdAt || account.profile?.createdAt || account.createdAt,
   }
@@ -1898,6 +2018,35 @@ function putLocalRecord(storeOrDb, did, collection, rkey, recordValue) {
     }
   }
 
+  if (
+    collection === 'app.bsky.graph.block' &&
+    typeof value.subject === 'string'
+  ) {
+    const existingBlockUri = store.findBlockUri(did, value.subject)
+    if (existingBlockUri) {
+      const existingRec = store.getRecordByUri(existingBlockUri)
+      if (existingRec) return existingRec
+    }
+  }
+
+  if (
+    collection === 'app.bsky.graph.listitem' &&
+    typeof value.list === 'string' &&
+    typeof value.subject === 'string'
+  ) {
+    const canonicalList = store.canonicalizeUri(value.list)
+    value.list = canonicalList
+    const existingListItemUri = store.findListItemUri(
+      did,
+      canonicalList,
+      value.subject,
+    )
+    if (existingListItemUri) {
+      const existingRec = store.getRecordByUri(existingListItemUri)
+      if (existingRec) return existingRec
+    }
+  }
+
   const key = rkey || generateTid()
   if (
     collection === 'app.bsky.feed.post' &&
@@ -1940,7 +2089,45 @@ function putLocalRecord(storeOrDb, did, collection, rkey, recordValue) {
     const authorAcc = store.getAccountByDid(did)
     const parentUri = value.reply?.parent?.uri
     const parentRec = parentUri ? findLocalPostByUri(store, parentUri) : null
+    const parentAuthorAcc = parentRec
+      ? store.getAccountByDid(parentRec.repo)
+      : null
+    const rootUri = value.reply?.root?.uri
+    const rootRec =
+      rootUri && rootUri !== parentUri
+        ? findLocalPostByUri(store, rootUri)
+        : null
+    const rootText = rootRec?.value?.text || ''
     const parentText = parentRec?.value?.text || ''
+    const parentEmbedParts = []
+    const pEmbed = parentRec?.value?.embed
+    if (pEmbed?.$type === 'app.bsky.embed.external' && pEmbed.external?.title) {
+      parentEmbedParts.push(`[Link: ${pEmbed.external.title}]`)
+    } else if (
+      pEmbed?.$type === 'app.bsky.embed.images' &&
+      Array.isArray(pEmbed.images)
+    ) {
+      const alts = pEmbed.images
+        .map(i => i?.alt)
+        .filter(Boolean)
+        .join('; ')
+      if (alts) parentEmbedParts.push(`[Image alt: ${alts}]`)
+    } else if (
+      pEmbed?.$type === 'app.bsky.embed.gallery' &&
+      Array.isArray(pEmbed.items)
+    ) {
+      const alts = pEmbed.items
+        .map(i => i?.alt)
+        .filter(Boolean)
+        .join('; ')
+      if (alts) parentEmbedParts.push(`[Gallery alt: ${alts}]`)
+    } else if (pEmbed?.$type === 'app.bsky.embed.video' && pEmbed.alt) {
+      parentEmbedParts.push(`[Video: ${pEmbed.alt}]`)
+    }
+    const richParentText = [parentText, ...parentEmbedParts]
+      .filter(Boolean)
+      .join(' ')
+      .trim()
     const rootRef = value.reply?.root?.uri
       ? value.reply.root
       : {uri: entry.uri, cid: entry.cid}
@@ -1952,9 +2139,12 @@ function putLocalRecord(storeOrDb, did, collection, rkey, recordValue) {
         const replyObj = await bridge.buildQuantyMentionReply({
           prompt: value.text,
           postContext: {
-            uri: entry.uri,
-            text: parentText || value.text,
-            authorHandle: authorAcc?.handle || did,
+            uri: parentUri || entry.uri,
+            entryUri: entry.uri,
+            text: richParentText || value.text,
+            authorHandle: parentAuthorAcc?.handle || authorAcc?.handle || did,
+            replierHandle: authorAcc?.handle || did,
+            ...(rootText ? {rootText} : {}),
           },
           viewerDid: did,
           origin: '',
@@ -2072,7 +2262,10 @@ function buildLocalProfileView(
   const base = {
     did: account.did,
     handle: account.handle,
-    displayName: profile.displayName || account.handle.split('.')[0],
+    displayName:
+      profile.displayName !== undefined
+        ? profile.displayName
+        : account.handle.split('.')[0],
     ...(avatar ? {avatar} : {}),
     ...(profile.description ? {description: profile.description} : {}),
     ...(profile.pronouns ? {pronouns: profile.pronouns} : {}),
@@ -2099,11 +2292,45 @@ function buildLocalProfileView(
     return base
   }
 
+  let hydratedLinks
+  if (Array.isArray(profile.links)) {
+    hydratedLinks = profile.links
+      .map(item => {
+        if (!item || typeof item !== 'object') return null
+        if (typeof item.url === 'string' && item.url) {
+          return item
+        }
+        if (typeof item.uri === 'string') {
+          const linkRec = store.getRecordByUri(item.uri)
+          if (linkRec && linkRec.value && typeof linkRec.value.url === 'string') {
+            const iconUrl = linkRec.value.icon
+              ? blobUrl(origin, account.did, linkRec.value.icon)
+              : undefined
+            return {
+              $type: 'app.bsky.actor.defs#profileLinkView',
+              uri: linkRec.uri,
+              cid: linkRec.cid,
+              url: String(linkRec.value.url),
+              ...(linkRec.value.title
+                ? {title: String(linkRec.value.title)}
+                : {}),
+              ...(iconUrl ? {icon: iconUrl} : {}),
+              labels: store.getLabels(linkRec.uri),
+            }
+          }
+          return item
+        }
+        return null
+      })
+      .filter(Boolean)
+  }
+
   return {
     ...base,
     ...(banner ? {banner} : {}),
     ...(profile.website ? {website: profile.website} : {}),
     ...(profile.pinnedPost ? {pinnedPost: profile.pinnedPost} : {}),
+    ...(Array.isArray(hydratedLinks) ? {links: hydratedLinks} : {}),
     followersCount: Number(account.followersCount || 0),
     followsCount: Number(account.followsCount || 0),
     postsCount: Number(account.postsCount || 0),
@@ -2184,9 +2411,34 @@ function hydrateEmbedView(
     }
   }
 
+  if (
+    type === 'app.bsky.embed.gallery' &&
+    Array.isArray(embed.items || embed.images)
+  ) {
+    const rawItems = Array.isArray(embed.items) ? embed.items : embed.images
+    return {
+      $type: 'app.bsky.embed.gallery#view',
+      items: rawItems
+        .map(item => {
+          const url = blobUrl(origin, authorDid, item?.image)
+          if (!url) return null
+          return {
+            $type: 'app.bsky.embed.gallery#viewImage',
+            thumbnail: url,
+            fullsize: url,
+            alt: item.alt || '',
+            ...(item.aspectRatio ? {aspectRatio: item.aspectRatio} : {}),
+          }
+        })
+        .filter(Boolean),
+    }
+  }
+
   if (type === 'app.bsky.embed.video' && embed.video) {
     const cid = extractBlobCid(embed.video)
-    const playlist = blobUrl(origin, authorDid, embed.video)
+    const playlist = cid
+      ? `${origin}/blob/${encodeURIComponent(authorDid)}/${encodeURIComponent(cid)}.mp4`
+      : undefined
     if (cid && playlist) {
       let thumbnail
       const thumbCid =
@@ -2249,6 +2501,18 @@ function hydrateEmbedView(
       if (targetRec && !isRecordHiddenForViewer(store, targetRec, viewerDid)) {
         const targetAuthor = resolved.account
         const counts = store.getPostCounters(targetRec.uri)
+        const nestedEmbed = targetRec.value?.embed
+          ? hydrateEmbedView(
+              store,
+              targetRec.repo,
+              targetRec.value.embed,
+              viewerDid,
+              origin,
+              depth + 1,
+              targetRec.uri,
+              targetRec.value?.text || '',
+            )
+          : undefined
         return {
           $type: 'app.bsky.embed.record#view',
           record: {
@@ -2263,6 +2527,7 @@ function hydrateEmbedView(
               false,
             ),
             value: targetRec.value,
+            ...(nestedEmbed ? {embeds: [nestedEmbed]} : {}),
             labels: store.getLabels(targetRec.uri),
             likeCount: counts.likeCount,
             replyCount: counts.replyCount,
@@ -2325,6 +2590,12 @@ function isRecordHiddenForViewer(store, postRec, viewerDid) {
     if (store.isMuted(viewerDid, postRec.repo)) return true
     if (store.findBlockUri(viewerDid, postRec.repo)) return true
     if (store.findBlockUri(postRec.repo, viewerDid)) return true
+    if (
+      typeof store.isAuthorInViewerMutedOrBlockedList === 'function' &&
+      store.isAuthorInViewerMutedOrBlockedList(viewerDid, postRec.repo)
+    ) {
+      return true
+    }
   }
   return false
 }
@@ -2348,6 +2619,9 @@ function buildLocalPostView(storeOrDb, postRec, viewerDid, origin) {
   const threadMuted = viewerDid
     ? store.isThreadMuted(viewerDid, rootUri)
     : false
+  const pinnedUri = author?.profile?.pinnedPost?.uri
+    ? store.canonicalizeUri(author.profile.pinnedPost.uri)
+    : null
 
   const embedView = hydrateEmbedView(
     store,
@@ -2378,6 +2652,7 @@ function buildLocalPostView(storeOrDb, postRec, viewerDid, origin) {
     viewer: {
       ...(likeUri ? {like: likeUri} : {}),
       ...(repostUri ? {repost: repostUri} : {}),
+      ...(pinnedUri && pinnedUri === postRec.uri ? {pinned: true} : {}),
       bookmarked,
       threadMuted,
       embeddingDisabled: false,
@@ -2401,6 +2676,57 @@ function hydrateLocalPosts(storeOrDb, uris, viewerDid, origin) {
   return posts
 }
 
+function buildLocalReplyRef(store, postRec, viewerDid, origin) {
+  const replyInfo = postRec?.value?.reply
+  if (!replyInfo?.parent?.uri) return undefined
+  const parentUri = store.canonicalizeUri(replyInfo.parent.uri)
+  const rootUri = store.canonicalizeUri(replyInfo.root?.uri || parentUri)
+  const hydrateRef = uri => {
+    const rec = findLocalPostByUri(store, uri)
+    if (!rec) {
+      return {$type: 'app.bsky.feed.defs#notFoundPost', uri, notFound: true}
+    }
+    if (isRecordHiddenForViewer(store, rec, viewerDid)) {
+      return {
+        $type: 'app.bsky.feed.defs#blockedPost',
+        uri: rec.uri,
+        blocked: true,
+        author: {did: rec.repo, viewer: {blockedBy: false}},
+      }
+    }
+    const view = buildLocalPostView(store, rec, viewerDid, origin)
+    return (
+      view || {$type: 'app.bsky.feed.defs#notFoundPost', uri, notFound: true}
+    )
+  }
+  const parentView = hydrateRef(parentUri)
+  const rootView = rootUri === parentUri ? parentView : hydrateRef(rootUri)
+  let grandparentAuthor
+  const parentRec = findLocalPostByUri(store, parentUri)
+  const gpUri = parentRec?.value?.reply?.parent?.uri
+  if (gpUri) {
+    const gpRec = findLocalPostByUri(store, gpUri)
+    if (gpRec) {
+      const gpAcc = store.getAccountByDid(gpRec.repo)
+      if (gpAcc) {
+        grandparentAuthor = buildLocalProfileView(
+          store,
+          gpAcc,
+          viewerDid,
+          origin,
+          false,
+        )
+      }
+    }
+  }
+  return {
+    $type: 'app.bsky.feed.defs#replyRef',
+    root: rootView,
+    parent: parentView,
+    ...(grandparentAuthor ? {grandparentAuthor} : {}),
+  }
+}
+
 function getLocalFeedItems(
   storeOrDb,
   viewerDid,
@@ -2408,6 +2734,8 @@ function getLocalFeedItems(
   {
     authorDids = null,
     includeReplies = false,
+    repliesOnly = false,
+    authorThreadsOnly = false,
     includeReposts = false,
     filterTags = null,
     onlyVideo = false,
@@ -2419,6 +2747,8 @@ function getLocalFeedItems(
   const queried = store.queryPosts({
     authorDids,
     includeReplies,
+    repliesOnly,
+    authorThreadsOnly,
     onlyVideo,
     onlyMedia,
     tags: filterTags,
@@ -2430,8 +2760,12 @@ function getLocalFeedItems(
     if (isRecordHiddenForViewer(store, postRec, viewerDid)) continue
     const postView = buildLocalPostView(store, postRec, viewerDid, origin)
     if (!postView) continue
+    const replyRef = postRec.value?.reply?.parent?.uri
+      ? buildLocalReplyRef(store, postRec, viewerDid, origin)
+      : undefined
     items.push({
       post: postView,
+      ...(replyRef ? {reply: replyRef} : {}),
       _sortTime:
         Date.parse(postRec.value?.createdAt || postRec.indexedAt || 0) || 0,
     })
@@ -2660,6 +2994,7 @@ function buildGroupedNotifications(
   origin,
   feed = 'all',
   limit = 30,
+  cursor = null,
 ) {
   const store = unwrapStore(storeOrDb)
   const viewerAcc = store.getAccountByDid(viewerDid)
@@ -2671,7 +3006,7 @@ function buildGroupedNotifications(
     store,
     viewerDid,
     origin,
-    100,
+    200,
   )
 
   const followingSet = new Set(store.getFollowedDids(viewerDid))
@@ -2866,8 +3201,11 @@ function buildGroupedNotifications(
     String(b.indexedAt || '').localeCompare(String(a.indexedAt || '')),
   )
 
+  const page = paginateItems(groups, cursor, limit)
+
   return {
-    groups: groups.slice(0, limit),
+    groups: page.items,
+    ...(page.cursor ? {cursor: page.cursor} : {}),
     seenAt,
     relatedViews: [...profileViews.values(), ...postViews.values()],
   }
@@ -2877,14 +3215,41 @@ function buildGroupedNotifications(
 // DNS-Validated SSRF-Safe Link Metadata Extractor
 // ---------------------------------------------------------------------------
 
+function expandIpv6ToWords(ip) {
+  const clean = String(ip || '').trim().toLowerCase().split('%')[0]
+  const ipv4TailMatch = clean.match(/^(.*):(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/)
+  let normalized = clean
+  if (ipv4TailMatch && net.isIPv4(ipv4TailMatch[2])) {
+    const octets = ipv4TailMatch[2].split('.').map(n => parseInt(n, 10))
+    const hi = ((octets[0] << 8) | octets[1]).toString(16)
+    const lo = ((octets[2] << 8) | octets[3]).toString(16)
+    normalized = `${ipv4TailMatch[1]}:${hi}:${lo}`
+  }
+  const halves = normalized.split('::')
+  if (halves.length > 2) return null
+  const left = halves[0] ? halves[0].split(':').filter(Boolean) : []
+  const right = halves.length === 2 && halves[1] ? halves[1].split(':').filter(Boolean) : []
+  const missing = halves.length === 2 ? 8 - (left.length + right.length) : 0
+  if (missing < 0 || (halves.length === 1 && left.length !== 8)) return null
+  const groups = [...left, ...Array(missing).fill('0'), ...right]
+  if (groups.length !== 8) return null
+  const words = []
+  for (const g of groups) {
+    if (!/^[0-9a-f]{1,4}$/.test(g)) return null
+    words.push(parseInt(g, 16))
+  }
+  return words
+}
+
 function isBlockedIpAddress(ipRaw) {
   const ip = String(ipRaw || '')
     .trim()
     .toLowerCase()
     .replace(/^\[|\]$/g, '')
+    .split('%')[0]
   if (!ip) return true
 
-  // Unwrap IPv4-mapped IPv6 (e.g. ::ffff:127.0.0.1)
+  // Unwrap IPv4-mapped IPv6 (both dotted ::ffff:127.0.0.1 and hex ::ffff:7f00:1)
   if (ip.startsWith('::ffff:')) {
     const mapped = ip.slice('::ffff:'.length)
     if (net.isIPv4(mapped)) {
@@ -2908,19 +3273,125 @@ function isBlockedIpAddress(ipRaw) {
   }
 
   if (net.isIPv6(ip)) {
-    if (ip === '::' || ip === '::1') return true
-    if (ip.startsWith('fe8') || ip.startsWith('fe9') || ip.startsWith('fea') || ip.startsWith('feb')) {
-      return true // fe80::/10 link-local
+    const words = expandIpv6ToWords(ip)
+    if (!words) return true
+    const [w0, w1, w2, w3, w4, w5, w6, w7] = words
+    if (
+      w0 === 0 &&
+      w1 === 0 &&
+      w2 === 0 &&
+      w3 === 0 &&
+      w4 === 0 &&
+      w5 === 0 &&
+      w6 === 0 &&
+      (w7 === 0 || w7 === 1)
+    ) {
+      return true
     }
-    if (ip.startsWith('fc') || ip.startsWith('fd')) {
-      return true // fc00::/7 unique local
+    const isV4Mapped =
+      w0 === 0 &&
+      w1 === 0 &&
+      w2 === 0 &&
+      w3 === 0 &&
+      w4 === 0 &&
+      (w5 === 0xffff || w5 === 0)
+    const isNat64 =
+      w0 === 0x0064 &&
+      w1 === 0xff9b &&
+      w2 === 0 &&
+      w3 === 0 &&
+      w4 === 0 &&
+      w5 === 0
+    if (isV4Mapped || isNat64) {
+      const embeddedIpv4 = `${(w6 >> 8) & 0xff}.${w6 & 0xff}.${(w7 >> 8) & 0xff}.${w7 & 0xff}`
+      return isBlockedIpAddress(embeddedIpv4)
     }
-    if (ip.startsWith('ff')) return true // multicast
-    if (ip.startsWith('100:')) return true // discard prefix
+    if ((w0 & 0xffc0) === 0xfe80) return true // fe80::/10 link-local
+    if ((w0 & 0xfe00) === 0xfc00) return true // fc00::/7 unique local
+    if ((w0 & 0xff00) === 0xff00) return true // ff00::/8 multicast
+    if (w0 === 0x0100 && w1 === 0 && w2 === 0 && w3 === 0) return true // discard prefix
     return false
   }
 
   return true
+}
+
+function decodeHtmlEntities(str) {
+  if (!str) return ''
+  const named = {
+    amp: '&',
+    lt: '<',
+    gt: '>',
+    quot: '"',
+    apos: "'",
+    nbsp: ' ',
+    ndash: '-',
+    mdash: '-',
+    hellip: '...',
+    lsquo: "'",
+    rsquo: "'",
+    ldquo: '"',
+    rdquo: '"',
+  }
+  return String(str).replace(/&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z]+);/g, (full, ent) => {
+    if (ent.startsWith('#x') || ent.startsWith('#X')) {
+      const cp = parseInt(ent.slice(2), 16)
+      if (Number.isFinite(cp) && cp >= 0x20 && cp <= 0x10ffff) {
+        try {
+          return String.fromCodePoint(cp)
+        } catch {
+          return full
+        }
+      }
+      return full
+    }
+    if (ent.startsWith('#')) {
+      const cp = parseInt(ent.slice(1), 10)
+      if (Number.isFinite(cp) && cp >= 0x20 && cp <= 0x10ffff) {
+        try {
+          return String.fromCodePoint(cp)
+        } catch {
+          return full
+        }
+      }
+      return full
+    }
+    return Object.prototype.hasOwnProperty.call(named, ent.toLowerCase())
+      ? named[ent.toLowerCase()]
+      : full
+  })
+}
+
+function extractMetaContent(html, attrName, attrValues) {
+  const wanted = new Set(
+    (Array.isArray(attrValues) ? attrValues : [attrValues]).map(v =>
+      String(v).toLowerCase(),
+    ),
+  )
+  const metaRe = /<meta\b[^>]*>/gi
+  const attrRe = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g
+  let m
+  while ((m = metaRe.exec(html)) !== null) {
+    const tag = m[0]
+    const attrs = {}
+    let am
+    attrRe.lastIndex = 0
+    while ((am = attrRe.exec(tag)) !== null) {
+      const k = am[1].toLowerCase()
+      const v = am[2] ?? am[3] ?? am[4] ?? ''
+      attrs[k] = v
+    }
+    const keyVal = attrs[attrName.toLowerCase()]
+    if (
+      keyVal &&
+      wanted.has(keyVal.toLowerCase()) &&
+      typeof attrs.content === 'string' &&
+      attrs.content.trim()
+    ) {
+      return attrs.content.trim()
+    }
+  }
+  return ''
 }
 
 function isPrivateOrBlockedHostString(hostname) {
@@ -3030,31 +3501,47 @@ async function fetchLinkMetaSafe(rawUrl, redirectsLeft = 3) {
         const done = () => {
           if (settled) return
           settled = true
-          const titleMatch =
-            html.match(
-              /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i,
-            ) || html.match(/<title[^>]*>([^<]+)<\/title>/i)
-          const descMatch =
-            html.match(
-              /<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i,
-            ) ||
-            html.match(
-              /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i,
-            )
-          const imgMatch = html.match(
-            /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
-          )
-          const rawTitle = (titleMatch?.[1] || parsed.hostname).trim()
+          const htmlTitleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
+          const rawTitle = decodeHtmlEntities(
+            extractMetaContent(html, 'property', 'og:title') ||
+              extractMetaContent(html, 'name', ['twitter:title', 'og:title']) ||
+              (htmlTitleMatch?.[1] || '').replace(/\s+/g, ' ').trim() ||
+              parsed.hostname,
+          ).trim()
+          const rawDesc = decodeHtmlEntities(
+            extractMetaContent(html, 'property', 'og:description') ||
+              extractMetaContent(html, 'name', [
+                'description',
+                'twitter:description',
+                'og:description',
+              ]),
+          ).trim()
+          const rawImg = decodeHtmlEntities(
+            extractMetaContent(html, 'property', ['og:image', 'og:image:url']) ||
+              extractMetaContent(html, 'name', ['twitter:image', 'og:image']),
+          ).trim()
+          let resolvedImage = ''
+          if (rawImg) {
+            try {
+              const imgUrl = new URL(rawImg, parsed)
+              if (
+                imgUrl.protocol === 'http:' ||
+                imgUrl.protocol === 'https:'
+              ) {
+                resolvedImage = imgUrl.toString()
+              }
+            } catch {}
+          }
           const cleanTitle = /^30[1278]\s+/i.test(rawTitle)
             ? parsed.hostname
-            : rawTitle
+            : rawTitle || parsed.hostname
           resolve({
             error: '',
             likely_type: 'html',
             url: rawUrl,
             title: cleanTitle.slice(0, 200),
-            description: (descMatch?.[1] || '').trim().slice(0, 400),
-            image: imgMatch?.[1]?.trim() || '',
+            description: rawDesc.slice(0, 400),
+            image: resolvedImage,
           })
         }
         res.on('end', done)
@@ -3204,7 +3691,7 @@ function hydrateSpaceView(store, space, origin) {
     startedAt: space.startedAt || space.createdAt,
     ...(space.scheduledFor ? {scheduledFor: space.scheduledFor} : {}),
     ...(space.endedAt ? {endedAt: space.endedAt} : {}),
-    audioMode: space.audioMode || 'text_stage_ready',
+    audioMode: space.audioMode || 'webrtc_signaling',
     allowRecording: Boolean(space.allowRecording),
     coHostEnabled: Boolean(space.coHostEnabled),
     listenerCount: participants.length,
@@ -3216,26 +3703,80 @@ function hydrateSpaceView(store, space, origin) {
   }
 }
 
-function broadcastSpaceUpdate(slug, hydratedSpace) {
+function broadcastSpaceSseEvent(
+  slug,
+  eventName,
+  data,
+  {excludeClientId = null, targetDid = null, targetClientId = null} = {},
+) {
   const clients = spaceSseClients.get(slug)
-  if (!clients || clients.size === 0) return
-  const payload = JSON.stringify({
+  if (!clients || clients.size === 0) return 0
+  const frame = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`
+  let delivered = 0
+  for (const entry of [...clients]) {
+    const targetRes = entry?.res || entry
+    const entryClientId = entry?.clientId || null
+    const entryDid = entry?.did || null
+    if (!targetRes || targetRes.writableEnded || targetRes.destroyed) {
+      clients.delete(entry)
+      continue
+    }
+    if (excludeClientId && entryClientId && entryClientId === excludeClientId) {
+      continue
+    }
+    if (targetClientId) {
+      if (entryClientId !== targetClientId) continue
+    } else if (targetDid) {
+      if (entryDid !== targetDid) continue
+    }
+    try {
+      targetRes.write(frame)
+      delivered++
+    } catch {
+      clients.delete(entry)
+    }
+  }
+  if (clients.size === 0) {
+    spaceSseClients.delete(slug)
+  }
+  return delivered
+}
+
+function broadcastSpaceUpdate(slug, hydratedSpace) {
+  broadcastSpaceSseEvent(slug, 'space_update', {
     type: 'space_update',
     space: hydratedSpace,
     timestamp: new Date().toISOString(),
   })
-  const frame = `event: space_update\ndata: ${payload}\n\n`
-  for (const clientRes of [...clients]) {
-    try {
-      if (clientRes.writableEnded || clientRes.destroyed) {
-        clients.delete(clientRes)
-      } else {
-        clientRes.write(frame)
-      }
-    } catch {
-      clients.delete(clientRes)
-    }
+}
+
+function encodeVarint(value) {
+  const bytes = []
+  let v = value >>> 0
+  while (v >= 0x80) {
+    bytes.push((v & 0x7f) | 0x80)
+    v >>>= 7
   }
+  bytes.push(v)
+  return Buffer.from(bytes)
+}
+
+function buildMinimalCarExport(payloadObj) {
+  // DAG-CBOR map(2): { "roots": [], "version": 1 }
+  const headerBytes = Buffer.from([
+    0xa2, 0x65, 0x72, 0x6f, 0x6f, 0x74, 0x73, 0x80,
+    0x67, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x01,
+  ])
+  const blockBytes = Buffer.from(JSON.stringify(payloadObj), 'utf8')
+  const digest = crypto.createHash('sha256').update(blockBytes).digest()
+  const cidBytes = Buffer.concat([Buffer.from([0x01, 0x55, 0x12, 0x20]), digest])
+  const section = Buffer.concat([cidBytes, blockBytes])
+  return Buffer.concat([
+    encodeVarint(headerBytes.length),
+    headerBytes,
+    encodeVarint(section.length),
+    section,
+  ])
 }
 
 function buildQuantyBridgeForStore(store) {
@@ -4263,6 +4804,17 @@ export async function handleQuantZingPds(req, res) {
           )
           return true
         }
+        const enforcement = checkAccountEnforcement(store, auth.account)
+        if (!enforcement.allowed) {
+          sendXrpcError(
+            req,
+            res,
+            enforcement.status,
+            enforcement.error,
+            enforcement.message,
+          )
+          return true
+        }
         if (!existing) {
           sendXrpcError(req, res, 404, 'NotFound', 'Article not found')
           return true
@@ -4278,19 +4830,60 @@ export async function handleQuantZingPds(req, res) {
           return true
         }
         const body = await readJsonBody(req)
+        const nextTitle =
+          body.title !== undefined
+            ? String(body.title).trim() || existing.title
+            : existing.title
+        const nextSubtitle =
+          body.subtitle !== undefined ? String(body.subtitle) : existing.subtitle
+        const nextBody =
+          body.body !== undefined ? String(body.body) : existing.body
+        const nextTags = Array.isArray(body.tags) ? body.tags : existing.tags
+        const nextCoverUrl =
+          body.coverUrl !== undefined
+            ? body.coverUrl
+              ? String(body.coverUrl)
+              : null
+            : existing.coverUrl
+        const nextStatus =
+          body.status === 'draft' || body.status === 'published'
+            ? body.status
+            : existing.status
+        const nowIso = new Date().toISOString()
+        const articleUri =
+          existing.uri || `at://${auth.did}/com.quantzing.article/${existing.id}`
+        const recVal = {
+          $type: 'com.quantzing.article',
+          title: nextTitle,
+          subtitle: nextSubtitle,
+          body: nextBody,
+          tags: nextTags,
+          ...(nextCoverUrl ? {coverUrl: nextCoverUrl} : {}),
+          status: nextStatus,
+          createdAt: existing.createdAt || nowIso,
+          updatedAt: nowIso,
+        }
+        const nextCid = computeCid(recVal, 'dag-cbor')
+        store.putRecord({
+          uri: articleUri,
+          cid: nextCid,
+          rkey: existing.id,
+          collection: 'com.quantzing.article',
+          repo: auth.did,
+          value: recVal,
+          indexedAt: nowIso,
+        })
         const updated = store.upsertArticle({
           id: existing.id,
-          uri: existing.uri,
-          cid: existing.cid,
+          uri: articleUri,
+          cid: nextCid,
           authorDid: auth.did,
-          title: body.title !== undefined ? body.title : existing.title,
-          subtitle:
-            body.subtitle !== undefined ? body.subtitle : existing.subtitle,
-          body: body.body !== undefined ? body.body : existing.body,
-          tags: Array.isArray(body.tags) ? body.tags : existing.tags,
-          coverUrl:
-            body.coverUrl !== undefined ? body.coverUrl : existing.coverUrl,
-          status: body.status || existing.status,
+          title: nextTitle,
+          subtitle: nextSubtitle,
+          body: nextBody,
+          tags: nextTags,
+          coverUrl: nextCoverUrl,
+          status: nextStatus,
         })
         sendJson(req, res, 200, {
           ok: true,
@@ -4308,6 +4901,17 @@ export async function handleQuantZingPds(req, res) {
             auth.status,
             auth.error,
             'Authentication required',
+          )
+          return true
+        }
+        const enforcement = checkAccountEnforcement(store, auth.account)
+        if (!enforcement.allowed) {
+          sendXrpcError(
+            req,
+            res,
+            enforcement.status,
+            enforcement.error,
+            enforcement.message,
           )
           return true
         }
@@ -4524,7 +5128,7 @@ export async function handleQuantZingPds(req, res) {
     }
 
     const spaceActionMatch = pathname.match(
-      /^\/api\/quantzing\/spaces\/([^/]+)(?:\/(join|leave|hand|react|events))?$/,
+      /^\/api\/quantzing\/spaces\/([^/]+)(?:\/(join|leave|hand|react|events|mute|signal))?$/,
     )
     if (spaceActionMatch) {
       const slug = decodeURIComponent(spaceActionMatch[1])
@@ -4710,23 +5314,251 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
 
+      if (subAction === 'mute' && method === 'POST') {
+        const auth = getAuthedContext(req, store)
+        if (auth.error) {
+          sendXrpcError(
+            req,
+            res,
+            auth.status,
+            auth.error,
+            'Authentication required',
+          )
+          return true
+        }
+        const enforcement = checkAccountEnforcement(store, auth.account)
+        if (!enforcement.allowed) {
+          sendXrpcError(
+            req,
+            res,
+            enforcement.status,
+            enforcement.error,
+            enforcement.message,
+          )
+          return true
+        }
+        const existing = store.getSpaceBySlug(slug)
+        if (!existing) {
+          sendXrpcError(req, res, 404, 'NotFound', 'ZingSpace not found')
+          return true
+        }
+        const body = await readJsonBody(req)
+        const targetDid = body.targetDid ? String(body.targetDid).trim() : auth.did
+        if (targetDid !== auth.did && existing.hostDid !== auth.did) {
+          sendXrpcError(
+            req,
+            res,
+            403,
+            'Forbidden',
+            'Only the ZingSpace host can mute or unmute another participant',
+          )
+          return true
+        }
+        const muted = body.muted !== undefined ? Boolean(body.muted) : true
+        const updated = store.setSpaceMuted(slug, targetDid, muted)
+        if (!updated) {
+          sendXrpcError(req, res, 404, 'NotFound', 'ZingSpace not found')
+          return true
+        }
+        const space = hydrateSpaceView(store, updated, origin)
+        broadcastSpaceUpdate(space.slug, space)
+        sendJson(req, res, 200, {ok: true, space})
+        return true
+      }
+
+      if (subAction === 'signal' && (method === 'POST' || method === 'GET')) {
+        const auth = getAuthedContext(req, store)
+        if (auth.error) {
+          sendXrpcError(
+            req,
+            res,
+            auth.status,
+            auth.error,
+            'Authentication required',
+          )
+          return true
+        }
+        const enforcement = checkAccountEnforcement(store, auth.account)
+        if (!enforcement.allowed) {
+          sendXrpcError(
+            req,
+            res,
+            enforcement.status,
+            enforcement.error,
+            enforcement.message,
+          )
+          return true
+        }
+        if (
+          enforceRateLimit(req, res, {
+            bucketKey: `space-signal:${auth.did}`,
+            maxRequests: 300,
+            windowMs: 60 * 1000,
+            auth,
+            sendJson,
+          })
+        ) {
+          return true
+        }
+        const existing = store.getSpaceBySlug(slug)
+        if (!existing) {
+          sendXrpcError(req, res, 404, 'NotFound', 'ZingSpace not found')
+          return true
+        }
+
+        const nowMs = Date.now()
+        const cutoffMs = nowMs - 30_000
+        let buf = spaceSignalBuffers.get(existing.slug) || []
+        buf = buf.filter(item => item._ts > cutoffMs).slice(-60)
+        spaceSignalBuffers.set(existing.slug, buf)
+
+        if (method === 'GET') {
+          const since = String(searchParams.get('since') || '').trim()
+          const clientId = String(searchParams.get('clientId') || '').trim()
+          const signals = buf
+            .filter(item => {
+              if (since) {
+                if (item.id === since) return false
+                const sinceMs = Date.parse(since)
+                if (Number.isFinite(sinceMs) && item._ts <= sinceMs) return false
+                if (!Number.isFinite(sinceMs) && item.id <= since) return false
+              }
+              const isUnicast =
+                item.type === 'offer' ||
+                item.type === 'answer' ||
+                item.type === 'ice-candidate'
+              if (isUnicast) {
+                if (item.toClientId && clientId) {
+                  return (
+                    item.toClientId === clientId &&
+                    (!item.toDid || item.toDid === auth.did)
+                  )
+                }
+                return item.toDid === auth.did
+              }
+              if (
+                clientId &&
+                item.fromClientId &&
+                item.fromClientId === clientId
+              ) {
+                return false
+              }
+              return true
+            })
+            .map(({_ts, ...pub}) => pub)
+          sendJson(req, res, 200, {ok: true, signals})
+          return true
+        }
+
+        const body = await readJsonBody(req)
+        const type = String(body.type || '').trim()
+        const validTypes = new Set([
+          'offer',
+          'answer',
+          'ice-candidate',
+          'peer-ready',
+          'peer-leave',
+        ])
+        if (!validTypes.has(type)) {
+          sendXrpcError(
+            req,
+            res,
+            400,
+            'InvalidRequest',
+            'Invalid WebRTC signal type',
+          )
+          return true
+        }
+        const fromClientId = body.fromClientId
+          ? String(body.fromClientId).trim().slice(0, 80)
+          : null
+        const toDid = body.toDid ? String(body.toDid).trim() : null
+        const toClientId = body.toClientId
+          ? String(body.toClientId).trim().slice(0, 80)
+          : null
+        const isUnicast =
+          type === 'offer' || type === 'answer' || type === 'ice-candidate'
+        if (isUnicast && !toDid && !toClientId) {
+          sendXrpcError(
+            req,
+            res,
+            400,
+            'InvalidRequest',
+            'Unicast WebRTC signal requires toDid or toClientId',
+          )
+          return true
+        }
+
+        const publicEnvelope = {
+          id: `sig_${generateTid()}`,
+          slug: existing.slug,
+          type,
+          fromDid: auth.did,
+          fromHandle: auth.account?.handle || auth.did,
+          ...(fromClientId ? {fromClientId} : {}),
+          ...(toDid ? {toDid} : {}),
+          ...(toClientId ? {toClientId} : {}),
+          ...(body.sdp !== undefined ? {sdp: body.sdp} : {}),
+          ...(body.candidate !== undefined ? {candidate: body.candidate} : {}),
+          ...(body.payload !== undefined ? {payload: body.payload} : {}),
+          timestamp: new Date(nowMs).toISOString(),
+        }
+
+        buf.push({...publicEnvelope, _ts: nowMs})
+        if (buf.length > 60) {
+          buf = buf.slice(-60)
+          spaceSignalBuffers.set(existing.slug, buf)
+        }
+
+        if (isUnicast) {
+          broadcastSpaceSseEvent(existing.slug, 'webrtc_signal', publicEnvelope, {
+            targetDid: toDid,
+            targetClientId: toClientId,
+          })
+        } else {
+          broadcastSpaceSseEvent(existing.slug, 'webrtc_signal', publicEnvelope, {
+            excludeClientId: fromClientId,
+          })
+        }
+
+        sendJson(req, res, 200, {ok: true, signal: publicEnvelope})
+        return true
+      }
+
       if (subAction === 'events' && method === 'GET') {
         const existing = store.getSpaceBySlug(slug)
         if (!existing) {
           sendXrpcError(req, res, 404, 'NotFound', 'ZingSpace not found')
           return true
         }
+        const queryToken = String(searchParams.get('token') || '').trim()
+        const rawBearer = extractBearerToken(req) || queryToken
+        let sseDid = null
+        let sseHandle = null
+        if (rawBearer) {
+          const verified = verifyJwt(store, rawBearer)
+          if (verified && !verified.expired && verified.account) {
+            const tv = Number(verified.payload?.tv) || 1
+            const accTv = Number(verified.account.tokenVersion) || 1
+            if (tv === accTv) {
+              sseDid = verified.account.did
+              sseHandle = verified.account.handle
+            }
+          }
+        }
+        const clientId =
+          String(searchParams.get('clientId') || '').trim().slice(0, 80) ||
+          `cli_${generateTid()}`
+        const connectedAt = new Date().toISOString()
+
         res.writeHead(
           200,
           corsHeaders(req, {
             'content-type': 'text/event-stream; charset=utf-8',
             'cache-control': 'no-cache, no-transform',
             connection: 'keep-alive',
+            'x-accel-buffering': 'no',
           }),
-        )
-        const initialSpace = hydrateSpaceView(store, existing, origin)
-        res.write(
-          `event: space_update\ndata: ${JSON.stringify({type: 'space_update', space: initialSpace})}\n\n`,
         )
 
         let set = spaceSseClients.get(existing.slug)
@@ -4734,7 +5566,48 @@ export async function handleQuantZingPds(req, res) {
           set = new Set()
           spaceSseClients.set(existing.slug, set)
         }
-        set.add(res)
+        const clientEntry = {
+          res,
+          did: sseDid,
+          handle: sseHandle,
+          clientId,
+          connectedAt,
+        }
+        set.add(clientEntry)
+
+        const initialSpace = hydrateSpaceView(store, existing, origin)
+        res.write(
+          `event: space_update\ndata: ${JSON.stringify({type: 'space_update', space: initialSpace, timestamp: connectedAt})}\n\n`,
+        )
+
+        const peers = [...set]
+          .filter(c => c.res && !c.res.writableEnded && !c.res.destroyed)
+          .map(c => ({
+            clientId: c.clientId,
+            did: c.did || null,
+            handle: c.handle || null,
+            connectedAt: c.connectedAt,
+          }))
+        res.write(
+          `event: space_peers\ndata: ${JSON.stringify({type: 'space_peers', slug: existing.slug, selfClientId: clientId, peers, timestamp: connectedAt})}\n\n`,
+        )
+
+        broadcastSpaceSseEvent(
+          existing.slug,
+          'peer_joined',
+          {
+            type: 'peer_joined',
+            slug: existing.slug,
+            peer: {
+              clientId,
+              did: sseDid,
+              handle: sseHandle,
+              connectedAt,
+            },
+            timestamp: connectedAt,
+          },
+          {excludeClientId: clientId},
+        )
 
         const heartbeat = setInterval(() => {
           try {
@@ -4747,7 +5620,19 @@ export async function handleQuantZingPds(req, res) {
 
         req.on('close', () => {
           clearInterval(heartbeat)
-          set.delete(res)
+          set.delete(clientEntry)
+          if (set.size === 0) {
+            spaceSseClients.delete(existing.slug)
+          } else {
+            broadcastSpaceSseEvent(existing.slug, 'peer_left', {
+              type: 'peer_left',
+              slug: existing.slug,
+              clientId,
+              did: sseDid,
+              handle: sseHandle,
+              timestamp: new Date().toISOString(),
+            })
+          }
         })
         return true
       }
@@ -4788,6 +5673,17 @@ export async function handleQuantZingPds(req, res) {
           auth.status,
           auth.error,
           'Authentication required',
+        )
+        return true
+      }
+      const enforcement = checkAccountEnforcement(store, auth.account)
+      if (!enforcement.allowed) {
+        sendXrpcError(
+          req,
+          res,
+          enforcement.status,
+          enforcement.error,
+          enforcement.message,
         )
         return true
       }
@@ -4834,10 +5730,41 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
+      const enforcement = checkAccountEnforcement(store, auth.account)
+      if (!enforcement.allowed) {
+        sendXrpcError(
+          req,
+          res,
+          enforcement.status,
+          enforcement.error,
+          enforcement.message,
+        )
+        return true
+      }
       const body = await readJsonBody(req)
-      const orderId = String(body.orderId || '')
-      const order = orderId ? store.getProOrder(orderId) : null
-      if (order && order.did !== auth.did) {
+      const orderId = String(body.orderId || '').trim()
+      if (!orderId) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'orderId is required to confirm Pro checkout',
+        )
+        return true
+      }
+      const order = store.getProOrder(orderId)
+      if (!order) {
+        sendXrpcError(
+          req,
+          res,
+          404,
+          'NotFound',
+          'Pro checkout order not found',
+        )
+        return true
+      }
+      if (order.did !== auth.did) {
         sendXrpcError(
           req,
           res,
@@ -4847,11 +5774,9 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
-      const planId = String(body.planId || order?.planId || 'pro_monthly')
+      const planId = String(order.planId || body.planId || 'pro_monthly')
       const plan = PRO_PLANS.find(p => p.id === planId) || PRO_PLANS[1]
-      if (order) {
-        store.updateProOrderStatus(order.id, 'completed')
-      }
+      store.updateProOrderStatus(order.id, 'completed')
       const now = new Date()
       const days = plan.billingCycle === 'annual' ? 365 : 30
       const expiresAt = new Date(now.getTime() + days * 86_400_000).toISOString()
@@ -4863,7 +5788,7 @@ export async function handleQuantZingPds(req, res) {
         expiresAt,
         cancelAtPeriodEnd: false,
         verifiedBadge: true,
-        orderId: order?.id || orderId || undefined,
+        orderId: order.id,
       })
       store.setAccountVerified(auth.did, true)
       sendJson(req, res, 200, {ok: true, subscription})
@@ -4879,6 +5804,17 @@ export async function handleQuantZingPds(req, res) {
           auth.status,
           auth.error,
           'Authentication required',
+        )
+        return true
+      }
+      const enforcement = checkAccountEnforcement(store, auth.account)
+      if (!enforcement.allowed) {
+        sendXrpcError(
+          req,
+          res,
+          enforcement.status,
+          enforcement.error,
+          enforcement.message,
         )
         return true
       }
@@ -5162,7 +6098,26 @@ export async function handleQuantZingPds(req, res) {
       const rawCidSegment = isThumbPath
         ? segments[segments.length - 2]
         : segments[segments.length - 1]
-      const cid = decodeURIComponent(rawCidSegment || '')
+      let decodedCid = ''
+      try {
+        decodedCid = decodeURIComponent(rawCidSegment || '')
+      } catch {
+        sendXrpcError(req, res, 400, 'InvalidRequest', 'Invalid blob CID')
+        return true
+      }
+      if (
+        !decodedCid ||
+        decodedCid.includes('..') ||
+        decodedCid.includes('/') ||
+        decodedCid.includes('\\')
+      ) {
+        sendXrpcError(req, res, 400, 'InvalidRequest', 'Invalid blob CID')
+        return true
+      }
+      const cid = decodedCid.replace(
+        /\.(mp4|mov|webm|m4v|jpg|jpeg|png|webp)$/i,
+        '',
+      )
       if (!cid || cid.includes('..') || cid.includes('/') || cid.includes('\\')) {
         sendXrpcError(req, res, 400, 'InvalidRequest', 'Invalid blob CID')
         return true
@@ -5540,13 +6495,25 @@ export async function handleQuantZingPds(req, res) {
       }
 
       const account = store.findAccount(identifier)
-      const validPassword = account
+      let validPassword = account
         ? await verifyPasswordAsync(
             password,
             account.passwordSalt,
             account.passwordHash,
           )
         : false
+      if (account && !validPassword && Array.isArray(account.appPasswords)) {
+        for (const ap of account.appPasswords) {
+          if (
+            ap?.salt &&
+            ap?.hash &&
+            (await verifyPasswordAsync(password, ap.salt, ap.hash))
+          ) {
+            validPassword = true
+            break
+          }
+        }
+      }
       if (!account || !validPassword) {
         sendXrpcError(
           req,
@@ -5678,7 +6645,7 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
       sendJson(req, res, 200, {
-        activated: true,
+        activated: auth.account?.active !== false,
         validDid: true,
         repoCommit: computeCid({did: auth.did}, 'dag-cbor'),
         repoRev: generateTid(),
@@ -5688,6 +6655,523 @@ export async function handleQuantZingPds(req, res) {
         expectedBlobs: 0,
         importedBlobs: 0,
       })
+      return true
+    }
+
+    if (nsid === 'com.atproto.server.requestPasswordReset' && method === 'POST') {
+      if (
+        enforceRateLimit(req, res, {
+          bucketKey: `pwreset:${getClientIp(req)}`,
+          maxRequests: 20,
+          windowMs: 15 * 60 * 1000,
+          auth: null,
+          sendJson,
+        })
+      ) {
+        return true
+      }
+      pruneExpiringTokenMap(passwordResetTokens)
+      const body = await readJsonBody(req)
+      const email = String(body.email || '').trim().toLowerCase()
+      if (!email) {
+        sendXrpcError(req, res, 400, 'InvalidRequest', 'email is required')
+        return true
+      }
+      const acc = store.findAccountByEmail(email) || store.findAccount(email)
+      if (acc) {
+        const token = generateShortCode(8)
+        passwordResetTokens.set(token, {
+          did: acc.did,
+          email: acc.email || email,
+          expiresAtMs: Date.now() + 15 * 60 * 1000,
+        })
+      }
+      sendEmpty(req, res, 200)
+      return true
+    }
+
+    if (nsid === 'com.atproto.server.resetPassword' && method === 'POST') {
+      if (
+        enforceRateLimit(req, res, {
+          bucketKey: `pwreset-confirm:${getClientIp(req)}`,
+          maxRequests: 20,
+          windowMs: 15 * 60 * 1000,
+          auth: null,
+          sendJson,
+        })
+      ) {
+        return true
+      }
+      pruneExpiringTokenMap(passwordResetTokens)
+      const body = await readJsonBody(req)
+      const rawToken = String(body.token || '').trim().toUpperCase()
+      const newPassword = typeof body.password === 'string' ? body.password : ''
+      if (!rawToken || newPassword.length < 1) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'token and password are required',
+        )
+        return true
+      }
+      const entry = passwordResetTokens.get(rawToken)
+      if (!entry || entry.expiresAtMs <= Date.now()) {
+        passwordResetTokens.delete(rawToken)
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'ExpiredToken',
+          'Invalid or expired password reset token',
+        )
+        return true
+      }
+      passwordResetTokens.delete(rawToken)
+      const {salt, hash} = await hashPasswordAsync(newPassword)
+      store.updateAccountPassword(entry.did, salt, hash)
+      sendEmpty(req, res, 200)
+      return true
+    }
+
+    if (nsid === 'com.atproto.server.requestEmailUpdate' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          auth.message || 'Authentication required',
+        )
+        return true
+      }
+      const enforcement = checkAccountEnforcement(store, auth.account)
+      if (!enforcement.allowed) {
+        sendXrpcError(
+          req,
+          res,
+          enforcement.status,
+          enforcement.error,
+          enforcement.message,
+        )
+        return true
+      }
+      sendJson(req, res, 200, {tokenRequired: false})
+      return true
+    }
+
+    if (nsid === 'com.atproto.server.updateEmail' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          auth.message || 'Authentication required',
+        )
+        return true
+      }
+      const enforcement = checkAccountEnforcement(store, auth.account)
+      if (!enforcement.allowed) {
+        sendXrpcError(
+          req,
+          res,
+          enforcement.status,
+          enforcement.error,
+          enforcement.message,
+        )
+        return true
+      }
+      const body = await readJsonBody(req)
+      const email = String(body.email || '').trim().toLowerCase()
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'A valid email address is required',
+        )
+        return true
+      }
+      const owner = store.findAccountByEmail(email)
+      if (owner && owner.did !== auth.did) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'An account with that email already exists',
+        )
+        return true
+      }
+      store.updateAccountEmail(auth.did, email, {
+        emailConfirmed: true,
+        emailAuthFactor:
+          body.emailAuthFactor !== undefined
+            ? Boolean(body.emailAuthFactor)
+            : undefined,
+      })
+      sendEmpty(req, res, 200)
+      return true
+    }
+
+    if (
+      nsid === 'com.atproto.server.requestEmailConfirmation' &&
+      method === 'POST'
+    ) {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          auth.message || 'Authentication required',
+        )
+        return true
+      }
+      const enforcement = checkAccountEnforcement(store, auth.account)
+      if (!enforcement.allowed) {
+        sendXrpcError(
+          req,
+          res,
+          enforcement.status,
+          enforcement.error,
+          enforcement.message,
+        )
+        return true
+      }
+      pruneExpiringTokenMap(emailConfirmTokens)
+      const token = generateShortCode(8)
+      emailConfirmTokens.set(token, {
+        did: auth.did,
+        email: auth.account.email || '',
+        expiresAtMs: Date.now() + 15 * 60 * 1000,
+      })
+      sendEmpty(req, res, 200)
+      return true
+    }
+
+    if (nsid === 'com.atproto.server.confirmEmail' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          auth.message || 'Authentication required',
+        )
+        return true
+      }
+      pruneExpiringTokenMap(emailConfirmTokens)
+      const body = await readJsonBody(req)
+      const email = String(body.email || auth.account.email || '')
+        .trim()
+        .toLowerCase()
+      const rawToken = String(body.token || '').trim().toUpperCase()
+      if (!rawToken) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidToken',
+          'Confirmation token is required',
+        )
+        return true
+      }
+      const entry = emailConfirmTokens.get(rawToken)
+      if (!entry || entry.did !== auth.did || entry.expiresAtMs <= Date.now()) {
+        emailConfirmTokens.delete(rawToken)
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'ExpiredToken',
+          'Invalid or expired email confirmation token',
+        )
+        return true
+      }
+      if (email && entry.email && email !== entry.email.toLowerCase()) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidEmail',
+          'Email does not match confirmation token',
+        )
+        return true
+      }
+      emailConfirmTokens.delete(rawToken)
+      store.updateAccountEmail(auth.did, email || auth.account.email, {
+        emailConfirmed: true,
+      })
+      sendEmpty(req, res, 200)
+      return true
+    }
+
+    if (nsid === 'com.atproto.server.deactivateAccount' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          auth.message || 'Authentication required',
+        )
+        return true
+      }
+      const body = await readJsonBody(req)
+      store.setAccountActive(auth.did, false, {
+        deleteAfter: body.deleteAfter ? String(body.deleteAfter) : null,
+      })
+      sendEmpty(req, res, 200)
+      return true
+    }
+
+    if (nsid === 'com.atproto.server.activateAccount' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          auth.message || 'Authentication required',
+        )
+        return true
+      }
+      const enforcement = checkAccountEnforcement(store, auth.account)
+      if (!enforcement.allowed) {
+        sendXrpcError(
+          req,
+          res,
+          enforcement.status,
+          enforcement.error,
+          enforcement.message,
+        )
+        return true
+      }
+      store.setAccountActive(auth.did, true)
+      sendEmpty(req, res, 200)
+      return true
+    }
+
+    if (nsid === 'com.atproto.server.requestAccountDelete' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          auth.message || 'Authentication required',
+        )
+        return true
+      }
+      pruneExpiringTokenMap(accountDeleteTokens)
+      const token = generateShortCode(8)
+      accountDeleteTokens.set(token, {
+        did: auth.did,
+        expiresAtMs: Date.now() + 15 * 60 * 1000,
+      })
+      sendEmpty(req, res, 200)
+      return true
+    }
+
+    if (nsid === 'com.atproto.server.deleteAccount' && method === 'POST') {
+      pruneExpiringTokenMap(accountDeleteTokens)
+      const body = await readJsonBody(req)
+      const targetDid = String(body.did || '').trim()
+      const password = typeof body.password === 'string' ? body.password : ''
+      const rawToken = String(body.token || '').trim().toUpperCase()
+      if (!targetDid || !password || !rawToken) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'did, password, and token are required',
+        )
+        return true
+      }
+      if (
+        targetDid === FOUNDER_DID ||
+        targetDid === QUANTZING_OFFICIAL_DID ||
+        targetDid === QUANTY_SYSTEM_DID
+      ) {
+        sendXrpcError(
+          req,
+          res,
+          403,
+          'Forbidden',
+          'System and founder accounts cannot be deleted',
+        )
+        return true
+      }
+      const acc = store.getAccountByDid(targetDid)
+      if (
+        !acc ||
+        !(await verifyPasswordAsync(password, acc.passwordSalt, acc.passwordHash))
+      ) {
+        sendXrpcError(
+          req,
+          res,
+          401,
+          'AuthenticationRequired',
+          'Invalid account credentials',
+        )
+        return true
+      }
+      const entry = accountDeleteTokens.get(rawToken)
+      if (!entry || entry.did !== acc.did || entry.expiresAtMs <= Date.now()) {
+        accountDeleteTokens.delete(rawToken)
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'ExpiredToken',
+          'Invalid or expired account deletion token',
+        )
+        return true
+      }
+      accountDeleteTokens.delete(rawToken)
+      store.deleteAccountCompletely(acc.did)
+      sendEmpty(req, res, 200)
+      return true
+    }
+
+    if (nsid === 'com.atproto.server.listAppPasswords' && method === 'GET') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          auth.message || 'Authentication required',
+        )
+        return true
+      }
+      const passwords = (auth.account.appPasswords || []).map(ap => ({
+        name: String(ap.name || ''),
+        createdAt: String(ap.createdAt || auth.account.createdAt),
+        privileged: Boolean(ap.privileged),
+      }))
+      sendJson(req, res, 200, {passwords})
+      return true
+    }
+
+    if (nsid === 'com.atproto.server.createAppPassword' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          auth.message || 'Authentication required',
+        )
+        return true
+      }
+      const enforcement = checkAccountEnforcement(store, auth.account)
+      if (!enforcement.allowed) {
+        sendXrpcError(
+          req,
+          res,
+          enforcement.status,
+          enforcement.error,
+          enforcement.message,
+        )
+        return true
+      }
+      const body = await readJsonBody(req)
+      const name = String(body.name || '').trim().slice(0, 64)
+      if (!name) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'App password name is required',
+        )
+        return true
+      }
+      const existing = Array.isArray(auth.account.appPasswords)
+        ? [...auth.account.appPasswords]
+        : []
+      if (
+        existing.some(p => String(p.name).toLowerCase() === name.toLowerCase())
+      ) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'An app password with that name already exists',
+        )
+        return true
+      }
+      const rawPassword = generateAppPasswordPlaintext()
+      const {salt, hash} = await hashPasswordAsync(rawPassword)
+      const createdAt = new Date().toISOString()
+      const privileged = Boolean(body.privileged)
+      existing.push({name, salt, hash, createdAt, privileged})
+      store.upsertAccount({...auth.account, appPasswords: existing})
+      sendJson(req, res, 200, {
+        name,
+        password: rawPassword,
+        createdAt,
+        privileged,
+      })
+      return true
+    }
+
+    if (nsid === 'com.atproto.server.revokeAppPassword' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.status,
+          auth.error,
+          auth.message || 'Authentication required',
+        )
+        return true
+      }
+      const enforcement = checkAccountEnforcement(store, auth.account)
+      if (!enforcement.allowed) {
+        sendXrpcError(
+          req,
+          res,
+          enforcement.status,
+          enforcement.error,
+          enforcement.message,
+        )
+        return true
+      }
+      const body = await readJsonBody(req)
+      const name = String(body.name || '').trim()
+      if (!name) {
+        sendXrpcError(
+          req,
+          res,
+          400,
+          'InvalidRequest',
+          'App password name is required',
+        )
+        return true
+      }
+      const next = (auth.account.appPasswords || []).filter(
+        p => String(p.name).toLowerCase() !== name.toLowerCase(),
+      )
+      store.upsertAccount({...auth.account, appPasswords: next})
+      sendEmpty(req, res, 200)
       return true
     }
 
@@ -6193,7 +7677,12 @@ export async function handleQuantZingPds(req, res) {
 
     if (nsid === 'com.atproto.sync.getBlob' && method === 'GET') {
       const cid = searchParams.get('cid') || ''
-      if (cid && !cid.includes('..') && !cid.includes('/')) {
+      if (
+        cid &&
+        !cid.includes('..') &&
+        !cid.includes('/') &&
+        !cid.includes('\\')
+      ) {
         const blobFile = store.resolveExistingBlobPath(cid)
         if (blobFile) {
           const meta = store.getBlobMeta(cid)
@@ -6224,6 +7713,41 @@ export async function handleQuantZingPds(req, res) {
       return true
     }
 
+    if (nsid === 'com.atproto.sync.getRepo' && method === 'GET') {
+      const didParam = String(searchParams.get('did') || '').trim()
+      const acc = store.findAccount(didParam)
+      if (!acc) {
+        sendXrpcError(req, res, 400, 'RepoNotFound', 'Repository not found')
+        return true
+      }
+      const records = store.getAllRecordsForRepo(acc.did).map(r => ({
+        uri: r.uri,
+        cid: r.cid,
+        collection: r.collection,
+        rkey: r.rkey,
+        value: r.value,
+        indexedAt: r.indexedAt,
+      }))
+      const carBuf = buildMinimalCarExport({
+        did: acc.did,
+        handle: acc.handle,
+        exportedAt: new Date().toISOString(),
+        records,
+      })
+      const safeName = acc.handle.replace(/[^a-zA-Z0-9._-]/g, '_')
+      res.writeHead(
+        200,
+        corsHeaders(req, {
+          'content-type': 'application/vnd.ipld.car',
+          'content-length': carBuf.length,
+          'content-disposition': `attachment; filename="${safeName}.car"`,
+          'cache-control': 'no-store',
+        }),
+      )
+      res.end(carBuf)
+      return true
+    }
+
     // -----------------------------------------------------------------------
     // 3. Actor Preferences, Profiles & Search (app.bsky.actor.*)
     // -----------------------------------------------------------------------
@@ -6241,24 +7765,11 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
       // Return preferences with ZERO disk writes on GET!
-      let prefs =
+      const prefs =
         Array.isArray(auth.account.preferences) &&
         auth.account.preferences.length > 0
           ? [...auth.account.preferences]
           : createDefaultPreferences()
-      if (
-        !prefs.some(
-          p => p?.$type === 'app.bsky.actor.defs#personalDetailsPref',
-        )
-      ) {
-        prefs = [
-          ...prefs,
-          {
-            $type: 'app.bsky.actor.defs#personalDetailsPref',
-            birthDate: '1998-01-01T00:00:00.000Z',
-          },
-        ]
-      }
       sendJson(req, res, 200, {preferences: prefs})
       return true
     }
@@ -6272,6 +7783,17 @@ export async function handleQuantZingPds(req, res) {
           auth.status,
           auth.error,
           'Authentication required',
+        )
+        return true
+      }
+      const enforcement = checkAccountEnforcement(store, auth.account)
+      if (!enforcement.allowed) {
+        sendXrpcError(
+          req,
+          res,
+          enforcement.status,
+          enforcement.error,
+          enforcement.message,
         )
         return true
       }
@@ -6644,17 +8166,19 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
 
-      const includeReplies =
-        filter !== 'posts_no_replies' &&
-        filter !== 'posts_with_media' &&
-        filter !== 'posts_with_video'
       const onlyMedia = filter === 'posts_with_media'
       const onlyVideo = filter === 'posts_with_video'
-      const includeReposts = !onlyMedia && !onlyVideo
+      const repliesOnly = filter === 'posts_and_replies_only'
+      const authorThreadsOnly = filter === 'posts_and_author_threads'
+      const includeReplies =
+        filter === 'posts_with_replies' || repliesOnly || authorThreadsOnly
+      const includeReposts = !onlyMedia && !onlyVideo && !repliesOnly
 
       let finalEntries = getLocalFeedItems(store, viewerDid, origin, {
         authorDids: [localAcc.did],
         includeReplies,
+        repliesOnly,
+        authorThreadsOnly,
         includeReposts,
         onlyMedia,
         onlyVideo,
@@ -6663,7 +8187,14 @@ export async function handleQuantZingPds(req, res) {
 
       const includePins = searchParams.get('includePins') === 'true'
       const pinnedUri = localAcc.profile?.pinnedPost?.uri
-      if (includePins && pinnedUri && !cursor && !onlyMedia && !onlyVideo) {
+      if (
+        includePins &&
+        pinnedUri &&
+        !cursor &&
+        !onlyMedia &&
+        !onlyVideo &&
+        !repliesOnly
+      ) {
         const pinnedRec = findLocalPostByUri(store, pinnedUri)
         if (
           pinnedRec &&
@@ -7027,10 +8558,11 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'app.bsky.feed.getQuotes' && method === 'GET') {
       const rawUri = searchParams.get('uri') || ''
       const uri = store.canonicalizeUri(rawUri)
+      const sort = searchParams.get('sort') || 'latest'
       const limit = Number(searchParams.get('limit') || 50)
       const cursor = searchParams.get('cursor')
       const viewerDid = getOptionalViewerDid(req, store)
-      const page = store.getQuotesForPost(uri, {limit, cursor})
+      const page = store.getQuotesForPost(uri, {limit, cursor, sort})
       const posts = page.items
         .filter(r => !isRecordHiddenForViewer(store, r, viewerDid))
         .map(r => buildLocalPostView(store, r, viewerDid, origin))
@@ -7043,34 +8575,112 @@ export async function handleQuantZingPds(req, res) {
       return true
     }
 
-    if (nsid === 'app.bsky.feed.searchPosts' && method === 'GET') {
-      const query = (searchParams.get('q') || '').trim()
-      const sort = searchParams.get('sort') || 'latest'
+    if (
+      (nsid === 'app.bsky.feed.searchPosts' ||
+        nsid === 'app.bsky.feed.searchPostsV2') &&
+      method === 'GET'
+    ) {
+      const getListParam = (...names) => {
+        const out = []
+        for (const name of names) {
+          for (const raw of searchParams.getAll(name)) {
+            for (const part of String(raw || '').split(',')) {
+              const clean = part.trim()
+              if (clean) out.push(clean)
+            }
+          }
+        }
+        return out
+      }
+      const getBoolParam = name => {
+        const v = String(searchParams.get(name) || '').toLowerCase()
+        return v === 'true' || v === '1'
+      }
+
+      const viewerDid = getOptionalViewerDid(req, store)
+      const query = (
+        searchParams.get('query') ||
+        searchParams.get('q') ||
+        ''
+      ).trim()
+      const rawSort = (
+        searchParams.get('sort') ||
+        (nsid === 'app.bsky.feed.searchPostsV2' ? 'recent' : 'latest')
+      ).toLowerCase()
+      const sort = rawSort === 'top' ? 'top' : 'recent'
       const since = searchParams.get('since')
       const until = searchParams.get('until')
-      const lang = searchParams.get('lang')
-      const authorFilter = (searchParams.get('author') || '').trim()
-      const authorAcc = authorFilter ? store.findAccount(authorFilter) : null
-      if (authorFilter && !authorAcc) {
-        sendJson(req, res, 200, {posts: []})
-        return true
+
+      const rawAuthors = getListParam('authors', 'author')
+      const authorDids = []
+      if (rawAuthors.length > 0) {
+        for (const a of rawAuthors) {
+          const cleaned = a.replace(/^@/, '')
+          if (cleaned.toLowerCase() === 'me') {
+            if (viewerDid) authorDids.push(viewerDid)
+          } else {
+            const acc = store.findAccount(cleaned)
+            if (acc) authorDids.push(acc.did)
+          }
+        }
+        if (authorDids.length === 0) {
+          sendJson(req, res, 200, {posts: [], hitsTotal: 0})
+          return true
+        }
       }
-      const tagFilters = searchParams
-        .getAll('tag')
-        .map(t => String(t || '').trim().toLowerCase().replace(/^#/, ''))
+
+      const excludeAuthorDids = []
+      for (const a of getListParam('excludeAuthors')) {
+        const cleaned = a.replace(/^@/, '')
+        if (cleaned.toLowerCase() === 'me') {
+          if (viewerDid) excludeAuthorDids.push(viewerDid)
+        } else {
+          const acc = store.findAccount(cleaned)
+          if (acc) excludeAuthorDids.push(acc.did)
+        }
+      }
+
+      const mentions = getListParam('mentions', 'mention')
+      const tagFilters = getListParam('hashtags', 'tags', 'tag')
+        .map(t => t.toLowerCase().replace(/^#/, ''))
         .filter(Boolean)
-      const limit = Math.min(Number(searchParams.get('limit') || 25) || 25, 50)
+      const excludeTags = getListParam('excludeHashtags')
+        .map(t => t.toLowerCase().replace(/^#/, ''))
+        .filter(Boolean)
+      const langs = getListParam('languages', 'lang')
+      const domains = getListParam('domains', 'domain')
+      const urls = getListParam('urls', 'url')
+      const hasMedia = getBoolParam('hasMedia')
+      const hasVideo = getBoolParam('hasVideo')
+      const followingOnly = getBoolParam('following')
+      const excludeReplies = getBoolParam('excludeReplies')
+      const repliesOnly = getBoolParam('repliesOnly')
+      const limit = Math.min(
+        100,
+        Math.max(1, Number(searchParams.get('limit') || 25) || 25),
+      )
       const cursor = searchParams.get('cursor')
-      const viewerDid = getOptionalViewerDid(req, store)
 
       const page = store.searchPosts({
         query,
-        authorDid: authorAcc?.did || null,
+        authorDids: authorDids.length > 0 ? authorDids : null,
+        excludeAuthorDids:
+          excludeAuthorDids.length > 0 ? excludeAuthorDids : null,
+        mentions: mentions.length > 0 ? mentions : null,
         tags: tagFilters,
+        excludeTags,
         sort,
         since,
         until,
-        lang,
+        langs: langs.length > 0 ? langs : null,
+        domains: domains.length > 0 ? domains : null,
+        urls: urls.length > 0 ? urls : null,
+        hasMedia,
+        hasVideo,
+        followingOnly,
+        viewerDid,
+        excludeReplies,
+        repliesOnly,
         limit,
         cursor,
       })
@@ -7081,6 +8691,8 @@ export async function handleQuantZingPds(req, res) {
 
       sendJson(req, res, 200, {
         ...(page.cursor ? {cursor: page.cursor} : {}),
+        hitsTotal:
+          typeof page.hitsTotal === 'number' ? page.hitsTotal : posts.length,
         posts,
       })
       return true
@@ -7104,6 +8716,17 @@ export async function handleQuantZingPds(req, res) {
           auth.status,
           auth.error,
           'Authentication required',
+        )
+        return true
+      }
+      const enforcement = checkAccountEnforcement(store, auth.account)
+      if (!enforcement.allowed) {
+        sendXrpcError(
+          req,
+          res,
+          enforcement.status,
+          enforcement.error,
+          enforcement.message,
         )
         return true
       }
@@ -7132,6 +8755,17 @@ export async function handleQuantZingPds(req, res) {
           auth.status,
           auth.error,
           'Authentication required',
+        )
+        return true
+      }
+      const enforcement = checkAccountEnforcement(store, auth.account)
+      if (!enforcement.allowed) {
+        sendXrpcError(
+          req,
+          res,
+          enforcement.status,
+          enforcement.error,
+          enforcement.message,
         )
         return true
       }
@@ -7526,7 +9160,11 @@ export async function handleQuantZingPds(req, res) {
       return true
     }
 
-    if (nsid === 'app.bsky.graph.getMutedLists' && method === 'GET') {
+    if (
+      (nsid === 'app.bsky.graph.getMutedLists' ||
+        nsid === 'app.bsky.graph.getListMutes') &&
+      method === 'GET'
+    ) {
       const auth = getAuthedContext(req, store)
       if (auth.error) {
         sendXrpcError(
@@ -8054,7 +9692,13 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'app.bsky.notification.listNotifications' && method === 'GET') {
       const auth = getAuthedContext(req, store)
       if (auth.error) {
-        sendJson(req, res, 200, {notifications: [], priority: false})
+        sendXrpcError(
+          req,
+          res,
+          auth.error === 'ExpiredToken' ? 401 : auth.status || 401,
+          auth.error,
+          auth.message || 'Authentication required',
+        )
         return true
       }
       const limit = Math.min(50, Number(searchParams.get('limit') || 30))
@@ -8083,14 +9727,17 @@ export async function handleQuantZingPds(req, res) {
     ) {
       const auth = getAuthedContext(req, store)
       if (auth.error) {
-        sendJson(req, res, 200, {
-          groups: [],
-          relatedViews: [],
-          seenAt: new Date().toISOString(),
-        })
+        sendXrpcError(
+          req,
+          res,
+          auth.error === 'ExpiredToken' ? 401 : auth.status || 401,
+          auth.error,
+          auth.message || 'Authentication required',
+        )
         return true
       }
       const feed = searchParams.get('feed') || 'all'
+      const cursor = searchParams.get('cursor')
       const limit = Math.min(
         50,
         Math.max(1, Number(searchParams.get('limit') || 30)),
@@ -8101,6 +9748,7 @@ export async function handleQuantZingPds(req, res) {
         origin,
         feed,
         limit,
+        cursor,
       )
       sendJson(req, res, 200, payload)
       return true
@@ -8109,7 +9757,13 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'app.bsky.notification.getUnreadCount' && method === 'GET') {
       const auth = getAuthedContext(req, store)
       if (auth.error) {
-        sendJson(req, res, 200, {count: 0})
+        sendXrpcError(
+          req,
+          res,
+          auth.error === 'ExpiredToken' ? 401 : auth.status || 401,
+          auth.error,
+          auth.message || 'Authentication required',
+        )
         return true
       }
       const count = store.getUnreadNotificationCount(
@@ -8122,20 +9776,40 @@ export async function handleQuantZingPds(req, res) {
 
     if (nsid === 'app.bsky.notification.updateSeen' && method === 'POST') {
       const auth = getAuthedContext(req, store)
-      if (auth.account) {
-        const body = await readJsonBody(req)
-        const nowFloor = new Date(Date.now() + 500).toISOString()
-        const reqSeen =
-          typeof body.seenAt === 'string' ? body.seenAt : nowFloor
-        const seenAt = reqSeen > nowFloor ? reqSeen : nowFloor
-        store.updateNotificationsSeenAt(auth.did, seenAt)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.error === 'ExpiredToken' ? 401 : auth.status || 401,
+          auth.error,
+          auth.message || 'Authentication required',
+        )
+        return true
       }
+      const body = await readJsonBody(req)
+      const nowIso = new Date().toISOString()
+      const reqSeen =
+        typeof body.seenAt === 'string' && !Number.isNaN(Date.parse(body.seenAt))
+          ? body.seenAt
+          : nowIso
+      const seenAt = reqSeen > nowIso ? nowIso : reqSeen
+      store.updateNotificationsSeenAt(auth.did, seenAt)
       sendEmpty(req, res, 200)
       return true
     }
 
     if (nsid === 'app.bsky.notification.getPreferences' && method === 'GET') {
       const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.error === 'ExpiredToken' ? 401 : auth.status || 401,
+          auth.error,
+          auth.message || 'Authentication required',
+        )
+        return true
+      }
       const prefs =
         auth.account?.notificationPreferences &&
         Object.keys(auth.account.notificationPreferences).length > 0
@@ -8151,16 +9825,34 @@ export async function handleQuantZingPds(req, res) {
       method === 'POST'
     ) {
       const auth = getAuthedContext(req, store)
-      const body = await readJsonBody(req)
-      let merged = createDefaultNotificationPreferences()
-      if (auth.account) {
-        merged = {
-          ...(auth.account.notificationPreferences ||
-            createDefaultNotificationPreferences()),
-          ...body,
-        }
-        store.updateAccountNotificationPreferences(auth.did, merged)
+      if (auth.error) {
+        sendXrpcError(
+          req,
+          res,
+          auth.error === 'ExpiredToken' ? 401 : auth.status || 401,
+          auth.error,
+          auth.message || 'Authentication required',
+        )
+        return true
       }
+      const enforcement = checkAccountEnforcement(store, auth.account)
+      if (!enforcement.allowed) {
+        sendXrpcError(
+          req,
+          res,
+          enforcement.status,
+          enforcement.error,
+          enforcement.message,
+        )
+        return true
+      }
+      const body = await readJsonBody(req)
+      const merged = {
+        ...(auth.account.notificationPreferences ||
+          createDefaultNotificationPreferences()),
+        ...body,
+      }
+      store.updateAccountNotificationPreferences(auth.did, merged)
       if (nsid === 'app.bsky.notification.putPreferencesV2') {
         sendJson(req, res, 200, {preferences: merged})
       } else {
@@ -8608,6 +10300,114 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
 
+      if (nsid === 'chat.bsky.actor.getStatus' && method === 'GET') {
+        const chatDisabled = Boolean(
+          auth?.account?.status === 'suspended' ||
+            auth?.account?.status === 'banned',
+        )
+        sendJson(req, res, 200, {
+          chatDisabled,
+          canCreateGroups: !chatDisabled,
+          groupMemberLimit: 50,
+        })
+        return true
+      }
+
+      if (nsid === 'chat.bsky.notification.getPreferences' && method === 'GET') {
+        const saved = auth.account?.chatNotificationPreferences || {}
+        const preferences = {
+          $type: 'chat.bsky.notification.defs#preferences',
+          chat: {
+            $type: 'chat.bsky.notification.defs#chatPreference',
+            include: saved.chat?.include || 'all',
+            push:
+              saved.chat?.push !== undefined ? Boolean(saved.chat.push) : true,
+          },
+          chatRequest: {
+            $type: 'chat.bsky.notification.defs#chatPreference',
+            include: saved.chatRequest?.include || 'all',
+            push:
+              saved.chatRequest?.push !== undefined
+                ? Boolean(saved.chatRequest.push)
+                : true,
+          },
+        }
+        sendJson(req, res, 200, {preferences})
+        return true
+      }
+
+      if (
+        nsid === 'chat.bsky.notification.putPreferences' &&
+        method === 'POST'
+      ) {
+        const enforcement = checkAccountEnforcement(store, auth.account)
+        if (!enforcement.allowed) {
+          sendXrpcError(
+            req,
+            res,
+            enforcement.status,
+            enforcement.error,
+            enforcement.message,
+          )
+          return true
+        }
+        const body = await readJsonBody(req)
+        const prev = auth.account?.chatNotificationPreferences || {}
+        const preferences = {
+          $type: 'chat.bsky.notification.defs#preferences',
+          chat: {
+            $type: 'chat.bsky.notification.defs#chatPreference',
+            include: body.chat?.include || prev.chat?.include || 'all',
+            push:
+              body.chat?.push !== undefined
+                ? Boolean(body.chat.push)
+                : prev.chat?.push !== undefined
+                  ? Boolean(prev.chat.push)
+                  : true,
+          },
+          chatRequest: {
+            $type: 'chat.bsky.notification.defs#chatPreference',
+            include:
+              body.chatRequest?.include || prev.chatRequest?.include || 'all',
+            push:
+              body.chatRequest?.push !== undefined
+                ? Boolean(body.chatRequest.push)
+                : prev.chatRequest?.push !== undefined
+                  ? Boolean(prev.chatRequest.push)
+                  : true,
+          },
+        }
+        store.upsertAccount({
+          ...auth.account,
+          chatNotificationPreferences: preferences,
+        })
+        sendJson(req, res, 200, {preferences})
+        return true
+      }
+
+      if (nsid === 'chat.bsky.actor.deleteAccount' && method === 'POST') {
+        store.deleteChatAccountData(viewerDid)
+        sendJson(req, res, 200, {})
+        return true
+      }
+
+      if (nsid === 'chat.bsky.actor.exportAccountData' && method === 'GET') {
+        const jsonl = store.exportChatAccountData(viewerDid)
+        const buf = Buffer.from(jsonl, 'utf8')
+        res.writeHead(
+          200,
+          corsHeaders(req, {
+            'content-type': 'application/jsonl; charset=utf-8',
+            'content-length': buf.length,
+            'content-disposition':
+              'attachment; filename="quantzing-chat-export.jsonl"',
+            'cache-control': 'no-store',
+          }),
+        )
+        res.end(buf)
+        return true
+      }
+
       sendXrpcError(
         req,
         res,
@@ -8627,6 +10427,17 @@ export async function handleQuantZingPds(req, res) {
           auth.status,
           auth.error,
           'Authentication required',
+        )
+        return true
+      }
+      const enforcement = checkAccountEnforcement(store, auth.account)
+      if (!enforcement.allowed) {
+        sendXrpcError(
+          req,
+          res,
+          enforcement.status,
+          enforcement.error,
+          enforcement.message,
         )
         return true
       }
@@ -8889,13 +10700,35 @@ export async function handleQuantZingPds(req, res) {
         })
         return true
       }
-      job.state = 'finishing'
+      if (job.state === 'finishing') {
+        if (job.finishPromise) {
+          try {
+            await job.finishPromise
+          } catch {}
+        }
+        if (job.state === 'completed' && job.jobStatus) {
+          sendJson(req, res, 200, {
+            completedJobId: jobId,
+            jobStatus: job.jobStatus,
+          })
+          return true
+        }
+        sendJson(req, res, 200, {
+          completedJobId: jobId,
+          jobStatus: job.jobStatus || {
+            jobId,
+            did: auth.did,
+            state: 'JOB_STATE_PROCESSING',
+            progress: 50,
+          },
+        })
+        return true
+      }
       const ordered = [...job.parts.entries()]
         .sort((a, b) => a[0] - b[0])
         .map(([, buf]) => buf)
       const fullBuf = Buffer.concat(ordered)
       if (fullBuf.length === 0) {
-        job.state = 'created'
         sendXrpcError(req, res, 400, 'InvalidRequest', 'No video data received')
         return true
       }
@@ -8910,29 +10743,42 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
-      const blob = storeLocalBlob(store, auth.did, fullBuf, job.mimeType)
-      const videoCid = blob?.ref?.$link
-      const videoPath = videoCid ? store.resolveExistingBlobPath(videoCid) : null
-      const opt = await optimizeVideoBlobIfPossible(
-        store,
-        videoCid,
-        videoPath,
-        job.mimeType,
-        auth.did,
-      )
-      if (opt.optimized && opt.size) {
-        blob.size = opt.size
-        blob.mimeType = opt.mimeType || blob.mimeType
-      }
-      job.parts.clear()
-      job.state = 'completed'
-      job.jobStatus = {
-        jobId,
-        did: auth.did,
-        state: 'JOB_STATE_COMPLETED',
-        progress: 100,
-        blob,
-      }
+      job.state = 'finishing'
+      job.finishPromise = (async () => {
+        try {
+          const blob = storeLocalBlob(store, auth.did, fullBuf, job.mimeType)
+          const videoCid = blob?.ref?.$link
+          const videoPath = videoCid
+            ? store.resolveExistingBlobPath(videoCid)
+            : null
+          const opt = await optimizeVideoBlobIfPossible(
+            store,
+            videoCid,
+            videoPath,
+            job.mimeType,
+            auth.did,
+          )
+          if (opt.optimized && opt.size) {
+            blob.size = opt.size
+            blob.mimeType = opt.mimeType || blob.mimeType
+          }
+          job.parts.clear()
+          job.state = 'completed'
+          job.jobStatus = {
+            jobId,
+            did: auth.did,
+            state: 'JOB_STATE_COMPLETED',
+            progress: 100,
+            blob,
+          }
+        } catch (err) {
+          job.state = 'created'
+          throw err
+        } finally {
+          job.finishPromise = null
+        }
+      })()
+      await job.finishPromise
       sendJson(req, res, 200, {
         completedJobId: jobId,
         jobStatus: job.jobStatus,

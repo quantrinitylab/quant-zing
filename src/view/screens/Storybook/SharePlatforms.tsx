@@ -14,8 +14,8 @@ import {Text} from '#/components/Typography'
 import {IS_ANDROID, IS_IOS, IS_NATIVE} from '#/env'
 
 const CONTENT = {
-  url: 'https://bsky.app/profile/bsky.app',
-  title: 'Post by @bsky.app on Bluesky',
+  url: 'https://quantzing.quantrinity.in/profile/quantzing.quantzing.com',
+  title: 'Zing by @quantzing.quantzing.com on QuantZing',
 }
 
 /**

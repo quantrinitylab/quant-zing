@@ -1,0 +1,103 @@
+name: QuantZing CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sovereign-checks:
+    name: Sovereign Scripts, Assets & Locale Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate package.json & runtime script syntax
+        run: |
+          node -e "JSON.parse(require('fs').readFileSync('package.json', 'utf8')); console.log('package.json valid')"
+          node --check ./scripts/quantzing-pds.mjs
+          node --check ./scripts/quantzing-store.mjs
+          node --check ./scripts/quantzing-quanty.mjs
+          node --check ./scripts/serve-quantzing.mjs
+          node --check ./scripts/quantzing-admin.mjs
+          node --check ./deploy/quantzing-adapter.mjs
+          node --check ./ops-portal/app.js
+
+      - name: Validate deploy shell scripts
+        run: |
+          for script in deploy/*.sh; do
+            echo "Checking $script"
+            bash -n "$script"
+          done
+
+      - name: Verify asset notices (ASSETS.md & NOTICE.md)
+        run: node scripts/check-asset-notices.mjs
+
+      - name: Verify English locale catalogs have zero pending rebrand transforms
+        run: |
+          LOCALE_OUT=$(node scripts/apply-quantzing-locale.mjs --dry-run)
+          echo "$LOCALE_OUT"
+          if ! echo "$LOCALE_OUT" | grep -q "English=0"; then
+            echo "ERROR: Pending English locale transforms detected. Run 'node scripts/apply-quantzing-locale.mjs' and commit."
+            exit 1
+          fi
+
+      - name: Sovereign asset & config regression checks
+        run: |
+          if grep -RnE "assets/illustrations/|assets/kawaii(_smol)?\.png" src/; then
+            echo "ERROR: Legacy carved-out asset import detected in src/!"
+            exit 1
+          fi
+          if grep -nE "ios_icon_default\.icon|ios_icon_testflight\.icon" app.config.js; then
+            echo "ERROR: Legacy Bluesky butterfly .icon reference detected in app.config.js!"
+            exit 1
+          fi
+          echo "Sovereign checks passed."
+
+  typecheck-and-web-build:
+    name: TypeScript & Web Production Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.28.1'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Compile Lingui locales
+        run: pnpm intl:compile
+
+      - name: Run web TypeScript typecheck
+        run: pnpm run typecheck:web
+
+      - name: Export QuantZing production web bundle
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+        run: |
+          pnpm exec expo export --platform web --max-workers 2
+          node ./scripts/post-web-build.js
