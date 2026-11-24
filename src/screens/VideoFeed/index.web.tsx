@@ -108,31 +108,51 @@ export function VideoFeed() {
   const [muted, setMuted] = useState(false)
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const slideRefs = useRef<Array<HTMLDivElement | null>>([])
+  const cursorRef = useRef<string | undefined>(undefined)
+  const hasMoreRef = useRef(true)
+  const isFetchingMoreRef = useRef(false)
 
-  const loadReels = useCallback(async () => {
-    setLoading(true)
-    setLoadError(null)
-    try {
-      let feedPosts: app.bsky.feed.defs.PostView[] = []
+  const fetchFeedPage = useCallback(
+    async (cursor?: string) => {
       if (params?.type === 'author' && params.did) {
         const res = await client.call(app.bsky.feed.getAuthorFeed, {
           actor: params.did as AtIdentifierString,
           filter: 'posts_with_video',
-          limit: 40,
+          limit: 15,
+          ...(cursor ? {cursor} : {}),
         })
-        feedPosts = res.feed.map(f => f.post)
-      } else {
-        const feedUri = (
-          params?.type === 'feedgen' && params.uri
-            ? params.uri
-            : VIDEO_FEED_URI
-        ) as AtUriString
-        const res = await client.call(app.bsky.feed.getFeed, {
-          feed: feedUri,
-          limit: 40,
-        })
-        feedPosts = res.feed.map(f => f.post)
+        return {
+          posts: res.feed.map(f => f.post),
+          cursor: res.cursor,
+        }
       }
+      const feedUri = (
+        params?.type === 'feedgen' && params.uri ? params.uri : VIDEO_FEED_URI
+      ) as AtUriString
+      const res = await client.call(app.bsky.feed.getFeed, {
+        feed: feedUri,
+        limit: 15,
+        ...(cursor ? {cursor} : {}),
+      })
+      return {
+        posts: res.feed.map(f => f.post),
+        cursor: res.cursor,
+      }
+    },
+    [client, params?.type, (params as any)?.did, (params as any)?.uri],
+  )
+
+  const loadReels = useCallback(async () => {
+    setLoading(true)
+    setLoadError(null)
+    cursorRef.current = undefined
+    hasMoreRef.current = true
+    isFetchingMoreRef.current = false
+    try {
+      const page = await fetchFeedPage()
+      cursorRef.current = page.cursor
+      hasMoreRef.current = Boolean(page.cursor)
+      let feedPosts = page.posts
 
       const initialUri = params?.initialPostUri
       if (initialUri && !feedPosts.some(p => p.uri === initialUri)) {
@@ -176,11 +196,54 @@ export function VideoFeed() {
     } finally {
       setLoading(false)
     }
-  }, [client, params?.type, params?.initialPostUri, (params as any)?.did, (params as any)?.uri])
+  }, [client, fetchFeedPage, params?.initialPostUri])
+
+  const loadMoreReels = useCallback(async () => {
+    if (isFetchingMoreRef.current || !hasMoreRef.current || !cursorRef.current) {
+      return
+    }
+    isFetchingMoreRef.current = true
+    try {
+      const nextPage = await fetchFeedPage(cursorRef.current)
+      cursorRef.current = nextPage.cursor
+      hasMoreRef.current = Boolean(nextPage.cursor)
+      const incoming: ReelItem[] = []
+      for (const p of nextPage.posts) {
+        if (!p?.uri) continue
+        const item = extractVideoFromPost(p)
+        if (item) {
+          incoming.push(item)
+        }
+      }
+      if (incoming.length > 0) {
+        setReels(prev => {
+          const existing = new Set(prev.map(r => r.post.uri))
+          const additions = incoming.filter(item => !existing.has(item.post.uri))
+          return additions.length > 0 ? [...prev, ...additions] : prev
+        })
+      }
+    } catch {
+      // Silently ignore background pagination errors so active playback continues uninterrupted
+    } finally {
+      isFetchingMoreRef.current = false
+    }
+  }, [fetchFeedPage])
 
   useEffect(() => {
     void loadReels()
   }, [loadReels])
+
+  // Automatic background pagination when approaching the end of loaded Reels
+  useEffect(() => {
+    if (
+      !loading &&
+      reels.length > 0 &&
+      hasMoreRef.current &&
+      activeIndex >= reels.length - 4
+    ) {
+      void loadMoreReels()
+    }
+  }, [activeIndex, loadMoreReels, loading, reels.length])
 
   const scrollToIndex = useCallback(
     (nextIdx: number) => {
@@ -286,6 +349,7 @@ export function VideoFeed() {
         width: '100%',
         overflow: 'hidden',
       }}>
+      <style>{`@keyframes qzReelHeartPop{0%{opacity:0;transform:translate(-50%,-50%) scale(0.5);}25%{opacity:1;transform:translate(-50%,-50%) scale(1.15);}65%{opacity:0.95;transform:translate(-50%,-50%) scale(1);}100%{opacity:0;transform:translate(-50%,-68%) scale(1.25);}}`}</style>
       {/* Top Overlay Header */}
       <div
         style={{
@@ -606,6 +670,7 @@ export function VideoFeed() {
               <ReelSlide
                 item={item}
                 isActive={idx === activeIndex}
+                shouldMountVideo={Math.abs(idx - activeIndex) <= 1}
                 muted={muted}
                 onToggleMute={() => setMuted(m => !m)}
                 currentUserDid={currentAccount?.did}
@@ -623,6 +688,7 @@ export function VideoFeed() {
 function ReelSlide({
   item,
   isActive,
+  shouldMountVideo,
   muted,
   onToggleMute,
   currentUserDid,
@@ -631,6 +697,7 @@ function ReelSlide({
 }: {
   item: ReelItem
   isActive: boolean
+  shouldMountVideo: boolean
   muted: boolean
   onToggleMute: () => void
   currentUserDid?: string
@@ -652,7 +719,13 @@ function ReelSlide({
   )
   const [mediaReady, setMediaReady] = useState(!isHlsPlaylist)
   const [paused, setPaused] = useState(false)
+  const [isBuffering, setIsBuffering] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [heartBurst, setHeartBurst] = useState<{
+    id: number
+    x: number
+    y: number
+  } | null>(null)
 
   const [likeUri, setLikeUri] = useState<string | undefined>(post.viewer?.like)
   const [likeCount, setLikeCount] = useState<number>(post.likeCount ?? 0)
@@ -671,6 +744,9 @@ function ReelSlide({
   const repostPendingRef = useRef(false)
   const bookmarkPendingRef = useRef(false)
   const followPendingRef = useRef(false)
+  const lastTapTimeRef = useRef(0)
+  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const heartBurstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isOwnPost = currentUserDid === post.author.did
   const recordText = String((post.record as any)?.text || '')
@@ -683,6 +759,18 @@ function ReelSlide({
   }, [post.uri])
 
   useEffect(() => {
+    return () => {
+      if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current)
+      if (heartBurstTimerRef.current) clearTimeout(heartBurstTimerRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!shouldMountVideo) {
+      setMediaReady(!isHlsPlaylist)
+      setIsBuffering(false)
+      return
+    }
     const video = videoRef.current
     if (!video) return
     if (!isHlsPlaylist) {
@@ -747,13 +835,13 @@ function ReelSlide({
         video.load()
       }
     }
-  }, [isHlsPlaylist, item.playlist])
+  }, [isHlsPlaylist, item.playlist, shouldMountVideo])
 
   useEffect(() => {
     const v = videoRef.current
     if (!v) return
     v.muted = muted
-  }, [muted])
+  }, [muted, shouldMountVideo])
 
   useEffect(() => {
     if (!isActive || typeof window === 'undefined') return
@@ -765,25 +853,32 @@ function ReelSlide({
   }, [isActive, post.uri])
 
   useEffect(() => {
+    if (!shouldMountVideo) return
     const v = videoRef.current
     if (!v) return
-    if (isActive && !paused && mediaReady) {
-      const p = v.play()
-      if (p && typeof p.catch === 'function') {
-        p.catch(() => {
-          // Browser autoplay policy fallback: retry muted
-          v.muted = true
-          v.play().catch(() => {})
-        })
+    if (isActive && !paused) {
+      if (!mediaReady || v.readyState < 3) {
+        setIsBuffering(true)
+      }
+      if (mediaReady) {
+        const p = v.play()
+        if (p && typeof p.catch === 'function') {
+          p.catch(() => {
+            // Browser autoplay policy fallback: retry muted
+            v.muted = true
+            v.play().catch(() => {})
+          })
+        }
       }
     } else if (!isActive || paused) {
       v.pause()
+      setIsBuffering(false)
       if (!isActive) {
         v.currentTime = 0
         setPaused(false)
       }
     }
-  }, [isActive, mediaReady, paused])
+  }, [isActive, mediaReady, paused, shouldMountVideo])
 
   const onTogglePlay = useCallback(() => {
     const v = videoRef.current
@@ -1013,6 +1108,42 @@ function ReelSlide({
     } as CommonNavigatorParams['PostThread'])
   }, [navigation, post.author.handle, rkey])
 
+  const onStageClick = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => {
+      const now = Date.now()
+      const rect = e.currentTarget.getBoundingClientRect()
+      const tapX = e.clientX - rect.left
+      const tapY = e.clientY - rect.top
+      if (now - lastTapTimeRef.current < 280) {
+        lastTapTimeRef.current = 0
+        if (singleTapTimerRef.current) {
+          clearTimeout(singleTapTimerRef.current)
+          singleTapTimerRef.current = null
+        }
+        setHeartBurst({id: now, x: tapX, y: tapY})
+        if (heartBurstTimerRef.current) {
+          clearTimeout(heartBurstTimerRef.current)
+        }
+        heartBurstTimerRef.current = setTimeout(() => {
+          setHeartBurst(null)
+        }, 650)
+        if (!likeUri) {
+          onToggleLike()
+        }
+      } else {
+        lastTapTimeRef.current = now
+        if (singleTapTimerRef.current) {
+          clearTimeout(singleTapTimerRef.current)
+        }
+        singleTapTimerRef.current = setTimeout(() => {
+          singleTapTimerRef.current = null
+          onTogglePlay()
+        }, 240)
+      }
+    },
+    [likeUri, onToggleLike, onTogglePlay],
+  )
+
   const frameStyle: React.CSSProperties = gtMobile
     ? {
         position: 'relative',
@@ -1042,40 +1173,126 @@ function ReelSlide({
 
   return (
     <div style={frameStyle}>
-      <video
-        ref={videoRef}
-        poster={item.thumbnail}
-        playsInline
-        loop
-        muted={muted}
-        preload={isActive ? 'auto' : 'metadata'}
-        onEnded={e => {
-          const el = e.currentTarget
-          el.currentTime = 0
-          if (hlsRef.current) {
-            hlsRef.current.startLoad(0)
-          }
-          el.play().catch(() => {})
-        }}
-        onClick={onTogglePlay}
-        onTimeUpdate={e => {
-          const el = e.currentTarget
-          if (el.duration > 0) {
-            setProgress(Math.min(1, el.currentTime / el.duration))
-          }
-        }}
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain',
-          cursor: 'pointer',
-          backgroundColor: '#000000',
-        }}
-      />
-
-      {paused && (
+      {shouldMountVideo ? (
+        <video
+          ref={videoRef}
+          poster={item.thumbnail}
+          playsInline
+          loop
+          muted={muted}
+          preload={isActive ? 'auto' : 'metadata'}
+          onLoadStart={() => {
+            if (isActive) setIsBuffering(true)
+          }}
+          onWaiting={() => {
+            if (isActive) setIsBuffering(true)
+          }}
+          onCanPlay={() => setIsBuffering(false)}
+          onPlaying={() => setIsBuffering(false)}
+          onLoadedData={() => setIsBuffering(false)}
+          onError={() => setIsBuffering(false)}
+          onEnded={e => {
+            const el = e.currentTarget
+            el.currentTime = 0
+            if (hlsRef.current) {
+              hlsRef.current.startLoad(0)
+            }
+            el.play().catch(() => {})
+          }}
+          onClick={onStageClick}
+          onTimeUpdate={e => {
+            const el = e.currentTarget
+            if (el.duration > 0) {
+              setProgress(Math.min(1, el.currentTime / el.duration))
+            }
+          }}
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'contain',
+            cursor: 'pointer',
+            backgroundColor: '#000000',
+          }}
+        />
+      ) : (
         <div
-          onClick={onTogglePlay}
+          data-testid="reelPosterPlaceholder"
+          style={{
+            width: '100%',
+            height: '100%',
+            backgroundColor: '#000000',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+          {item.thumbnail ? (
+            <img
+              src={item.thumbnail}
+              alt={item.alt || 'Reel preview'}
+              loading="lazy"
+              decoding="async"
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                backgroundColor: '#000000',
+              }}
+            />
+          ) : null}
+        </div>
+      )}
+
+      {isActive && isBuffering && !paused && (
+        <div
+          data-testid="reelBufferingSpinner"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            pointerEvents: 'none',
+            zIndex: 3,
+          }}>
+          <div
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: '50%',
+              backgroundColor: 'rgba(15, 20, 25, 0.56)',
+              border: '1px solid rgba(255, 255, 255, 0.14)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backdropFilter: 'blur(6px)',
+            }}>
+            <Loader size="lg" fill="#1D9BF0" />
+          </div>
+        </div>
+      )}
+
+      {heartBurst && (
+        <div
+          key={heartBurst.id}
+          data-testid="reelDoubleTapHeart"
+          style={{
+            position: 'absolute',
+            left: heartBurst.x > 0 ? heartBurst.x : '50%',
+            top: heartBurst.y > 0 ? heartBurst.y : '50%',
+            transform: 'translate(-50%, -50%) scale(1)',
+            pointerEvents: 'none',
+            zIndex: 6,
+            filter: 'drop-shadow(0 6px 20px rgba(249, 24, 128, 0.55))',
+            animation:
+              'qzReelHeartPop 650ms cubic-bezier(0.22, 1, 0.36, 1) forwards',
+          }}>
+          <HeartFilledIcon width={84} fill="#F91880" />
+        </div>
+      )}
+
+      {shouldMountVideo && paused && (
+        <div
+          onClick={onStageClick}
           style={{
             position: 'absolute',
             inset: 0,

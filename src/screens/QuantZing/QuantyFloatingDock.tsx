@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {
-  ActivityIndicator,
+  Animated,
+  Easing,
   Pressable,
   ScrollView,
   TextInput,
@@ -37,7 +38,7 @@ import {
   useTheme,
   web,
 } from '#/alf'
-import {PaperPlane_Stroke2_Corner0_Rounded as SendIcon} from '#/components/icons/PaperPlane'
+import {ArrowTop_Stroke2_Corner0_Rounded as ArrowUpIcon} from '#/components/icons/Arrow'
 import {PlusSmall_Stroke2_Corner0_Rounded as PlusIcon} from '#/components/icons/Plus'
 import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
 import {SquareArrowTopRight_Stroke2_Corner0_Rounded as ExpandIcon} from '#/components/icons/SquareArrowTopRight'
@@ -49,12 +50,67 @@ import {Text} from '#/components/Typography'
 import {IS_WEB} from '#/env'
 
 const STARTER_PROMPTS = [
-  'What is trending on QuantZing right now?',
-  "Summarize today's top stories",
-  'Draft a sharp Zing about AI',
+  "What's trending today?",
+  'Draft a sharp Zing',
+  "Summarize today's news",
 ]
 
-const QUICK_SLASH_CHIPS = ['/trends', '/zing ', '/analytics', '/search ']
+function DockThinkingDots({color}: {color: string}) {
+  const dot1 = useRef(new Animated.Value(0.3)).current
+  const dot2 = useRef(new Animated.Value(0.3)).current
+  const dot3 = useRef(new Animated.Value(0.3)).current
+
+  useEffect(() => {
+    const pulse = (val: Animated.Value, delay: number) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(val, {
+            toValue: 1,
+            duration: 380,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(val, {
+            toValue: 0.3,
+            duration: 380,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.delay(Math.max(0, 360 - delay)),
+        ]),
+      )
+
+    const a1 = pulse(dot1, 0)
+    const a2 = pulse(dot2, 160)
+    const a3 = pulse(dot3, 320)
+    a1.start()
+    a2.start()
+    a3.start()
+    return () => {
+      a1.stop()
+      a2.stop()
+      a3.stop()
+    }
+  }, [dot1, dot2, dot3])
+
+  return (
+    <View style={[a.flex_row, a.align_center, {gap: 4}]}>
+      {[dot1, dot2, dot3].map((anim, idx) => (
+        <Animated.View
+          key={idx}
+          style={{
+            width: 5,
+            height: 5,
+            borderRadius: 99,
+            backgroundColor: color,
+            opacity: anim,
+          }}
+        />
+      ))}
+    </View>
+  )
+}
 
 export function QuantyFloatingDock({routeName}: {routeName?: string}) {
   const t = useTheme()
@@ -71,6 +127,7 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
 
   const [isOpen, setIsOpen] = useState(false)
   const [hovered, setHovered] = useState(false)
+  const [inputFocused, setInputFocused] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [activeThreadId, setActiveThreadId] = useState<string | null>(
@@ -80,12 +137,27 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
     () => initialSession.messages,
   )
 
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollView> | null>(null)
   const messagesRef = useRef<QuantyThreadMessage[]>(messages)
   messagesRef.current = messages
   const activeThreadIdRef = useRef<string | null>(activeThreadId)
   activeThreadIdRef.current = activeThreadId
 
   const colors = useMemo(() => getQuantZingColors(t.name), [t.name])
+
+  const composerBg =
+    colors.mode === 'dark'
+      ? '#16181C'
+      : colors.mode === 'dim'
+        ? '#1E2732'
+        : '#F7F9F9'
+
+  const userBubbleBg =
+    colors.mode === 'dark'
+      ? '#202327'
+      : colors.mode === 'dim'
+        ? '#273340'
+        : '#EFF3F4'
 
   // Sync with shared session state so conversations carry seamlessly to/from /quanty
   useEffect(() => {
@@ -94,6 +166,14 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
       setMessages(snap.messages)
     })
   }, [])
+
+  useEffect(() => {
+    if (isOpen && messages.length > 0) {
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollToEnd({animated: true})
+      })
+    }
+  }, [isOpen, messages.length, isLoading])
 
   const updateSharedMessages = useCallback(
     (
@@ -314,11 +394,10 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
   }
 
   const isLight = colors.isLight
-  const pillBg = hovered ? colors.surface : colors.card
-  const pillBorder = colors.border
+  const pillBg = hovered ? userBubbleBg : composerBg
   const dockShadow = isLight
-    ? '0 8px 24px rgba(15, 20, 25, 0.14)'
-    : '0 4px 18px rgba(0, 0, 0, 0.72)'
+    ? '0 10px 32px rgba(15, 20, 25, 0.14)'
+    : '0 8px 32px rgba(0, 0, 0, 0.72)'
 
   if (!isOpen) {
     return (
@@ -328,7 +407,7 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
           web({
             position: 'fixed',
             right: 20,
-            bottom: 16,
+            bottom: 18,
             zIndex: 40,
           }),
         ]}>
@@ -345,16 +424,16 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
             a.gap_xs,
             a.rounded_full,
             {
-              paddingHorizontal: 14,
-              paddingVertical: 8,
+              paddingHorizontal: 16,
+              paddingVertical: 10,
               backgroundColor: pillBg,
               borderWidth: 1,
-              borderColor: pillBorder,
+              borderColor: colors.border,
             },
             web({
               boxShadow: dockShadow,
               cursor: 'pointer',
-              transition: 'background-color 140ms ease, transform 140ms ease',
+              transition: 'background-color 140ms ease',
             }),
           ]}>
           <SparkleIcon size="sm" fill={colors.text} />
@@ -370,11 +449,11 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
     <View
       testID="quantyFloatingDockDrawer"
       style={[
-        a.rounded_lg,
         a.overflow_hidden,
         {
-          width: 370,
-          height: 480,
+          width: 380,
+          height: 520,
+          borderRadius: 20,
           backgroundColor: colors.bg,
           borderWidth: 1,
           borderColor: colors.border,
@@ -382,21 +461,21 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
         web({
           position: 'fixed',
           right: 20,
-          bottom: 16,
+          bottom: 18,
           zIndex: 50,
           boxShadow: dockShadow,
         }),
       ]}>
-      {/* Drawer Header */}
+      {/* Minimal Grok Floating Header */}
       <View
         style={[
           a.flex_row,
           a.align_center,
           a.justify_between,
           a.px_md,
-          a.py_sm,
           {
-            backgroundColor: colors.card,
+            height: 48,
+            backgroundColor: colors.bg,
             borderBottomWidth: 1,
             borderBottomColor: colors.border,
           },
@@ -406,32 +485,22 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
           <Text style={[a.text_sm, a.font_bold, {color: colors.text}]}>
             Quanty
           </Text>
-          <View
-            style={[
-              a.px_xs,
-              {
-                paddingVertical: 1,
-                borderRadius: 999,
-                backgroundColor: colors.surface,
-                borderWidth: 1,
-                borderColor: colors.border,
-              },
-            ]}>
-            <Text
-              style={[a.text_2xs, a.font_semi_bold, {color: colors.muted}]}>
-              21 Tools
-            </Text>
-          </View>
         </View>
 
-        <View style={[a.flex_row, a.align_center, a.gap_xs]}>
+        <View style={[a.flex_row, a.align_center, {gap: 4}]}>
           {messages.length > 0 && (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Clear Quanty dock chat"
+              accessibilityLabel="New chat"
               onPress={() => updateSharedMessages([], null)}
               hitSlop={8}
-              style={[a.p_2xs, a.rounded_full, web({cursor: 'pointer'})]}>
+              style={[
+                a.align_center,
+                a.justify_center,
+                a.rounded_full,
+                {width: 30, height: 30},
+                web({cursor: 'pointer'}),
+              ]}>
               <PlusIcon size="xs" fill={colors.muted} />
             </Pressable>
           )}
@@ -441,7 +510,13 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
             accessibilityLabel="Expand Quanty"
             onPress={() => handleOpenFullQuanty(prompt)}
             hitSlop={8}
-            style={[a.p_2xs, a.rounded_full, web({cursor: 'pointer'})]}>
+            style={[
+              a.align_center,
+              a.justify_center,
+              a.rounded_full,
+              {width: 30, height: 30},
+              web({cursor: 'pointer'}),
+            ]}>
             <ExpandIcon size="xs" fill={colors.muted} />
           </Pressable>
 
@@ -450,66 +525,56 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
             accessibilityLabel="Close Quanty"
             onPress={() => setIsOpen(false)}
             hitSlop={8}
-            style={[a.p_2xs, a.rounded_full, web({cursor: 'pointer'})]}>
+            style={[
+              a.align_center,
+              a.justify_center,
+              a.rounded_full,
+              {width: 30, height: 30},
+              web({cursor: 'pointer'}),
+            ]}>
             <CloseIcon size="xs" fill={colors.muted} />
           </Pressable>
         </View>
       </View>
 
-      {/* Quick Slash Chips Strip */}
-      <View
-        style={[
-          a.flex_row,
-          a.align_center,
-          a.gap_2xs,
-          a.px_sm,
-          a.py_2xs,
-          {
-            backgroundColor: colors.card,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.border,
+      {/* Conversation Body */}
+      <ScrollView
+        ref={scrollRef}
+        style={[a.flex_1]}
+        contentContainerStyle={[
+          a.p_md,
+          a.gap_md,
+          messages.length === 0 && {
+            flexGrow: 1,
+            justifyContent: 'center',
           },
         ]}>
-        {QUICK_SLASH_CHIPS.map(cmd => (
-          <Pressable
-            key={cmd}
-            accessibilityRole="button"
-            accessibilityLabel={cmd.trim()}
-            onPress={() => {
-              if (cmd.endsWith(' ')) {
-                setPrompt(cmd)
-              } else {
-                void handleQuickSend(cmd)
-              }
-            }}
-            style={[
-              a.px_xs,
-              {
-                paddingVertical: 3,
-                borderRadius: 999,
-                backgroundColor: colors.surface,
-                borderWidth: 1,
-                borderColor: colors.border,
-              },
-              web({cursor: 'pointer'}),
-            ]}>
-            <Text style={[a.text_2xs, a.font_semi_bold, {color: colors.text}]}>
-              {cmd.trim()}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {/* Drawer Thread */}
-      <ScrollView
-        style={[a.flex_1]}
-        contentContainerStyle={[a.p_md, a.gap_sm]}>
         {messages.length === 0 ? (
-          <View style={[a.gap_sm, a.py_xs]}>
-            <Text style={[a.text_xs, {color: colors.muted}]}>
-              Ask a question or run a live Sovereign slash command:
+          <View style={[a.align_center, a.gap_md, a.py_md]}>
+            <View
+              style={[
+                a.align_center,
+                a.justify_center,
+                a.rounded_full,
+                {
+                  width: 40,
+                  height: 40,
+                  backgroundColor: composerBg,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                },
+              ]}>
+              <SparkleIcon size="md" fill={colors.text} />
+            </View>
+            <Text
+              style={[
+                a.text_lg,
+                a.font_bold,
+                {color: colors.text, letterSpacing: -0.3},
+              ]}>
+              Ask anything
             </Text>
-            <View style={[a.gap_xs]}>
+            <View style={[a.w_full, a.gap_xs, a.pt_xs]}>
               {STARTER_PROMPTS.map((q, idx) => (
                 <Pressable
                   key={idx}
@@ -517,17 +582,25 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
                   accessibilityLabel={q}
                   onPress={() => void handleQuickSend(q)}
                   style={[
-                    a.px_sm,
-                    a.py_xs,
-                    a.rounded_md,
+                    a.px_md,
+                    a.rounded_full,
+                    a.align_center,
                     {
-                      backgroundColor: colors.card,
+                      paddingVertical: 9,
+                      backgroundColor: composerBg,
                       borderWidth: 1,
                       borderColor: colors.border,
                     },
                     web({cursor: 'pointer'}),
                   ]}>
-                  <Text style={[a.text_xs, {color: colors.text}]}>{q}</Text>
+                  <Text
+                    style={[
+                      a.text_xs,
+                      a.font_semi_bold,
+                      {color: colors.text},
+                    ]}>
+                    {q}
+                  </Text>
                 </Pressable>
               ))}
             </View>
@@ -536,51 +609,49 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
           messages.map(msg => {
             if (msg.role === 'user') {
               return (
-                <View
-                  key={msg.id}
-                  style={[
-                    a.p_sm,
-                    a.rounded_md,
-                    {
-                      alignSelf: 'flex-end',
-                      maxWidth: '85%',
-                      backgroundColor: colors.surface,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                    },
-                  ]}>
-                  <Text
-                    style={[a.text_xs, a.leading_snug, {color: colors.text}]}>
-                    {stripEmojisAndSymbols(msg.content)}
-                  </Text>
+                <View key={msg.id} style={[a.align_end]}>
+                  <View
+                    style={[
+                      {
+                        maxWidth: '82%',
+                        paddingHorizontal: 14,
+                        paddingVertical: 9,
+                        borderRadius: 18,
+                        backgroundColor: userBubbleBg,
+                      },
+                    ]}>
+                    <Text
+                      style={[
+                        a.text_xs,
+                        {color: colors.text, lineHeight: 19},
+                      ]}>
+                      {stripEmojisAndSymbols(msg.content)}
+                    </Text>
+                  </View>
                 </View>
               )
             }
 
             return (
-              <View
-                key={msg.id}
-                style={[
-                  a.p_sm,
-                  a.rounded_md,
-                  a.gap_xs,
-                  {
-                    backgroundColor: colors.card,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                  },
-                ]}>
-                <QuantyToolTrace
-                  compact
-                  traces={msg.toolTraces}
-                  origin={msg.origin}
-                  latencyMs={msg.latencyMs}
-                />
+              <View key={msg.id} style={[a.gap_xs]}>
+                <View style={[a.flex_row, a.align_center, a.gap_2xs]}>
+                  <SparkleIcon size="xs" fill={colors.text} />
+                  <Text
+                    style={[
+                      a.text_xs,
+                      a.font_semi_bold,
+                      {color: colors.text},
+                    ]}>
+                    Quanty
+                  </Text>
+                </View>
+
+                <QuantyToolTrace compact traces={msg.toolTraces} />
 
                 <QuantyMarkdown compact content={msg.content} />
 
                 {msg.proposedActions && msg.proposedActions.length > 0 && (
-                  <View style={[a.gap_xs]}>
+                  <View style={[a.gap_xs, a.pt_2xs]}>
                     {msg.proposedActions.map(card => (
                       <QuantyActionCard
                         key={card.actionId}
@@ -596,25 +667,28 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
         )}
 
         {isLoading && (
-          <View style={[a.flex_row, a.align_center, a.gap_xs, a.py_xs]}>
-            <ActivityIndicator size="small" color={colors.muted} />
-            <Text style={[a.text_xs, {color: colors.muted}]}>
-              Running tools...
-            </Text>
+          <View style={[a.gap_xs, a.py_2xs]}>
+            <View style={[a.flex_row, a.align_center, a.gap_xs]}>
+              <SparkleIcon size="xs" fill={colors.text} />
+              <DockThinkingDots color={colors.muted} />
+            </View>
           </View>
         )}
       </ScrollView>
 
-      {/* Compact Slash Autocomplete */}
+      {/* Silent Power-User Slash Autocomplete */}
       {slashSuggestions.length > 0 && (
         <View
           style={[
+            a.mx_sm,
+            a.mb_xs,
             a.p_xs,
             a.gap_2xs,
             {
-              backgroundColor: colors.card,
-              borderTopWidth: 1,
-              borderTopColor: colors.border,
+              borderRadius: 14,
+              backgroundColor: composerBg,
+              borderWidth: 1,
+              borderColor: colors.border,
             },
           ]}>
           {slashSuggestions.map(hint => (
@@ -634,83 +708,99 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
                 a.align_center,
                 a.justify_between,
                 a.px_sm,
-                a.py_2xs,
-                a.rounded_sm,
-                {
-                  backgroundColor: colors.bg,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                },
+                a.py_xs,
+                {borderRadius: 10},
                 web({cursor: 'pointer'}),
               ]}>
-              <Text style={[a.text_2xs, a.font_bold, {color: colors.accent}]}>
-                {hint.command}
-              </Text>
-              <Text style={[a.text_2xs, {color: colors.text}]}>
+              <Text style={[a.text_xs, a.font_semi_bold, {color: colors.text}]}>
                 {hint.title}
+              </Text>
+              <Text style={[a.text_2xs, {color: colors.muted}]}>
+                {hint.command}
               </Text>
             </Pressable>
           ))}
         </View>
       )}
 
-      {/* Drawer Input */}
-      <View
-        style={[
-          a.flex_row,
-          a.align_center,
-          a.gap_xs,
-          a.p_sm,
-          {
-            backgroundColor: colors.card,
-            borderTopWidth: 1,
-            borderTopColor: colors.border,
-          },
-        ]}>
-        <TextInput
-          testID="quantyFloatingDockInput"
-          value={prompt}
-          onChangeText={setPrompt}
-          placeholder="Ask Quanty or type /zing, /trends..."
-          placeholderTextColor={colors.muted}
-          returnKeyType="send"
-          onSubmitEditing={() => void handleQuickSend()}
+      {/* Clean Grok Composer Card */}
+      <View style={[a.px_sm, a.pb_sm, a.pt_2xs]}>
+        <View
           style={[
-            a.flex_1,
-            a.text_xs,
-            a.px_sm,
-            a.py_xs,
-            a.rounded_full,
+            a.flex_row,
+            a.align_end,
+            a.gap_xs,
             {
-              backgroundColor: colors.surface,
-              color: colors.text,
+              paddingLeft: 14,
+              paddingRight: 8,
+              paddingVertical: 8,
+              borderRadius: 20,
+              backgroundColor: composerBg,
               borderWidth: 1,
-              borderColor: colors.border,
-              minHeight: 34,
+              borderColor: inputFocused ? colors.accent : colors.border,
             },
-            web({outlineStyle: 'none'} as any),
-          ]}
-        />
-        <Pressable
-          testID="quantyFloatingDockSendBtn"
-          accessibilityRole="button"
-          accessibilityLabel="Send prompt"
-          disabled={isLoading || !prompt.trim()}
-          onPress={() => void handleQuickSend()}
-          style={[
-            a.align_center,
-            a.justify_center,
-            a.rounded_full,
-            {
-              width: 34,
-              height: 34,
-              backgroundColor: colors.ctaBg,
-              opacity: isLoading || !prompt.trim() ? 0.45 : 1,
-            },
-            web({cursor: 'pointer'}),
           ]}>
-          <SendIcon size="xs" fill={colors.ctaText} />
-        </Pressable>
+          <TextInput
+            testID="quantyFloatingDockInput"
+            value={prompt}
+            onChangeText={setPrompt}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
+            placeholder="Ask anything"
+            placeholderTextColor={colors.muted}
+            multiline={true}
+            returnKeyType="send"
+            onKeyPress={(e: any) => {
+              if (
+                IS_WEB &&
+                e?.nativeEvent?.key === 'Enter' &&
+                !e?.nativeEvent?.shiftKey &&
+                !e?.shiftKey
+              ) {
+                e.preventDefault?.()
+                void handleQuickSend()
+              }
+            }}
+            onSubmitEditing={() => {
+              if (!IS_WEB) {
+                void handleQuickSend()
+              }
+            }}
+            style={[
+              a.flex_1,
+              a.text_sm,
+              {
+                color: colors.text,
+                minHeight: 32,
+                maxHeight: 96,
+                paddingTop: 5,
+                paddingBottom: 5,
+                lineHeight: 20,
+              },
+              web({outlineStyle: 'none', resize: 'none'} as any),
+            ]}
+          />
+          <Pressable
+            testID="quantyFloatingDockSendBtn"
+            accessibilityRole="button"
+            accessibilityLabel="Send prompt"
+            disabled={isLoading || !prompt.trim()}
+            onPress={() => void handleQuickSend()}
+            style={[
+              a.align_center,
+              a.justify_center,
+              a.rounded_full,
+              {
+                width: 32,
+                height: 32,
+                backgroundColor: colors.ctaBg,
+                opacity: isLoading || !prompt.trim() ? 0.35 : 1,
+              },
+              web({cursor: 'pointer'}),
+            ]}>
+            <ArrowUpIcon size="xs" fill={colors.ctaText} />
+          </Pressable>
+        </View>
       </View>
     </View>
   )

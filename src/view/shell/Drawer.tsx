@@ -15,7 +15,8 @@ import {
   useNavigationState,
 } from '@react-navigation/native'
 
-import {UNREAD_NOTIFICATION_CAP} from '#/lib/constants'
+import {UNREAD_NOTIFICATION_CAP, VIDEO_FEED_URI} from '#/lib/constants'
+import {isBrowserNonStandaloneWeb} from '#/platform/detection'
 import {type PressableScale} from '#/lib/custom-animations/PressableScale'
 import {useNavigationTabState} from '#/lib/hooks/useNavigationTabState'
 import {getCurrentRoute, getTabState, TabState} from '#/lib/routes/helpers'
@@ -241,6 +242,7 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
   const isAtStudio = currentRouteName === 'CreatorStudio'
   const isAtPro = currentRouteName === 'QuantZingPro'
   const isAtDownload = currentRouteName === 'Download'
+  const showDownload = isBrowserNonStandaloneWeb()
 
   // events
   // =
@@ -369,7 +371,14 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
     setDrawerOpen(false)
     navigation.dispatch(
       getCommonNavigationAction(
-        {name: 'VideoFeed', params: {} as any},
+        {
+          name: 'VideoFeed',
+          params: {
+            type: 'feedgen',
+            uri: VIDEO_FEED_URI,
+            sourceInterstitial: 'none',
+          },
+        },
         navigation.getState(),
       ),
     )
@@ -553,12 +562,14 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
               onPress={onPressProfile}
             />
             <SettingsMenuItem onPress={onPressSettings} />
-            <MenuItem
-              icon={<DownloadIcon style={[t.atoms.text]} width={iconWidth} />}
-              label="Download App"
-              bold={isAtDownload}
-              onPress={onPressDownload}
-            />
+            {showDownload && (
+              <MenuItem
+                icon={<DownloadIcon style={[t.atoms.text]} width={iconWidth} />}
+                label="Download App"
+                bold={isAtDownload}
+                onPress={onPressDownload}
+              />
+            )}
           </>
         ) : (
           <>
@@ -588,12 +599,14 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
               isActive={isAtPro}
               onPress={onPressQuantZingPro}
             />
-            <MenuItem
-              icon={<DownloadIcon style={[t.atoms.text]} width={iconWidth} />}
-              label="Download App"
-              bold={isAtDownload}
-              onPress={onPressDownload}
-            />
+            {showDownload && (
+              <MenuItem
+                icon={<DownloadIcon style={[t.atoms.text]} width={iconWidth} />}
+                label="Download App"
+                bold={isAtDownload}
+                onPress={onPressDownload}
+              />
+            )}
           </>
         )}
 
@@ -1124,6 +1137,7 @@ function MenuItem({
 function ExtraLinks() {
   const {t: l} = useLingui()
   const setDrawerOpen = useSetDrawerOpen()
+  const showDownload = isBrowserNonStandaloneWeb()
 
   return (
     <View style={[a.flex_col, a.gap_md, a.flex_wrap]}>
@@ -1134,13 +1148,15 @@ function ExtraLinks() {
         onPress={() => setDrawerOpen(false)}>
         Reels
       </InlineLinkText>
-      <InlineLinkText
-        style={[a.text_md, a.font_bold]}
-        label="Download QuantZing App"
-        to="/download"
-        onPress={() => setDrawerOpen(false)}>
-        Download App
-      </InlineLinkText>
+      {showDownload && (
+        <InlineLinkText
+          style={[a.text_md, a.font_bold]}
+          label="Download QuantZing App"
+          to="/download"
+          onPress={() => setDrawerOpen(false)}>
+          Download App
+        </InlineLinkText>
+      )}
       <InlineLinkText
         style={[a.text_md]}
         label={l`Terms of Service`}

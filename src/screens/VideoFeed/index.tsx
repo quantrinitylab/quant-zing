@@ -41,7 +41,7 @@ import {
 import {type NativeStackScreenProps} from '@react-navigation/native-stack'
 
 import {getCurrentState, useOnAppStateChange} from '#/lib/appState'
-import {HITSLOP_20} from '#/lib/constants'
+import {HITSLOP_20, VIDEO_FEED_URI} from '#/lib/constants'
 import {useHaptics} from '#/lib/haptics'
 import {useNonReactiveCallback} from '#/lib/hooks/useNonReactiveCallback'
 import {useOpenComposer} from '#/lib/hooks/useOpenComposer'
@@ -76,7 +76,7 @@ import {
   usePostFeedQuery,
 } from '#/state/queries/post-feed'
 import {useProfileFollowMutationQueue} from '#/state/queries/profile'
-import {useSession} from '#/state/session'
+import {useRequireAuth, useSession} from '#/state/session'
 import {useSetLightStatusBar} from '#/state/shell/light-status-bar'
 import {List} from '#/view/com/util/List'
 import {UserAvatar} from '#/view/com/util/UserAvatar'
@@ -90,7 +90,9 @@ import {ArrowLeft_Stroke2_Corner0_Rounded as ArrowLeftIcon} from '#/components/i
 import {Check_Stroke2_Corner0_Rounded as CheckIcon} from '#/components/icons/Check'
 import {EyeSlash_Stroke2_Corner0_Rounded as Eye} from '#/components/icons/EyeSlash'
 import {Leaf_Stroke2_Corner0_Rounded as LeafIcon} from '#/components/icons/Leaf'
+import {VideoClip_Stroke2_Corner0_Rounded as VideoClipIcon} from '#/components/icons/VideoClip'
 import {KeepAwake} from '#/components/KeepAwake'
+import {Loader} from '#/components/Loader'
 import * as Layout from '#/components/Layout'
 import {Link} from '#/components/Link'
 import {ListFooter} from '#/components/Lists'
@@ -112,6 +114,7 @@ import {usePostFeedQuery as useFollowingV2PostFeedQuery} from '#/features/follow
 import {app} from '#/lexicons'
 import * as bsky from '#/types/bsky'
 import {Scrubber, VIDEO_PLAYER_BOTTOM_INSET} from './components/Scrubber'
+import {type VideoFeedSourceContext} from './types'
 
 function createThreeVideoPlayers(
   sources?: [string, string, string],
@@ -134,12 +137,47 @@ function createThreeVideoPlayers(
   return [p1, p2, p3]
 }
 
+const DEFAULT_VIDEO_FEED_PARAMS: VideoFeedSourceContext = {
+  type: 'feedgen',
+  uri: VIDEO_FEED_URI,
+  sourceInterstitial: 'none',
+}
+
+function resolveSafeParams(
+  params: VideoFeedSourceContext | undefined,
+): VideoFeedSourceContext {
+  if (params?.type === 'feedgen' && params.uri) {
+    return params
+  }
+  if (params?.type === 'author' && params.did && params.filter) {
+    return params
+  }
+  return DEFAULT_VIDEO_FEED_PARAMS
+}
+
+function extractVideoEmbed(
+  embed: app.bsky.feed.defs.PostView['embed'],
+): app.bsky.embed.video.View | null {
+  if (!embed) return null
+  if (bsky.isType(app.bsky.embed.video.view, embed)) {
+    return embed
+  }
+  if (
+    bsky.isType(app.bsky.embed.recordWithMedia.view, embed) &&
+    bsky.isType(app.bsky.embed.video.view, embed.media)
+  ) {
+    return embed.media
+  }
+  return null
+}
+
 export function VideoFeed({}: NativeStackScreenProps<
   CommonNavigatorParams,
   'VideoFeed'
 >) {
   const {top} = useSafeAreaInsets()
   const {params} = useRoute<RouteProp<CommonNavigatorParams, 'VideoFeed'>>()
+  const safeParams = useMemo(() => resolveSafeParams(params), [params])
 
   const t = useTheme()
   useFocusEffect(
@@ -168,7 +206,7 @@ export function VideoFeed({}: NativeStackScreenProps<
             a.z_50,
             {top: 0, left: 0, right: 0, paddingTop: top},
           ]}>
-          <Header sourceContext={params} />
+          <Header sourceContext={safeParams} />
         </View>
         <Feed />
       </Layout.Screen>
@@ -195,21 +233,24 @@ type VideoItem = {
 
 function Feed() {
   const {params} = useRoute<RouteProp<CommonNavigatorParams, 'VideoFeed'>>()
+  const safeParams = useMemo(() => resolveSafeParams(params), [params])
   const isFocused = useIsFocused()
   const {hasSession} = useSession()
+  const requireAuth = useRequireAuth()
+  const {openComposer} = useOpenComposer()
   const {height} = useSafeAreaFrame()
 
   const feedDesc = useMemo(() => {
-    switch (params.type) {
+    switch (safeParams.type) {
       case 'feedgen':
-        return `feedgen|${params.uri}` as const
+        return `feedgen|${safeParams.uri}` as const
       case 'author':
-        return `author|${params.did}|${params.filter}` as const
+        return `author|${safeParams.did}|${safeParams.filter}` as const
       default:
-        throw new Error(`Invalid video feed params ${JSON.stringify(params)}`)
+        return `feedgen|${VIDEO_FEED_URI}` as const
     }
-  }, [params])
-  const feedUri = params.type === 'feedgen' ? params.uri : undefined
+  }, [safeParams])
+  const feedUri = safeParams.type === 'feedgen' ? safeParams.uri : undefined
   const {data: feedInfo} = useFeedInfo(feedUri)
   const feedFeedback = useFeedFeedback(
     feedInfo ?? undefined,
@@ -217,23 +258,45 @@ function Feed() {
     'feed',
   )
   const feedParams =
-    params.type === 'feedgen' && params.sourceInterstitial !== 'none'
-      ? {feedCacheKey: params.sourceInterstitial}
+    safeParams.type === 'feedgen' && safeParams.sourceInterstitial !== 'none'
+      ? {feedCacheKey: safeParams.sourceInterstitial}
       : undefined
   /*
    * Opened from the Following v2 fork of Home, the grid's pages are under the
    * fork's query key, so read them from there to keep the starting post and
    * the pages already loaded.
    */
-  const isFollowingV2 = params.type === 'feedgen' && params.followingV2 === true
+  const isFollowingV2 =
+    safeParams.type === 'feedgen' && safeParams.followingV2 === true
   const legacyQuery = usePostFeedQuery(feedDesc, feedParams, {
     enabled: !isFollowingV2,
   })
   const followingV2Query = useFollowingV2PostFeedQuery(feedDesc, feedParams, {
     enabled: isFollowingV2,
   })
-  const {data, error, hasNextPage, isFetchingNextPage, fetchNextPage} =
-    isFollowingV2 ? followingV2Query : legacyQuery
+  const {
+    data,
+    error,
+    isLoading,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    refetch,
+  } = isFollowingV2 ? followingV2Query : legacyQuery
+
+  const onUploadReel = useCallback(() => {
+    requireAuth(() => {
+      openComposer({
+        openGallery: true,
+        logContext: 'Fab',
+        onPost: () => {
+          setTimeout(() => {
+            void refetch()
+          }, 1200)
+        },
+      })
+    })
+  }, [openComposer, refetch, requireAuth])
 
   const videos = useMemo(() => {
     let vids =
@@ -250,15 +313,15 @@ function Feed() {
           const feedPost = slice.items.find(
             item => item.uri === slice.feedPostUri,
           )
-          if (
-            feedPost &&
-            bsky.isType(app.bsky.embed.video.view, feedPost.post.embed)
-          ) {
+          const videoEmbed = feedPost
+            ? extractVideoEmbed(feedPost.post.embed)
+            : null
+          if (feedPost && videoEmbed) {
             items.push({
               _reactKey: feedPost._reactKey,
               moderation: feedPost.moderation,
               post: feedPost.post,
-              video: feedPost.post.embed,
+              video: videoEmbed,
               feedContext: slice.feedContext,
               reqId: slice.reqId,
             })
@@ -267,13 +330,13 @@ function Feed() {
         return items
       }) ?? []
     const startingVideoIndex = vids?.findIndex(video => {
-      return video.post.uri === params.initialPostUri
+      return video.post.uri === safeParams.initialPostUri
     })
     if (vids && startingVideoIndex && startingVideoIndex > -1) {
       vids = vids.slice(startingVideoIndex)
     }
     return vids
-  }, [data, params.initialPostUri])
+  }, [data, safeParams.initialPostUri])
 
   const [currentSources, setCurrentSources] = useState<
     [CurrentSource, CurrentSource, CurrentSource]
@@ -318,28 +381,13 @@ function Feed() {
     (index: number) => {
       if (!videos.length) return
 
-      const prevSlice = videos.at(index - 1)
-      const prevPost = prevSlice?.post
-      const prevEmbed = prevPost?.embed
-      const prevVideo =
-        prevEmbed && bsky.isType(app.bsky.embed.video.view, prevEmbed)
-          ? prevEmbed.playlist
-          : null
+      const prevSlice = index > 0 ? videos.at(index - 1) : undefined
+      const prevVideo = prevSlice?.video.playlist ?? null
       const currSlice = videos.at(index)
-      const currPost = currSlice?.post
-      const currEmbed = currPost?.embed
-      const currVideo =
-        currEmbed && bsky.isType(app.bsky.embed.video.view, currEmbed)
-          ? currEmbed.playlist
-          : null
+      const currVideo = currSlice?.video.playlist ?? null
       const currVideoModeration = currSlice?.moderation
       const nextSlice = videos.at(index + 1)
-      const nextPost = nextSlice?.post
-      const nextEmbed = nextPost?.embed
-      const nextVideo =
-        nextEmbed && bsky.isType(app.bsky.embed.video.view, nextEmbed)
-          ? nextEmbed.playlist
-          : null
+      const nextVideo = nextSlice?.video.playlist ?? null
 
       const prevPlayerCurrentSource = currentSources[(index + 2) % 3]
       const currPlayerCurrentSource = currentSources[index % 3]
@@ -452,6 +500,118 @@ function Feed() {
   )
 
   const renderEndMessage = useCallback(() => <EndMessage />, [])
+
+  if (videos.length === 0 && isLoading) {
+    return (
+      <View
+        style={[
+          a.flex_1,
+          a.align_center,
+          a.justify_center,
+          a.gap_md,
+          {backgroundColor: '#000000'},
+        ]}>
+        <Loader size="xl" fill="#1D9BF0" />
+        <Text style={[a.text_sm, {color: '#94A3B8'}]}>
+          Loading QuantZing Reels...
+        </Text>
+      </View>
+    )
+  }
+
+  if (videos.length === 0 && !isLoading) {
+    return (
+      <View
+        testID="nativeReelsEmptyState"
+        style={[
+          a.flex_1,
+          a.align_center,
+          a.justify_center,
+          a.px_xl,
+          {backgroundColor: '#000000'},
+        ]}>
+        <View
+          style={{
+            width: '100%',
+            maxWidth: 340,
+            padding: 28,
+            borderRadius: 20,
+            borderWidth: 1,
+            borderColor: '#2F3336',
+            backgroundColor: '#16181C',
+            alignItems: 'center',
+            gap: 14,
+          }}>
+          <VideoClipIcon width={42} fill={error ? '#F4212E' : '#1D9BF0'} />
+          <Text
+            style={[
+              a.text_xl,
+              a.font_bold,
+              a.text_center,
+              {color: '#E7E9EA'},
+            ]}>
+            {error ? 'Could not load Reels' : 'No Reels yet'}
+          </Text>
+          <Text
+            style={[
+              a.text_sm,
+              a.text_center,
+              {color: '#94A3B8', lineHeight: 20},
+            ]}>
+            {error
+              ? cleanError(error)
+              : 'Upload your first video Zing and it will appear right here in full-screen vertical Reels.'}
+          </Text>
+          <View style={[a.flex_row, a.gap_sm, a.pt_xs]}>
+            {error && (
+              <Pressable
+                testID="nativeReelsRetryBtn"
+                onPress={() => void refetch()}
+                accessibilityRole="button"
+                accessibilityLabel="Retry loading Reels"
+                style={({pressed}) => [
+                  a.rounded_full,
+                  a.align_center,
+                  a.justify_center,
+                  {
+                    height: 44,
+                    paddingHorizontal: 20,
+                    borderWidth: 1,
+                    borderColor: '#536471',
+                    backgroundColor: 'transparent',
+                    opacity: pressed ? 0.8 : 1,
+                  },
+                ]}>
+                <Text style={[a.text_md, a.font_bold, {color: '#E7E9EA'}]}>
+                  Retry
+                </Text>
+              </Pressable>
+            )}
+            <Pressable
+              testID="nativeReelsUploadBtn"
+              onPress={onUploadReel}
+              accessibilityRole="button"
+              accessibilityLabel="Upload a Reel"
+              style={({pressed}) => [
+                a.rounded_full,
+                a.align_center,
+                a.justify_center,
+                {
+                  height: 44,
+                  paddingHorizontal: 24,
+                  backgroundColor: '#EFF3F4',
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}>
+              <Text style={[a.text_md, a.font_bold, {color: '#0F1419'}]}>
+                Upload a Reel
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    )
+  }
 
   return (
     <FeedFeedbackProvider value={feedFeedback}>

@@ -19,9 +19,8 @@ import {
 import {useRequireAuth, useSession} from '#/state/session'
 import {atoms as a, useTheme, web} from '#/alf'
 import {CircleCheck_Stroke2_Corner0_Rounded as CheckCircleIcon} from '#/components/icons/CircleCheck'
-import {CircleX_Stroke2_Corner0_Rounded as CancelIcon} from '#/components/icons/CircleX'
 import {Lock_Stroke2_Corner0_Rounded as LockIcon} from '#/components/icons/Lock'
-import {ShieldCheck_Stroke2_Corner0_Rounded as ShieldIcon} from '#/components/icons/Shield'
+import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
 import {SquareArrowTopRight_Stroke2_Corner0_Rounded as OpenIcon} from '#/components/icons/SquareArrowTopRight'
 import * as Toast from '#/components/Toast'
 import {Text} from '#/components/Typography'
@@ -34,21 +33,71 @@ export interface QuantyActionCardProps {
 }
 
 const FIELD_LABELS: Record<string, string> = {
-  text: 'Message / Text',
+  text: 'Post text',
   title: 'Title',
   subtitle: 'Subtitle',
-  body: 'Article Body',
+  body: 'Article body',
   topic: 'Topic',
-  name: 'List Name',
-  description: 'Description / Bio',
-  displayName: 'Display Name',
-  recipient: 'Recipient Handle',
-  actor: 'Account Handle',
-  postUri: 'Target Zing URI',
-  options: 'Poll Options (one per line)',
+  name: 'List name',
+  description: 'Description',
+  displayName: 'Display name',
+  recipient: 'Recipient',
+  actor: 'Account',
+  postUri: 'Zing link',
+  options: 'Poll options (one per line)',
 }
 
 const MULTILINE_FIELDS = new Set(['text', 'body', 'description', 'options'])
+
+function getFriendlyActionHeading(
+  toolName: string,
+  fallbackTitle: string,
+): string {
+  const key = (toolName || '').toLowerCase()
+  if (
+    key.includes('publish_zing') ||
+    key.includes('create_zing') ||
+    key.includes('post_zing') ||
+    key === 'zing'
+  ) {
+    return 'Ready to post Zing'
+  }
+  if (key.includes('reply')) return 'Ready to post reply'
+  if (key.includes('send_dm') || key === 'dm') return 'Ready to send DM'
+  if (key.includes('article')) return 'Ready to publish Article'
+  if (key.includes('poll')) return 'Ready to create Poll'
+  if (key.includes('space')) return 'Ready to start ZingSpace'
+  if (key.includes('list')) return 'Ready to create List'
+  if (key.includes('follow')) return 'Ready to follow account'
+  if (key.includes('bookmark')) return 'Ready to save bookmark'
+  if (key.includes('bio') || key.includes('profile')) {
+    return 'Ready to update profile'
+  }
+  if (key.includes('mute')) return 'Confirm mute'
+  if (key.includes('block')) return 'Confirm block'
+
+  const clean = stripEmojisAndSymbols(fallbackTitle || '').trim()
+  return clean || 'Ready to continue'
+}
+
+function getFriendlyReceiptHeading(toolName: string): string {
+  const key = (toolName || '').toLowerCase()
+  if (
+    key.includes('zing') ||
+    key.includes('reply') ||
+    key.includes('article') ||
+    key.includes('poll')
+  ) {
+    return 'Published'
+  }
+  if (key.includes('dm')) return 'Message sent'
+  if (key.includes('follow')) return 'Followed'
+  if (key.includes('bookmark')) return 'Saved'
+  if (key.includes('bio') || key.includes('profile')) return 'Profile updated'
+  if (key.includes('mute')) return 'Account muted'
+  if (key.includes('block')) return 'Account blocked'
+  return 'Done'
+}
 
 function fieldValueToInputString(field: string, value: unknown): string {
   if (field === 'options' && Array.isArray(value)) {
@@ -94,6 +143,7 @@ export function QuantyActionCard({
     }
     return initial
   })
+  const [focusedField, setFocusedField] = useState<string | null>(null)
   const [isDirty, setIsDirty] = useState(false)
   const [status, setStatus] = useState<
     'pending' | 'previewing' | 'executing' | 'executed' | 'cancelled'
@@ -102,10 +152,13 @@ export function QuantyActionCard({
   const [receipt, setReceipt] = useState<QuantyExecuteResponse | null>(null)
 
   const isDestructive = card.category === 'destructive'
-  const badgeColor = isDestructive ? colors.danger : colors.accent
-  const badgeBg = isDestructive
-    ? 'rgba(244, 33, 46, 0.14)'
-    : colors.accentSubtle
+  const cardSurface =
+    colors.mode === 'dark'
+      ? '#16181C'
+      : colors.mode === 'dim'
+        ? '#1E2732'
+        : '#F7F9F9'
+  const inputBg = colors.bg
 
   const handleFieldChange = useCallback((field: string, value: string) => {
     setRawInputs(prev => ({...prev, [field]: value}))
@@ -174,7 +227,7 @@ export function QuantyActionCard({
           setStatus('pending')
           setErrorMsg(
             previewRes.message ||
-              'Could not verify updated action parameters. Check your inputs.',
+              'Could not prepare updated details. Please review your inputs.',
           )
           return
         }
@@ -205,7 +258,7 @@ export function QuantyActionCard({
           setIsDirty(true)
         }
         setErrorMsg(
-          execRes.message || 'Action could not be completed. Please try again.',
+          execRes.message || 'Could not complete this action. Please try again.',
         )
         return
       }
@@ -219,16 +272,19 @@ export function QuantyActionCard({
         }
       }
 
-      Toast.show(execRes.summary || `${activeCard.title} completed`, {
-        type: 'success',
-      })
+      Toast.show(
+        stripEmojisAndSymbols(
+          execRes.summary || getFriendlyReceiptHeading(activeCard.toolName),
+        ),
+        {type: 'success'},
+      )
       onExecuted?.(execRes)
     } catch (err) {
       setStatus('pending')
       setErrorMsg(
         err instanceof Error
           ? err.message
-          : 'Network error while executing Quanty action.',
+          : 'Network error while completing this action.',
       )
     }
   }, [
@@ -248,69 +304,59 @@ export function QuantyActionCard({
     onCancelled?.(card.actionId)
   }, [card.actionId, onCancelled])
 
+  const friendlyHeading = useMemo(
+    () => getFriendlyActionHeading(card.toolName, card.title),
+    [card.title, card.toolName],
+  )
+
   if (status === 'cancelled') {
     return (
-      <View
-        style={[
-          a.flex_row,
-          a.align_center,
-          a.gap_xs,
-          a.px_sm,
-          a.py_xs,
-          a.rounded_md,
-          {
-            backgroundColor: colors.bg,
-            borderWidth: 1,
-            borderColor: colors.border,
-          },
-        ]}>
-        <CancelIcon size="xs" fill={colors.muted} />
+      <View style={[a.flex_row, a.align_center, a.py_2xs]}>
         <Text style={[a.text_xs, {color: colors.muted}]}>
-          Cancelled: {stripEmojisAndSymbols(card.title)}
+          Cancelled · {stripEmojisAndSymbols(card.title)}
         </Text>
       </View>
     )
   }
 
   if (status === 'executed' && receipt) {
+    const receiptTitle = getFriendlyReceiptHeading(card.toolName)
     return (
       <View
         testID={`quantyActionReceipt_${card.toolName}`}
         style={[
           compact ? a.p_sm : a.p_md,
-          a.rounded_lg,
-          a.gap_xs,
+          a.gap_sm,
           {
-            backgroundColor: colors.bg,
+            borderRadius: 16,
+            backgroundColor: cardSurface,
             borderWidth: 1,
-            borderColor: colors.rezing,
+            borderColor: colors.border,
           },
         ]}>
-        <View
-          style={[
-            a.flex_row,
-            a.align_center,
-            a.justify_between,
-            a.gap_xs,
-          ]}>
-          <View style={[a.flex_row, a.align_center, a.gap_xs, a.flex_1]}>
-            <CheckCircleIcon size="sm" fill={colors.rezing} />
-            <Text
-              numberOfLines={1}
-              style={[a.text_xs, a.font_bold, {color: colors.text}]}>
-              {stripEmojisAndSymbols(card.title)} Executed
-            </Text>
-          </View>
-          {typeof receipt.latencyMs === 'number' && (
-            <Text style={[a.text_2xs, {color: colors.muted}]}>
-              {receipt.latencyMs}ms
-            </Text>
-          )}
+        <View style={[a.flex_row, a.align_center, a.gap_xs]}>
+          <CheckCircleIcon size="sm" fill={colors.rezing} />
+          <Text
+            numberOfLines={1}
+            style={[
+              a.text_sm,
+              a.font_bold,
+              a.flex_1,
+              {color: colors.text},
+            ]}>
+            {receiptTitle}
+          </Text>
         </View>
 
-        <Text style={[a.text_xs, a.leading_snug, {color: colors.text}]}>
-          {stripEmojisAndSymbols(receipt.summary || 'Action persisted on QuantZing.')}
-        </Text>
+        {receipt.summary ? (
+          <Text
+            style={[
+              a.text_xs,
+              {color: colors.muted, lineHeight: 19},
+            ]}>
+            {stripEmojisAndSymbols(receipt.summary)}
+          </Text>
+        ) : null}
 
         {receipt.navigationHint && (
           <View style={[a.flex_row, a.pt_2xs]}>
@@ -322,21 +368,19 @@ export function QuantyActionCard({
                 a.flex_row,
                 a.align_center,
                 a.gap_xs,
-                a.px_md,
-                a.py_xs,
                 a.rounded_full,
                 {
+                  paddingHorizontal: 14,
+                  paddingVertical: 7,
                   backgroundColor: colors.rezingSubtle,
-                  borderWidth: 1,
-                  borderColor: colors.rezing,
                 },
                 web({cursor: 'pointer'}),
               ]}>
               <Text
-                style={[a.text_xs, a.font_bold, {color: colors.rezing}]}>
+                style={[a.text_xs, a.font_bold, {color: colors.rezingText}]}>
                 {receipt.navigationHint.label}
               </Text>
-              <OpenIcon size="xs" fill={colors.rezing} />
+              <OpenIcon size="xs" fill={colors.rezingText} />
             </Pressable>
           </View>
         )}
@@ -356,92 +400,94 @@ export function QuantyActionCard({
       testID={`quantyActionCard_${card.toolName}`}
       style={[
         compact ? a.p_sm : a.p_md,
-        a.rounded_lg,
         a.gap_sm,
         {
-          backgroundColor: colors.bg,
+          borderRadius: 16,
+          backgroundColor: cardSurface,
           borderWidth: 1,
-          borderColor: isDestructive ? colors.danger : colors.border,
+          borderColor: isDestructive
+            ? 'rgba(244, 33, 46, 0.45)'
+            : colors.border,
         },
       ]}>
-      {/* Header Row */}
-      <View
-        style={[
-          a.flex_row,
-          a.align_center,
-          a.justify_between,
-          a.gap_xs,
-          a.flex_wrap,
-        ]}>
-        <View style={[a.flex_row, a.align_center, a.gap_xs, a.flex_1]}>
-          {isDestructive ? (
-            <LockIcon size="xs" fill={colors.danger} />
-          ) : (
-            <ShieldIcon size="xs" fill={colors.accent} />
-          )}
-          <Text
-            numberOfLines={1}
-            style={[a.text_xs, a.font_bold, {color: colors.text}]}>
-            {stripEmojisAndSymbols(card.title)}
-          </Text>
-        </View>
-        <View
+      {/* Clean Grok Confirmation Header */}
+      <View style={[a.flex_row, a.align_center, a.gap_xs]}>
+        {isDestructive ? (
+          <LockIcon size="xs" fill={colors.danger} />
+        ) : (
+          <SparkleIcon size="xs" fill={colors.text} />
+        )}
+        <Text
+          numberOfLines={1}
           style={[
-            a.px_xs,
-            {
-              paddingVertical: 2,
-              borderRadius: 999,
-              backgroundColor: badgeBg,
-            },
+            compact ? a.text_xs : a.text_sm,
+            a.font_bold,
+            a.flex_1,
+            {color: colors.text},
           ]}>
-          <Text style={[a.text_2xs, a.font_bold, {color: badgeColor}]}>
-            {isDestructive ? 'Destructive Gate' : 'Approval Required'}
-          </Text>
-        </View>
+          {friendlyHeading}
+        </Text>
       </View>
 
       {/* Human-readable Summary & Target */}
-      <View style={[a.gap_2xs]}>
-        <Text style={[a.text_xs, a.leading_snug, {color: colors.text}]}>
-          {stripEmojisAndSymbols(card.summary)}
-        </Text>
-        {resolvedHandle && (
-          <Text style={[a.text_2xs, {color: colors.muted}]}>
-            Target: {resolvedHandle}
-          </Text>
-        )}
-      </View>
+      {(card.summary || resolvedHandle) && (
+        <View style={[a.gap_2xs]}>
+          {card.summary ? (
+            <Text
+              style={[
+                a.text_xs,
+                {color: colors.muted, lineHeight: 19},
+              ]}>
+              {stripEmojisAndSymbols(card.summary)}
+            </Text>
+          ) : null}
+          {resolvedHandle && (
+            <Text
+              style={[a.text_xs, a.font_semi_bold, {color: colors.accent}]}>
+              {resolvedHandle}
+            </Text>
+          )}
+        </View>
+      )}
 
       {/* Editable Inputs */}
       {editableFields.length > 0 && (
-        <View style={[a.gap_xs]}>
+        <View style={[a.gap_sm]}>
           {editableFields.map(field => {
             const isMulti = MULTILINE_FIELDS.has(field)
             const label = FIELD_LABELS[field] || field
+            const isFocused = focusedField === field
             return (
               <View key={field} style={[a.gap_2xs]}>
                 <Text
-                  style={[a.text_2xs, a.font_semi_bold, {color: colors.muted}]}>
+                  style={[
+                    a.text_xs,
+                    a.font_semi_bold,
+                    {color: colors.muted, fontSize: 12},
+                  ]}>
                   {label}
                 </Text>
                 <TextInput
                   value={rawInputs[field] ?? ''}
                   onChangeText={val => handleFieldChange(field, val)}
+                  onFocus={() => setFocusedField(field)}
+                  onBlur={() => setFocusedField(null)}
                   multiline={isMulti}
                   editable={!busy}
                   placeholder={`Enter ${label.toLowerCase()}`}
                   placeholderTextColor={colors.muted}
                   style={[
-                    a.text_xs,
-                    a.px_sm,
-                    a.py_xs,
-                    a.rounded_md,
+                    a.text_sm,
                     {
-                      backgroundColor: colors.card,
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      borderRadius: 12,
+                      backgroundColor: inputBg,
                       color: colors.text,
                       borderWidth: 1,
-                      borderColor: colors.border,
-                      minHeight: isMulti ? (compact ? 54 : 72) : 34,
+                      borderColor: isFocused ? colors.accent : colors.border,
+                      minHeight: isMulti ? (compact ? 64 : 84) : 40,
+                      lineHeight: 20,
                       textAlignVertical: isMulti ? 'top' : 'center',
                     },
                     web({outlineStyle: 'none'} as any),
@@ -451,9 +497,8 @@ export function QuantyActionCard({
             )
           })}
           {isDirty && (
-            <Text style={[a.text_2xs, {color: colors.accent}]}>
-              Parameters edited — a fresh cryptographic approval signature will
-              be verified on execute.
+            <Text style={[a.text_2xs, {color: colors.muted}]}>
+              Your edits will be applied when you approve.
             </Text>
           )}
         </View>
@@ -465,39 +510,48 @@ export function QuantyActionCard({
           style={[
             a.px_sm,
             a.py_xs,
-            a.rounded_md,
             {
-              backgroundColor: 'rgba(244, 33, 46, 0.12)',
+              borderRadius: 10,
+              backgroundColor: 'rgba(244, 33, 46, 0.10)',
               borderWidth: 1,
-              borderColor: colors.danger,
+              borderColor: 'rgba(244, 33, 46, 0.35)',
             },
           ]}>
-          <Text style={[a.text_2xs, {color: colors.danger}]}>
+          <Text style={[a.text_xs, {color: colors.danger}]}>
             {stripEmojisAndSymbols(errorMsg)}
           </Text>
         </View>
       )}
 
       {/* Footer Controls */}
-      <View style={[a.flex_row, a.align_center, a.gap_xs, a.flex_wrap]}>
+      <View
+        style={[
+          a.flex_row,
+          a.align_center,
+          a.gap_sm,
+          a.flex_wrap,
+          a.pt_2xs,
+        ]}>
         {!hasSession ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Sign in to execute action"
+            accessibilityLabel="Sign in to approve action"
             onPress={() => requireAuth(() => {})}
             style={[
               a.flex_row,
               a.align_center,
               a.gap_xs,
-              a.px_md,
-              a.py_xs,
               a.rounded_full,
-              {backgroundColor: colors.ctaBg},
+              {
+                paddingHorizontal: 18,
+                height: 36,
+                backgroundColor: colors.ctaBg,
+              },
               web({cursor: 'pointer'}),
             ]}>
             <LockIcon size="xs" fill={colors.ctaText} />
             <Text style={[a.text_xs, a.font_bold, {color: colors.ctaText}]}>
-              Sign in to Execute
+              Sign in to continue
             </Text>
           </Pressable>
         ) : (
@@ -511,24 +565,19 @@ export function QuantyActionCard({
               a.flex_row,
               a.align_center,
               a.gap_xs,
-              a.px_md,
-              a.py_xs,
               a.rounded_full,
               {
+                paddingHorizontal: 18,
+                height: 36,
                 backgroundColor: isDestructive ? colors.danger : colors.ctaBg,
-                opacity: busy ? 0.6 : 1,
+                opacity: busy ? 0.65 : 1,
               },
               web({cursor: 'pointer'}),
             ]}>
-            {busy ? (
+            {busy && (
               <ActivityIndicator
                 size="small"
                 color={isDestructive ? '#FFFFFF' : colors.ctaText}
-              />
-            ) : (
-              <ShieldIcon
-                size="xs"
-                fill={isDestructive ? '#FFFFFF' : colors.ctaText}
               />
             )}
             <Text
@@ -538,9 +587,9 @@ export function QuantyActionCard({
                 {color: isDestructive ? '#FFFFFF' : colors.ctaText},
               ]}>
               {status === 'previewing'
-                ? 'Verifying...'
+                ? 'Preparing...'
                 : status === 'executing'
-                  ? 'Executing...'
+                  ? 'Publishing...'
                   : 'Approve & Execute'}
             </Text>
           </Pressable>
@@ -552,18 +601,17 @@ export function QuantyActionCard({
           disabled={busy}
           onPress={handleCancel}
           style={[
-            a.px_md,
-            a.py_xs,
+            a.align_center,
+            a.justify_center,
             a.rounded_full,
             {
-              backgroundColor: colors.surface,
-              borderWidth: 1,
-              borderColor: colors.border,
-              opacity: busy ? 0.5 : 1,
+              paddingHorizontal: 14,
+              height: 36,
+              opacity: busy ? 0.45 : 1,
             },
             web({cursor: 'pointer'}),
           ]}>
-          <Text style={[a.text_xs, a.font_semi_bold, {color: colors.text}]}>
+          <Text style={[a.text_xs, a.font_semi_bold, {color: colors.muted}]}>
             Cancel
           </Text>
         </Pressable>

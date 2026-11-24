@@ -7,6 +7,7 @@ import {useNavigation} from '@react-navigation/native'
 
 import {getQuantZingColors} from '#/lib/quantos/client'
 import {type NavigationProp} from '#/lib/routes/types'
+import {isBrowserNonStandaloneWeb} from '#/platform/detection'
 import {useLoggedOutViewControls} from '#/state/shell/logged-out'
 import {ErrorBoundary} from '#/view/com/util/ErrorBoundary'
 import {Logo} from '#/view/icons/Logo'
@@ -45,6 +46,7 @@ export const SplashScreen = ({
   const [showClipOverlay, setShowClipOverlay] = useState(false)
   const [canInstallPwa, setCanInstallPwa] = useState(false)
   const [apkAvailable, setApkAvailable] = useState(false)
+  const showDownloadCta = isBrowserNonStandaloneWeb()
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -54,6 +56,8 @@ export const SplashScreen = ({
       setShowClipOverlay(true)
       postAppClipMessage({action: 'present'})
     }
+
+    if (!showDownloadCta) return
 
     const syncInstall = () => {
       setCanInstallPwa(Boolean((window as any).__qzDeferredInstall))
@@ -71,7 +75,7 @@ export const SplashScreen = ({
     return () => {
       window.removeEventListener('qz-install-ready', syncInstall)
     }
-  }, [])
+  }, [showDownloadCta])
 
   const onPressOpenDownload = useCallback(() => {
     clearRequestedAccount()
@@ -302,94 +306,101 @@ export const SplashScreen = ({
                 </Button>
 
                 {/* Direct App Download Box (No Store Wait Needed!) */}
-                <View
-                  testID="landingDownloadCard"
-                  style={{
-                    marginTop: 8,
-                    padding: 14,
-                    borderRadius: 16,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    backgroundColor: colors.card,
-                    gap: 10,
-                  }}>
-                  <View style={[a.flex_row, a.align_center, a.justify_between]}>
-                    <Text
-                      style={[a.text_sm, a.font_bold, {color: colors.text}]}>
-                      Get the QuantZing App
-                    </Text>
-                    <Text
-                      style={[a.text_xs, a.font_bold, {color: '#1D9BF0'}]}>
-                      Direct Install
-                    </Text>
-                  </View>
-                  <Text
-                    style={[a.text_xs, {color: colors.muted, lineHeight: 16}]}>
-                    Install directly on Android, iPhone, or Desktop right from
-                    QuantZing — Play Store &amp; App Store coming soon.
-                  </Text>
-                  <View style={[a.flex_row, a.gap_xs]}>
-                    <Pressable
-                      testID="landingInstallAppBtn"
-                      onPress={() => void onPressInstallDirect()}
-                      accessibilityRole="button"
-                      accessibilityLabel="Install QuantZing App"
-                      style={({pressed}) => [
-                        a.flex_1,
-                        a.flex_row,
-                        a.align_center,
-                        a.justify_center,
-                        a.gap_xs,
-                        a.rounded_full,
-                        {
-                          height: 36,
-                          paddingHorizontal: 10,
-                          backgroundColor: colors.ctaBg,
-                          opacity: pressed ? 0.85 : 1,
-                        },
-                        web({cursor: 'pointer'}),
-                      ]}>
-                      <PhoneIcon width={14} fill={colors.ctaText} />
+                {showDownloadCta && (
+                  <View
+                    testID="landingDownloadCard"
+                    style={{
+                      marginTop: 8,
+                      padding: 14,
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      backgroundColor: colors.card,
+                      gap: 10,
+                    }}>
+                    <View
+                      style={[a.flex_row, a.align_center, a.justify_between]}>
                       <Text
-                        style={[
-                          a.text_xs,
-                          a.font_bold,
-                          {color: colors.ctaText},
+                        style={[a.text_sm, a.font_bold, {color: colors.text}]}>
+                        Get the QuantZing App
+                      </Text>
+                      <Text
+                        style={[a.text_xs, a.font_bold, {color: '#1D9BF0'}]}>
+                        Direct Install
+                      </Text>
+                    </View>
+                    <Text
+                      style={[a.text_xs, {color: colors.muted, lineHeight: 16}]}>
+                      Install directly on Android, iPhone, or Desktop right from
+                      QuantZing — Play Store &amp; App Store coming soon.
+                    </Text>
+                    <View style={[a.flex_row, a.gap_xs]}>
+                      <Pressable
+                        testID="landingInstallAppBtn"
+                        onPress={() => void onPressInstallDirect()}
+                        accessibilityRole="button"
+                        accessibilityLabel="Install QuantZing App"
+                        style={({pressed}) => [
+                          a.flex_1,
+                          a.flex_row,
+                          a.align_center,
+                          a.justify_center,
+                          a.gap_xs,
+                          a.rounded_full,
+                          {
+                            height: 36,
+                            paddingHorizontal: 10,
+                            backgroundColor: colors.ctaBg,
+                            opacity: pressed ? 0.85 : 1,
+                          },
+                          web({cursor: 'pointer'}),
                         ]}>
-                        {canInstallPwa ? 'Install App' : 'Get App'}
-                      </Text>
-                    </Pressable>
+                        <PhoneIcon width={14} fill={colors.ctaText} />
+                        <Text
+                          style={[
+                            a.text_xs,
+                            a.font_bold,
+                            {color: colors.ctaText},
+                          ]}>
+                          {canInstallPwa ? 'Install App' : 'Get App'}
+                        </Text>
+                      </Pressable>
 
-                    <Pressable
-                      testID="landingDownloadApkBtn"
-                      onPress={onPressAndroidDirect}
-                      accessibilityRole="button"
-                      accessibilityLabel="Direct Android APK download"
-                      style={({pressed}) => [
-                        a.flex_1,
-                        a.flex_row,
-                        a.align_center,
-                        a.justify_center,
-                        a.gap_xs,
-                        a.rounded_full,
-                        {
-                          height: 36,
-                          paddingHorizontal: 10,
-                          borderWidth: 1,
-                          borderColor: colors.border,
-                          backgroundColor: colors.bg,
-                          opacity: pressed ? 0.85 : 1,
-                        },
-                        web({cursor: 'pointer'}),
-                      ]}>
-                      <DownloadIcon width={14} fill={colors.text} />
-                      <Text
-                        style={[a.text_xs, a.font_bold, {color: colors.text}]}>
-                        {apkAvailable ? 'Android APK' : 'Download Hub'}
-                      </Text>
-                    </Pressable>
+                      <Pressable
+                        testID="landingDownloadApkBtn"
+                        onPress={onPressAndroidDirect}
+                        accessibilityRole="button"
+                        accessibilityLabel="Direct Android APK download"
+                        style={({pressed}) => [
+                          a.flex_1,
+                          a.flex_row,
+                          a.align_center,
+                          a.justify_center,
+                          a.gap_xs,
+                          a.rounded_full,
+                          {
+                            height: 36,
+                            paddingHorizontal: 10,
+                            borderWidth: 1,
+                            borderColor: colors.border,
+                            backgroundColor: colors.bg,
+                            opacity: pressed ? 0.85 : 1,
+                          },
+                          web({cursor: 'pointer'}),
+                        ]}>
+                        <DownloadIcon width={14} fill={colors.text} />
+                        <Text
+                          style={[
+                            a.text_xs,
+                            a.font_bold,
+                            {color: colors.text},
+                          ]}>
+                          {apkAvailable ? 'Android APK' : 'Download Hub'}
+                        </Text>
+                      </Pressable>
+                    </View>
                   </View>
-                </View>
+                )}
 
                 <Pressable
                   testID="explorePublicFeedBtn"
@@ -434,8 +445,10 @@ function Footer() {
     setShowLoggedOut(false)
   }, [clearRequestedAccount, setShowLoggedOut])
 
+  const showDownload = isBrowserNonStandaloneWeb()
+
   const links = [
-    {to: '/download', label: 'Download App'},
+    ...(showDownload ? [{to: '/download', label: 'Download App'}] : []),
     {to: '/terms', label: 'Terms of Service'},
     {to: '/privacy', label: 'Privacy Policy'},
     {to: '/community-guidelines', label: 'Community Guidelines'},

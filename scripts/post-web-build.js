@@ -1,5 +1,6 @@
 const path = require('node:path')
 const fs = require('node:fs')
+const zlib = require('node:zlib')
 const {execFileSync} = require('node:child_process')
 
 const projectRoot = path.join(__dirname, '..')
@@ -277,6 +278,65 @@ copyDir(path.join(distDir, '_expo'), path.join(bskywebStatic, '_expo'))
 
 // Copy assets (fonts, images, icons, etc.) referenced as /static/assets/... by the bundle.
 copyDir(path.join(distDir, 'assets'), path.join(bskywebStatic, 'assets'))
+
+// Build-time Brotli (quality 11) + Gzip (level 9) pre-compression for every .js and .css > 8 KB
+function precompressStaticAssets(rootDir) {
+  const MIN_BYTES = 8 * 1024
+  let fileCount = 0
+  let totalRaw = 0
+  let totalBr = 0
+  let totalGz = 0
+
+  function walk(dir) {
+    if (!fs.existsSync(dir)) return
+    const entries = fs.readdirSync(dir, {withFileTypes: true})
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        walk(fullPath)
+        continue
+      }
+      const ext = path.extname(entry.name).toLowerCase()
+      if (ext !== '.js' && ext !== '.css') continue
+      const stat = fs.statSync(fullPath)
+      if (stat.size <= MIN_BYTES) continue
+
+      const raw = fs.readFileSync(fullPath)
+      const brBuf = zlib.brotliCompressSync(raw, {
+        params: {
+          [zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT,
+          [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
+          [zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length,
+        },
+      })
+      const gzBuf = zlib.gzipSync(raw, {level: 9})
+
+      fs.writeFileSync(`${fullPath}.br`, brBuf)
+      fs.writeFileSync(`${fullPath}.gz`, gzBuf)
+
+      fileCount += 1
+      totalRaw += raw.length
+      totalBr += brBuf.length
+      totalGz += gzBuf.length
+    }
+  }
+
+  walk(rootDir)
+  if (fileCount > 0) {
+    const rawKb = (totalRaw / 1024).toFixed(1)
+    const brKb = (totalBr / 1024).toFixed(1)
+    const gzKb = (totalGz / 1024).toFixed(1)
+    const brPct = (((totalRaw - totalBr) / totalRaw) * 100).toFixed(1)
+    const gzPct = (((totalRaw - totalGz) / totalRaw) * 100).toFixed(1)
+    console.log(
+      `Pre-compressed ${fileCount} JS/CSS assets (>8 KB) in dist/: raw ${rawKb} KB -> .br ${brKb} KB (-${brPct}%) | .gz ${gzKb} KB (-${gzPct}%)`,
+    )
+  } else {
+    console.log('No JS/CSS assets > 8 KB found in dist/ for pre-compression')
+  }
+}
+
+precompressStaticAssets(distDir)
 
 // Upload source maps to Sentry
 if (

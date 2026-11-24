@@ -34,7 +34,7 @@ setPolyfills({
  */
 export type FeatureFetchStrategy = 'prefer-low-latency' | 'prefer-fresh-gates'
 
-const TIMEOUT_INIT = 2000 // TODO should base on p99 or something
+const TIMEOUT_INIT = 350 // fast boot cap so GrowthBook never stalls app launch
 const TIMEOUT_PREFER_LOW_LATENCY = 250
 const TIMEOUT_PREFER_FRESH_GATES = 1500
 

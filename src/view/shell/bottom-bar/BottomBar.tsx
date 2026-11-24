@@ -5,35 +5,32 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context'
 import {plural} from '@lingui/core/macro'
 import {Trans, useLingui} from '@lingui/react/macro'
 import {type BottomTabBarProps} from '@react-navigation/bottom-tabs'
-import {StackActions} from '@react-navigation/native'
+import {StackActions, useNavigationState} from '@react-navigation/native'
 
+import {VIDEO_FEED_URI} from '#/lib/constants'
 import {PressableScale} from '#/lib/custom-animations/PressableScale'
-import {BOTTOM_BAR_AVI} from '#/lib/demo'
 import {useHaptics} from '#/lib/haptics'
 import {useDedupe} from '#/lib/hooks/useDedupe'
 import {useHideBottomBarBorder} from '#/lib/hooks/useHideBottomBarBorder'
 import {useMinimalShellFooterTransform} from '#/lib/hooks/useMinimalShellTransform'
 import {useNavigationTabState} from '#/lib/hooks/useNavigationTabState'
 import {clamp} from '#/lib/numbers'
-import {getTabState, TabState} from '#/lib/routes/helpers'
+import {getCurrentRoute, getTabState, TabState} from '#/lib/routes/helpers'
+import {getCommonNavigationAction} from '#/lib/routes/navigation'
 import {type SharedNavTab, TAB_TO_NAV_ITEM} from '#/lib/routes/tab-to-nav-item'
 import {emitSoftReset} from '#/state/events'
 import {useHomeBadge} from '#/state/home-badge'
 import {useUnreadMessageCount} from '#/state/queries/messages/list-conversations'
 import {useUpdateAllRead} from '#/state/queries/messages/update-all-read'
 import {useUnreadNotifications} from '#/state/queries/notifications/unread'
-import {useProfileQuery} from '#/state/queries/profile'
 import {useSession} from '#/state/session'
 import {useLoggedOutViewControls} from '#/state/shell/logged-out'
 import {useShellLayout} from '#/state/shell/shell-layout'
 import {useCloseAllActiveElements} from '#/state/util'
-import {UserAvatar} from '#/view/com/util/UserAvatar'
 import {Logo} from '#/view/icons/Logo'
 import {Logotype} from '#/view/icons/Logotype'
 import {atoms as a, useTheme} from '#/alf'
 import {Button, ButtonText} from '#/components/Button'
-import {useDialogControl} from '#/components/Dialog'
-import {SwitchAccountDialog} from '#/components/dialogs/SwitchAccount'
 import {
   Bell_Filled_Corner0_Rounded as BellFilled,
   Bell_Stroke2_Corner0_Rounded as Bell,
@@ -52,39 +49,47 @@ import {
   Message_Stroke2_Corner0_Rounded as Message,
   Message_Stroke2_Corner0_Rounded_Filled as MessageFilled,
 } from '#/components/icons/Message'
+import {Sparkle_Stroke2_Corner0_Rounded as Sparkle} from '#/components/icons/Sparkle'
+import {VideoClip_Stroke2_Corner0_Rounded as VideoClip} from '#/components/icons/VideoClip'
 import * as Menu from '#/components/Menu'
 import * as Toast from '#/components/Toast'
 import {Text} from '#/components/Typography'
 import {useAgeAssurance} from '#/ageAssurance'
 import {useAnalytics} from '#/analytics'
 import {isFollowingV2HomeDotEnabled} from '#/features/followingV2/eligibility'
-import {useActorStatus} from '#/features/liveNow'
-import {useDemoMode} from '#/storage/hooks/demo-mode'
 import {styles} from './BottomBarStyles'
 
 export function BottomBar({navigation}: BottomTabBarProps) {
-  const {hasSession, currentAccount} = useSession()
+  const {hasSession} = useSession()
   const t = useTheme()
   const {t: l} = useLingui()
   const ax = useAnalytics()
   const safeAreaInsets = useSafeAreaInsets()
   const {footerHeight} = useShellLayout()
-  const {isAtHome, isAtSearch, isAtNotifications, isAtMyProfile, isAtMessages} =
+  const {isAtHome, isAtSearch, isAtNotifications, isAtMessages} =
     useNavigationTabState()
+  const currentRouteName = useNavigationState(state =>
+    state ? getCurrentRoute(state).name : 'Home',
+  )
+  const isAtReels = currentRouteName === 'VideoFeed'
+  const isAtQuanty = currentRouteName === 'Quanty'
+  const isAtCommonRoute = isAtReels || isAtQuanty
+  const isHomeActive = isAtHome && !isAtCommonRoute
+  const isSearchActive = isAtSearch && !isAtCommonRoute
+  const isNotificationsActive = isAtNotifications && !isAtCommonRoute
+  const isMessagesActive = isAtMessages && !isAtCommonRoute
   const numUnreadNotifications = useUnreadNotifications()
   const numUnreadMessages = useUnreadMessageCount()
   const hasHomeBadge = useHomeBadge()
   const aa = useAgeAssurance()
   const footerMinimalShellTransform = useMinimalShellFooterTransform()
-  const {data: profile} = useProfileQuery({did: currentAccount?.did})
   const {requestSwitchToAccount} = useLoggedOutViewControls()
   const closeAllActiveElements = useCloseAllActiveElements()
   const dedupe = useDedupe()
-  const accountSwitchControl = useDialogControl()
   const messagesMenuControl = Menu.useMenuControl()
   const haptics = useHaptics()
   const hideBorder = useHideBottomBarBorder()
-  const iconWidth = 28
+  const iconWidth = 24
 
   const showSignIn = useCallback(() => {
     closeAllActiveElements()
@@ -134,21 +139,56 @@ export function BottomBar({navigation}: BottomTabBarProps) {
   )
   const onPressHome = useCallback(() => onPressTab('Home'), [onPressTab])
   const onPressSearch = useCallback(() => onPressTab('Search'), [onPressTab])
+  const onPressReels = useCallback(() => {
+    ax.metric('nav:click', {
+      item: 'reels',
+      surface: 'bottomBar',
+    })
+    if (isAtReels) {
+      emitSoftReset()
+      return
+    }
+    dedupe(() =>
+      navigation.dispatch(
+        getCommonNavigationAction(
+          {
+            name: 'VideoFeed',
+            params: {
+              type: 'feedgen',
+              uri: VIDEO_FEED_URI,
+              sourceInterstitial: 'none',
+            },
+          },
+          navigation.getState(),
+        ),
+      ),
+    )
+  }, [ax, dedupe, isAtReels, navigation])
+  const onPressQuanty = useCallback(() => {
+    ax.metric('nav:click', {
+      item: 'quanty',
+      surface: 'bottomBar',
+    })
+    if (isAtQuanty) {
+      emitSoftReset()
+      return
+    }
+    dedupe(() =>
+      navigation.dispatch(
+        getCommonNavigationAction(
+          {name: 'Quanty', params: undefined},
+          navigation.getState(),
+        ),
+      ),
+    )
+  }, [ax, dedupe, isAtQuanty, navigation])
   const onPressNotifications = useCallback(
     () => onPressTab('Notifications'),
     [onPressTab],
   )
-  const onPressProfile = useCallback(() => {
-    onPressTab('MyProfile')
-  }, [onPressTab])
   const onPressMessages = useCallback(() => {
     onPressTab('Messages')
   }, [onPressTab])
-
-  const onLongPressProfile = useCallback(() => {
-    haptics.longPress()
-    accountSwitchControl.open()
-  }, [accountSwitchControl, haptics])
 
   const onLongPressMessages = useCallback(() => {
     if (aa.flags.chatDisabled) return
@@ -156,13 +196,8 @@ export function BottomBar({navigation}: BottomTabBarProps) {
     messagesMenuControl.open()
   }, [aa.flags.chatDisabled, messagesMenuControl, haptics])
 
-  const [demoMode] = useDemoMode()
-  const {isActive: live} = useActorStatus(profile)
-  const isLabeler = profile?.associated?.labeler
-
   return (
     <>
-      <SwitchAccountDialog control={accountSwitchControl} />
       <MessagesTabMenu control={messagesMenuControl} />
       <Animated.View
         style={[
@@ -182,7 +217,7 @@ export function BottomBar({navigation}: BottomTabBarProps) {
             <Btn
               testID="bottomBarHomeBtn"
               icon={
-                isAtHome ? (
+                isHomeActive ? (
                   <HomeFilled
                     width={iconWidth + 1}
                     style={[styles.ctrlIcon, t.atoms.text, styles.homeIcon]}
@@ -201,15 +236,15 @@ export function BottomBar({navigation}: BottomTabBarProps) {
               accessibilityHint=""
             />
             <Btn
+              testID="bottomBarSearchBtn"
               icon={
-                isAtSearch ? (
+                isSearchActive ? (
                   <MagnifyingGlassFilled
                     width={iconWidth + 2}
                     style={[styles.ctrlIcon, t.atoms.text, styles.searchIcon]}
                   />
                 ) : (
                   <MagnifyingGlass
-                    testID="bottomBarSearchBtn"
                     width={iconWidth + 2}
                     style={[styles.ctrlIcon, t.atoms.text, styles.searchIcon]}
                   />
@@ -217,13 +252,76 @@ export function BottomBar({navigation}: BottomTabBarProps) {
               }
               onPress={onPressSearch}
               accessibilityRole="search"
-              accessibilityLabel={l`Search`}
+              accessibilityLabel={l`Explore`}
               accessibilityHint=""
+            />
+            <Btn
+              testID="bottomBarReelsBtn"
+              icon={
+                <VideoClip
+                  width={iconWidth}
+                  style={[
+                    styles.ctrlIcon,
+                    isAtReels ? {color: '#1D9BF0'} : t.atoms.text,
+                  ]}
+                />
+              }
+              onPress={onPressReels}
+              accessibilityRole="tab"
+              accessibilityLabel={l`Reels`}
+              accessibilityHint=""
+            />
+            <Btn
+              testID="bottomBarQuantyBtn"
+              icon={
+                <Sparkle
+                  width={iconWidth}
+                  style={[
+                    styles.ctrlIcon,
+                    isAtQuanty ? {color: '#1D9BF0'} : t.atoms.text,
+                  ]}
+                />
+              }
+              onPress={onPressQuanty}
+              accessibilityRole="tab"
+              accessibilityLabel={l`Quanty`}
+              accessibilityHint=""
+            />
+            <Btn
+              testID="bottomBarNotificationsBtn"
+              icon={
+                isNotificationsActive ? (
+                  <BellFilled
+                    width={iconWidth}
+                    style={[styles.ctrlIcon, t.atoms.text, styles.bellIcon]}
+                  />
+                ) : (
+                  <Bell
+                    width={iconWidth}
+                    style={[styles.ctrlIcon, t.atoms.text, styles.bellIcon]}
+                  />
+                )
+              }
+              onPress={onPressNotifications}
+              notificationCount={numUnreadNotifications}
+              accessible={true}
+              accessibilityRole="tab"
+              accessibilityLabel={l`Notifications`}
+              accessibilityHint={
+                numUnreadNotifications === ''
+                  ? ''
+                  : l({
+                      message: plural(numUnreadNotifications ?? 0, {
+                        one: '# unread item',
+                        other: '# unread items',
+                      }),
+                    })
+              }
             />
             <Btn
               testID="bottomBarMessagesBtn"
               icon={
-                isAtMessages ? (
+                isMessagesActive ? (
                   <MessageFilled
                     width={iconWidth - 1}
                     style={[styles.ctrlIcon, t.atoms.text, styles.feedsIcon]}
@@ -260,71 +358,6 @@ export function BottomBar({navigation}: BottomTabBarProps) {
                       })
                   : ''
               }
-            />
-            <Btn
-              testID="bottomBarNotificationsBtn"
-              icon={
-                isAtNotifications ? (
-                  <BellFilled
-                    width={iconWidth}
-                    style={[styles.ctrlIcon, t.atoms.text, styles.bellIcon]}
-                  />
-                ) : (
-                  <Bell
-                    width={iconWidth}
-                    style={[styles.ctrlIcon, t.atoms.text, styles.bellIcon]}
-                  />
-                )
-              }
-              onPress={onPressNotifications}
-              notificationCount={numUnreadNotifications}
-              accessible={true}
-              accessibilityRole="tab"
-              accessibilityLabel={l`Notifications`}
-              accessibilityHint={
-                numUnreadNotifications === ''
-                  ? ''
-                  : l({
-                      message: plural(numUnreadNotifications ?? 0, {
-                        one: '# unread item',
-                        other: '# unread items',
-                      }),
-                    })
-              }
-            />
-            <Btn
-              testID="bottomBarProfileBtn"
-              icon={
-                <View style={styles.ctrlIconSizingWrapper}>
-                  <View
-                    style={[
-                      styles.ctrlIcon,
-                      isLabeler ? styles.profileIconSquare : styles.profileIcon,
-                      isAtMyProfile && [
-                        isLabeler ? styles.onProfileSquare : styles.onProfile,
-                        {
-                          borderColor: t.atoms.text.color,
-                          borderWidth: live ? 0 : 1,
-                        },
-                      ],
-                    ]}>
-                    <UserAvatar
-                      avatar={demoMode ? BOTTOM_BAR_AVI : profile?.avatar}
-                      size={iconWidth - (isAtMyProfile ? 3 : 2)}
-                      // See https://github.com/bluesky-social/social-app/pull/1801:
-                      usePlainRNImage={true}
-                      type={profile?.associated?.labeler ? 'labeler' : 'user'}
-                      live={live}
-                      hideLiveBadge
-                    />
-                  </View>
-                </View>
-              }
-              onPress={onPressProfile}
-              onLongPress={onLongPressProfile}
-              accessibilityRole="tab"
-              accessibilityLabel={l`Profile`}
-              accessibilityHint=""
             />
           </>
         ) : (
@@ -408,7 +441,7 @@ function Btn({
   return (
     <PressableScale
       testID={testID}
-      style={[styles.ctrl, a.flex_1]}
+      style={[styles.ctrl, a.flex_1, {minWidth: 0}]}
       onPress={onPress}
       onLongPress={onLongPress}
       accessible={accessible}

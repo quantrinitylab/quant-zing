@@ -19,6 +19,53 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(__dirname, '..')
 const distDir = path.resolve(__dirname, '..', 'dist')
 const opsPortalDir = path.resolve(__dirname, '..', 'ops-portal')
+
+function loadOptionalEnvFile(envFilePath) {
+  try {
+    if (!envFilePath || !fs.existsSync(envFilePath)) return 0
+    const raw = fs.readFileSync(envFilePath, 'utf8')
+    let loaded = 0
+    for (const rawLine of raw.split(/\r?\n/)) {
+      const line = rawLine.trim()
+      if (!line || line.startsWith('#')) continue
+      const stripped = line.startsWith('export ')
+        ? line.slice('export '.length).trim()
+        : line
+      const eqIdx = stripped.indexOf('=')
+      if (eqIdx <= 0) continue
+      const key = stripped.slice(0, eqIdx).trim()
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue
+      if (process.env[key] !== undefined && process.env[key] !== '') continue
+      let val = stripped.slice(eqIdx + 1).trim()
+      if (
+        (val.startsWith('"') && val.endsWith('"') && val.length >= 2) ||
+        (val.startsWith("'") && val.endsWith("'") && val.length >= 2)
+      ) {
+        val = val.slice(1, -1)
+      }
+      process.env[key] = val
+      loaded += 1
+    }
+    return loaded
+  } catch {
+    return 0
+  }
+}
+
+// Load optional /etc/quantzing/quanty.env (never overrides already-set env vars)
+for (const envCandidate of [
+  process.env.QUANTY_ENV_FILE,
+  '/etc/quantzing/quanty.env',
+  path.join(projectRoot, 'quanty.env'),
+].filter(Boolean)) {
+  const count = loadOptionalEnvFile(envCandidate)
+  if (count > 0) {
+    console.log(
+      `[QuantZing] Loaded ${count} env setting(s) from ${envCandidate}`,
+    )
+  }
+}
+
 const port = Number(process.env.PORT || 3008)
 const host = process.env.HOST || '127.0.0.1'
 
@@ -61,6 +108,122 @@ function pipeFileStreamSafe(req, res, filePath, headers, compress = false) {
   req.on('aborted', () => {
     readStream.destroy()
   })
+}
+
+function isEtagMatch(ifNoneMatchHeader, etag) {
+  if (!ifNoneMatchHeader || !etag) return false
+  const cleanTarget = etag.replace(/^W\//, '').trim()
+  for (const part of String(ifNoneMatchHeader).split(',')) {
+    const candidate = part.trim()
+    if (candidate === '*' || candidate.replace(/^W\//, '') === cleanTarget) {
+      return true
+    }
+  }
+  return false
+}
+
+function serveStaticAsset(req, res, filePath, baseHeaders, ext) {
+  let rawStat
+  try {
+    rawStat = fs.statSync(filePath)
+  } catch {
+    res.writeHead(404, {'content-type': 'text/plain; charset=utf-8'})
+    res.end('Not found')
+    return
+  }
+
+  const acceptEncoding = String(req.headers['accept-encoding'] || '')
+  const isCompressible = COMPRESSIBLE.has(ext)
+  const acceptsBr = isCompressible && /\bbr\b/i.test(acceptEncoding)
+  const acceptsGzip = isCompressible && /\bgzip\b/i.test(acceptEncoding)
+
+  let selectedPath = filePath
+  let selectedStat = rawStat
+  let precompressedEncoding = null
+
+  if (acceptsBr) {
+    const brPath = `${filePath}.br`
+    try {
+      const brStat = fs.statSync(brPath)
+      if (brStat.isFile()) {
+        selectedPath = brPath
+        selectedStat = brStat
+        precompressedEncoding = 'br'
+      }
+    } catch {}
+  }
+
+  if (!precompressedEncoding && acceptsGzip) {
+    const gzPath = `${filePath}.gz`
+    try {
+      const gzStat = fs.statSync(gzPath)
+      if (gzStat.isFile()) {
+        selectedPath = gzPath
+        selectedStat = gzStat
+        precompressedEncoding = 'gzip'
+      }
+    } catch {}
+  }
+
+  const useRuntimeGzip =
+    !precompressedEncoding && acceptsGzip && rawStat.size > 1024
+  const encodingTag = precompressedEncoding || (useRuntimeGzip ? 'gz' : 'raw')
+  const etag = `"${selectedStat.size.toString(16)}-${Math.floor(selectedStat.mtimeMs).toString(16)}-${encodingTag}"`
+
+  const headers = {
+    ...baseHeaders,
+    etag,
+    ...(isCompressible ? {vary: 'Accept-Encoding'} : {}),
+  }
+
+  if (isEtagMatch(req.headers['if-none-match'], etag)) {
+    const notModHeaders = {
+      etag,
+      ...(headers['cache-control']
+        ? {'cache-control': headers['cache-control']}
+        : {}),
+      ...(isCompressible ? {vary: 'Accept-Encoding'} : {}),
+    }
+    res.writeHead(304, notModHeaders)
+    res.end()
+    return
+  }
+
+  if (precompressedEncoding) {
+    const preHeaders = {
+      ...headers,
+      'content-encoding': precompressedEncoding,
+      'content-length': selectedStat.size,
+    }
+    if (req.method === 'HEAD') {
+      res.writeHead(200, preHeaders)
+      res.end()
+      return
+    }
+    pipeFileStreamSafe(req, res, selectedPath, preHeaders, false)
+    return
+  }
+
+  if (useRuntimeGzip) {
+    if (req.method === 'HEAD') {
+      res.writeHead(200, {...headers, 'content-encoding': 'gzip'})
+      res.end()
+      return
+    }
+    pipeFileStreamSafe(req, res, filePath, headers, true)
+    return
+  }
+
+  const rawHeaders = {
+    ...headers,
+    'content-length': rawStat.size,
+  }
+  if (req.method === 'HEAD') {
+    res.writeHead(200, rawHeaders)
+    res.end()
+    return
+  }
+  pipeFileStreamSafe(req, res, filePath, rawHeaders, false)
 }
 
 const OPS_SECURITY_HEADERS = {
@@ -364,9 +527,7 @@ function serveOpsPortal(req, res, subPathname) {
     'x-powered-by': 'QuantZing Ops / QuantOS',
   }
 
-  const acceptEncoding = String(req.headers['accept-encoding'] || '')
-  const shouldCompress = COMPRESSIBLE.has(ext) && acceptEncoding.includes('gzip')
-  pipeFileStreamSafe(req, res, filePath, headers, shouldCompress)
+  serveStaticAsset(req, res, filePath, headers, ext)
 }
 
 // Warm SQLite WAL store once on process boot
@@ -695,9 +856,7 @@ const server = http.createServer((req, res) => {
     'x-powered-by': 'QuantZing / QuantOS',
   }
 
-  const acceptEncoding = String(req.headers['accept-encoding'] || '')
-  const shouldCompress = COMPRESSIBLE.has(ext) && acceptEncoding.includes('gzip')
-  pipeFileStreamSafe(req, res, filePath, headers, shouldCompress)
+  serveStaticAsset(req, res, filePath, headers, ext)
 })
 
 // Defensive HTTP timeouts against slow-loris / stalled sockets (5 min for large APK downloads)

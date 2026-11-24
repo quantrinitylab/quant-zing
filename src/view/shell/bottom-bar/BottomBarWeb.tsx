@@ -9,28 +9,21 @@ import {useNavigationState} from '@react-navigation/native'
 import {useHideBottomBarBorder} from '#/lib/hooks/useHideBottomBarBorder'
 import {useMinimalShellFooterTransform} from '#/lib/hooks/useMinimalShellTransform'
 import {getCurrentRoute, isTab} from '#/lib/routes/helpers'
-import {makeProfileLink} from '#/lib/routes/links'
-import {type CommonNavigatorParams} from '#/lib/routes/types'
+import {useHasOpenDialog} from '#/state/dialogs'
 import {useHomeBadge} from '#/state/home-badge'
 import {useUnreadMessageCount} from '#/state/queries/messages/list-conversations'
 import {useUnreadNotifications} from '#/state/queries/notifications/unread'
-import {useProfileQuery} from '#/state/queries/profile'
-import {useHasOpenDialog} from '#/state/dialogs'
 import {useSession} from '#/state/session'
 import {useIsDrawerOpen} from '#/state/shell'
 import {useComposerState} from '#/state/shell/composer'
-import {useLightbox} from '#/components/Lightbox/state'
 import {useLoggedOutViewControls} from '#/state/shell/logged-out'
 import {useShellLayout} from '#/state/shell/shell-layout'
 import {useCloseAllActiveElements} from '#/state/util'
 import {Link} from '#/view/com/util/Link'
-import {UserAvatar} from '#/view/com/util/UserAvatar'
 import {Logo} from '#/view/icons/Logo'
 import {Logotype} from '#/view/icons/Logotype'
 import {atoms as a, useTheme} from '#/alf'
 import {Button, ButtonText} from '#/components/Button'
-import {useDialogControl} from '#/components/Dialog'
-import {SwitchAccountDialog} from '#/components/dialogs/SwitchAccount'
 import {
   Bell_Filled_Corner0_Rounded as BellFilled,
   Bell_Stroke2_Corner0_Rounded as Bell,
@@ -48,6 +41,8 @@ import {
   Message_Stroke2_Corner0_Rounded_Filled as MessageFilled,
 } from '#/components/icons/Message'
 import {Sparkle_Stroke2_Corner0_Rounded as Sparkle} from '#/components/icons/Sparkle'
+import {VideoClip_Stroke2_Corner0_Rounded as VideoClip} from '#/components/icons/VideoClip'
+import {useLightbox} from '#/components/Lightbox/state'
 import {Text} from '#/components/Typography'
 import {useAgeAssurance} from '#/ageAssurance'
 import {useAnalytics} from '#/analytics'
@@ -57,14 +52,14 @@ import {styles} from './BottomBarStyles'
 type NavItemValue =
   | 'home'
   | 'search'
+  | 'reels'
   | 'quanty'
   | 'chat'
   | 'notifications'
-  | 'profile'
 
 export function BottomBarWeb() {
   const {_} = useLingui()
-  const {hasSession, currentAccount} = useSession()
+  const {hasSession} = useSession()
   const hasOpenDialog = useHasOpenDialog()
   const composerOpen = Boolean(useComposerState())
   const lightboxOpen = Boolean(useLightbox().activeLightbox)
@@ -87,16 +82,13 @@ export function BottomBarWeb() {
   const closeAllActiveElements = useCloseAllActiveElements()
   const {footerHeight} = useShellLayout()
   const hideBorder = useHideBottomBarBorder()
-  const accountSwitchControl = useDialogControl()
-  const {data: profile} = useProfileQuery({did: currentAccount?.did})
-  const iconWidth = 26
+  const iconWidth = 24
 
   const unreadMessageCount = useUnreadMessageCount()
   const notificationCountStr = useUnreadNotifications()
   const hasHomeBadge = useHomeBadge()
   const ax = useAnalytics()
   const aa = useAgeAssurance()
-  const isLabeler = profile?.associated?.labeler
 
   const showSignIn = useCallback(() => {
     closeAllActiveElements()
@@ -108,242 +100,236 @@ export function BottomBarWeb() {
     requestSwitchToAccount({requestedAccount: 'new'})
   }, [requestSwitchToAccount, closeAllActiveElements])
 
-  const onLongPressProfile = useCallback(() => {
-    accountSwitchControl.open()
-  }, [accountSwitchControl])
-
   return (
     <>
-      <SwitchAccountDialog control={accountSwitchControl} />
-
       {!hideBarForOverlay && (
-      <Animated.View
-        role="navigation"
-        style={[
-          styles.bottomBar,
-          styles.bottomBarWeb,
-          t.atoms.bg,
-          {zIndex: 30},
-          hideBorder && hasSession
-            ? {borderColor: t.atoms.bg.backgroundColor}
-            : t.atoms.border_contrast_low,
-          footerMinimalShellTransform,
-        ]}
-        onLayout={event => footerHeight.set(event.nativeEvent.layout.height)}>
-        {hasSession ? (
-          <>
-            <NavItem
-              routeName="Home"
-              href="/"
-              navItem="home"
-              hasNew={hasHomeBadge && isFollowingV2HomeDotEnabled(ax)}>
-              {({isActive}) => {
-                const Icon = isActive ? HomeFilled : Home
-                return (
-                  <Icon
-                    aria-hidden={true}
-                    width={iconWidth + 1}
-                    style={[styles.ctrlIcon, t.atoms.text, styles.homeIcon]}
-                  />
-                )
-              }}
-            </NavItem>
-            <NavItem routeName="Search" href="/search" navItem="search">
-              {({isActive}) => {
-                const Icon = isActive ? MagnifyingGlassFilled : MagnifyingGlass
-                return (
-                  <Icon
-                    aria-hidden={true}
-                    width={iconWidth + 2}
-                    style={[styles.ctrlIcon, t.atoms.text, styles.searchIcon]}
-                  />
-                )
-              }}
-            </NavItem>
-            <NavItem routeName="Quanty" href="/quanty" navItem="quanty">
-              {({isActive}) => (
-                <Sparkle
-                  aria-hidden={true}
-                  width={iconWidth}
-                  style={[
-                    styles.ctrlIcon,
-                    isActive ? {color: '#1D9BF0'} : t.atoms.text,
-                  ]}
-                />
-              )}
-            </NavItem>
-            <NavItem
-              routeName="Messages"
-              href="/messages"
-              navItem="chat"
-              notificationCount={
-                aa.flags.chatDisabled
-                  ? undefined
-                  : unreadMessageCount.numUnread
-              }
-              hasNew={
-                aa.flags.chatDisabled ? false : unreadMessageCount.hasNew
-              }>
-              {({isActive}) => {
-                const Icon = isActive ? MessageFilled : Message
-                return (
-                  <Icon
-                    aria-hidden={true}
-                    width={iconWidth - 1}
-                    style={[
-                      styles.ctrlIcon,
-                      t.atoms.text,
-                      styles.messagesIcon,
-                    ]}
-                  />
-                )
-              }}
-            </NavItem>
-            <NavItem
-              routeName="Notifications"
-              href="/notifications"
-              navItem="notifications"
-              notificationCount={notificationCountStr}>
-              {({isActive}) => {
-                const Icon = isActive ? BellFilled : Bell
-                return (
-                  <Icon
+        <Animated.View
+          role="navigation"
+          style={[
+            styles.bottomBar,
+            styles.bottomBarWeb,
+            a.overflow_hidden,
+            t.atoms.bg,
+            {zIndex: 30, width: '100%', maxWidth: '100%'},
+            hideBorder && hasSession
+              ? {borderColor: t.atoms.bg.backgroundColor}
+              : t.atoms.border_contrast_low,
+            footerMinimalShellTransform,
+          ]}
+          onLayout={event => footerHeight.set(event.nativeEvent.layout.height)}>
+          {hasSession ? (
+            <>
+              <NavItem
+                testID="bottomBarHomeBtn"
+                routeName="Home"
+                label="Home"
+                href="/"
+                navItem="home"
+                hasNew={hasHomeBadge && isFollowingV2HomeDotEnabled(ax)}>
+                {({isActive}) => {
+                  const Icon = isActive ? HomeFilled : Home
+                  return (
+                    <Icon
+                      aria-hidden={true}
+                      width={iconWidth + 1}
+                      style={[styles.ctrlIcon, t.atoms.text, styles.homeIcon]}
+                    />
+                  )
+                }}
+              </NavItem>
+              <NavItem
+                testID="bottomBarSearchBtn"
+                routeName="Search"
+                label="Search"
+                href="/search"
+                navItem="search">
+                {({isActive}) => {
+                  const Icon = isActive ? MagnifyingGlassFilled : MagnifyingGlass
+                  return (
+                    <Icon
+                      aria-hidden={true}
+                      width={iconWidth + 2}
+                      style={[styles.ctrlIcon, t.atoms.text, styles.searchIcon]}
+                    />
+                  )
+                }}
+              </NavItem>
+              <NavItem
+                testID="bottomBarReelsBtn"
+                routeName="VideoFeed"
+                label="Reels"
+                href="/video-feed"
+                navItem="reels">
+                {({isActive}) => (
+                  <VideoClip
                     aria-hidden={true}
                     width={iconWidth}
-                    style={[styles.ctrlIcon, t.atoms.text, styles.bellIcon]}
-                  />
-                )
-              }}
-            </NavItem>
-            <NavItem
-              routeName="Profile"
-              href={
-                currentAccount
-                  ? makeProfileLink({
-                      did: currentAccount.did,
-                      handle: currentAccount.handle,
-                    })
-                  : '/'
-              }
-              navItem="profile"
-              onLongPress={onLongPressProfile}>
-              {({isActive}) => (
-                <View style={styles.ctrlIconSizingWrapper}>
-                  <View
                     style={[
                       styles.ctrlIcon,
-                      isLabeler
-                        ? styles.profileIconSquare
-                        : styles.profileIcon,
-                      isActive && [
-                        isLabeler
-                          ? styles.onProfileSquare
-                          : styles.onProfile,
-                        {borderColor: t.atoms.text.color},
-                      ],
-                    ]}>
-                    <UserAvatar
-                      avatar={profile?.avatar}
-                      size={iconWidth - 3}
-                      type={
-                        profile?.associated?.labeler ? 'labeler' : 'user'
-                      }
+                      isActive ? {color: '#1D9BF0'} : t.atoms.text,
+                    ]}
+                  />
+                )}
+              </NavItem>
+              <NavItem
+                testID="bottomBarQuantyBtn"
+                routeName="Quanty"
+                label="Quanty"
+                href="/quanty"
+                navItem="quanty">
+                {({isActive}) => (
+                  <Sparkle
+                    aria-hidden={true}
+                    width={iconWidth}
+                    style={[
+                      styles.ctrlIcon,
+                      isActive ? {color: '#1D9BF0'} : t.atoms.text,
+                    ]}
+                  />
+                )}
+              </NavItem>
+              <NavItem
+                testID="bottomBarMessagesBtn"
+                routeName="Messages"
+                label="Chat"
+                href="/messages"
+                navItem="chat"
+                notificationCount={
+                  aa.flags.chatDisabled
+                    ? undefined
+                    : unreadMessageCount.numUnread
+                }
+                hasNew={
+                  aa.flags.chatDisabled ? false : unreadMessageCount.hasNew
+                }>
+                {({isActive}) => {
+                  const Icon = isActive ? MessageFilled : Message
+                  return (
+                    <Icon
+                      aria-hidden={true}
+                      width={iconWidth - 1}
+                      style={[
+                        styles.ctrlIcon,
+                        t.atoms.text,
+                        styles.messagesIcon,
+                      ]}
                     />
-                  </View>
-                </View>
-              )}
-            </NavItem>
-          </>
-        ) : (
-          <View
-            style={[
-              a.w_full,
-              a.flex_row,
-              a.align_center,
-              a.justify_between,
-              {
-                gap: isCompactLoggedOut ? 6 : 8,
-                paddingVertical: 8,
-                paddingHorizontal: isCompactLoggedOut ? 8 : 12,
-              },
-            ]}>
+                  )
+                }}
+              </NavItem>
+              <NavItem
+                testID="bottomBarNotificationsBtn"
+                routeName="Notifications"
+                label="Notifications"
+                href="/notifications"
+                navItem="notifications"
+                notificationCount={notificationCountStr}>
+                {({isActive}) => {
+                  const Icon = isActive ? BellFilled : Bell
+                  return (
+                    <Icon
+                      aria-hidden={true}
+                      width={iconWidth}
+                      style={[styles.ctrlIcon, t.atoms.text, styles.bellIcon]}
+                    />
+                  )
+                }}
+              </NavItem>
+            </>
+          ) : (
             <View
               style={[
+                a.w_full,
                 a.flex_row,
                 a.align_center,
-                {gap: isCompactLoggedOut ? 6 : 8, flexShrink: 1, minWidth: 0},
+                a.justify_between,
+                {
+                  gap: isCompactLoggedOut ? 6 : 8,
+                  paddingVertical: 8,
+                  paddingHorizontal: isCompactLoggedOut ? 8 : 12,
+                },
               ]}>
-              <Logo allowVariants={false} width={26} />
-              {!isCompactLoggedOut && (
-                <View style={{paddingTop: 2}}>
-                  <Logotype width={74} fill={t.atoms.text.color} />
-                </View>
-              )}
-              <Link
-                href="/quanty"
-                navigationAction="navigate"
-                aria-role="link"
-                aria-label="Open Quanty"
-                accessible={true}
-                onBeforePress={() =>
-                  ax.metric('nav:click', {
-                    item: 'quanty',
-                    surface: 'bottomBar',
-                  })
-                }
+              <View
                 style={[
                   a.flex_row,
                   a.align_center,
-                  a.justify_center,
-                  a.rounded_full,
-                  {
-                    width: 32,
-                    height: 32,
-                    backgroundColor: t.palette.contrast_25,
-                    borderWidth: 1,
-                    borderColor: t.palette.contrast_100,
-                  },
+                  {gap: isCompactLoggedOut ? 6 : 8, flexShrink: 1, minWidth: 0},
                 ]}>
-                <Sparkle
-                  aria-hidden={true}
-                  width={16}
-                  style={t.atoms.text}
-                />
-              </Link>
-            </View>
+                <Logo allowVariants={false} width={26} />
+                {!isCompactLoggedOut && (
+                  <View style={{paddingTop: 2}}>
+                    <Logotype width={74} fill={t.atoms.text.color} />
+                  </View>
+                )}
+                <Link
+                  href="/quanty"
+                  navigationAction="navigate"
+                  aria-role="link"
+                  aria-label="Open Quanty"
+                  accessible={true}
+                  onBeforePress={() =>
+                    ax.metric('nav:click', {
+                      item: 'quanty',
+                      surface: 'bottomBar',
+                    })
+                  }
+                  style={[
+                    a.flex_row,
+                    a.align_center,
+                    a.justify_center,
+                    a.rounded_full,
+                    {
+                      width: 32,
+                      height: 32,
+                      backgroundColor: t.palette.contrast_25,
+                      borderWidth: 1,
+                      borderColor: t.palette.contrast_100,
+                    },
+                  ]}>
+                  <Sparkle
+                    aria-hidden={true}
+                    width={16}
+                    style={t.atoms.text}
+                  />
+                </Link>
+              </View>
 
-            <View
-              style={[
-                a.flex_row,
-                a.align_center,
-                {gap: 6, flexShrink: 0},
-              ]}>
-              <Button
-                onPress={showCreateAccount}
-                label={_(msg`Create account`)}
-                size="small"
-                variant="solid"
-                color="primary"
-                style={isCompactLoggedOut ? {paddingHorizontal: 10} : undefined}>
-                <ButtonText numberOfLines={1}>
-                  <Trans>Create account</Trans>
-                </ButtonText>
-              </Button>
-              <Button
-                onPress={showSignIn}
-                label={_(msg`Sign in`)}
-                size="small"
-                variant="solid"
-                color="secondary"
-                style={isCompactLoggedOut ? {paddingHorizontal: 10} : undefined}>
-                <ButtonText numberOfLines={1}>
-                  <Trans>Sign in</Trans>
-                </ButtonText>
-              </Button>
+              <View
+                style={[
+                  a.flex_row,
+                  a.align_center,
+                  {gap: 6, flexShrink: 0},
+                ]}>
+                <Button
+                  onPress={showCreateAccount}
+                  label={_(msg`Create account`)}
+                  size="small"
+                  variant="solid"
+                  color="primary"
+                  style={
+                    isCompactLoggedOut ? {paddingHorizontal: 10} : undefined
+                  }>
+                  <ButtonText numberOfLines={1}>
+                    <Trans>Create account</Trans>
+                  </ButtonText>
+                </Button>
+                <Button
+                  onPress={showSignIn}
+                  label={_(msg`Sign in`)}
+                  size="small"
+                  variant="solid"
+                  color="secondary"
+                  style={
+                    isCompactLoggedOut ? {paddingHorizontal: 10} : undefined
+                  }>
+                  <ButtonText numberOfLines={1}>
+                    <Trans>Sign in</Trans>
+                  </ButtonText>
+                </Button>
+              </View>
             </View>
-          </View>
-        )}
-      </Animated.View>
+          )}
+        </Animated.View>
       )}
     </>
   )
@@ -353,7 +339,9 @@ const NavItem: React.FC<{
   children: (props: {isActive: boolean}) => React.ReactNode
   href: string
   routeName: string
+  label: string
   navItem: NavItemValue
+  testID?: string
   hasNew?: boolean
   notificationCount?: string
   onLongPress?: () => void
@@ -361,7 +349,9 @@ const NavItem: React.FC<{
   children,
   href,
   routeName,
+  label,
   navItem,
+  testID,
   hasNew,
   notificationCount,
   onLongPress,
@@ -369,7 +359,6 @@ const NavItem: React.FC<{
   const t = useTheme()
   const {_} = useLingui()
   const ax = useAnalytics()
-  const {currentAccount} = useSession()
   const currentRoute = useNavigationState(state => {
     if (!state) {
       return {name: 'Home'}
@@ -381,29 +370,16 @@ const NavItem: React.FC<{
     ax.metric('nav:click', {item: navItem, surface: 'bottomBar'})
   }, [ax, navItem])
 
-  // Checks whether we're on someone else's profile
-  const isOnDifferentProfile =
-    currentRoute.name === 'Profile' &&
-    routeName === 'Profile' &&
-    (currentRoute.params as CommonNavigatorParams['Profile']).name !==
-      currentAccount?.handle
-
-  const isActive =
-    currentRoute.name === 'Profile'
-      ? isTab(currentRoute.name, routeName) &&
-        (currentRoute.params as CommonNavigatorParams['Profile']).name ===
-          (routeName === 'Profile'
-            ? currentAccount?.handle
-            : (currentRoute.params as CommonNavigatorParams['Profile']).name)
-      : isTab(currentRoute.name, routeName)
+  const isActive = isTab(currentRoute.name, routeName)
 
   return (
     <Link
+      testID={testID}
       href={href}
-      style={[styles.ctrl, a.pb_lg]}
-      navigationAction={isOnDifferentProfile ? 'push' : 'navigate'}
+      style={[styles.ctrl, a.pb_lg, {minWidth: 0}]}
+      navigationAction="navigate"
       aria-role="link"
-      aria-label={routeName}
+      aria-label={label}
       accessible={true}
       onBeforePress={onBeforePress}
       onLongPress={onLongPress}>

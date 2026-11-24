@@ -1,3 +1,4 @@
+import {execFile} from 'node:child_process'
 import crypto from 'node:crypto'
 import dns from 'node:dns'
 import fs from 'node:fs'
@@ -33,6 +34,7 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(__dirname, '..')
 const scryptAsync = util.promisify(crypto.scrypt)
+const execFileAsync = util.promisify(execFile)
 
 // ---------------------------------------------------------------------------
 // 100% Sovereign QuantZing Constants (ZERO external Bluesky network calls)
@@ -652,6 +654,311 @@ function storeLocalBlob(storeOrDb, did, buffer, mimeType) {
   }
 }
 
+let cachedFfmpegAvailable = null
+let cachedFfprobeAvailable = null
+const pendingLazyThumbCids = new Set()
+
+async function isFfmpegAvailable() {
+  if (cachedFfmpegAvailable !== null) return cachedFfmpegAvailable
+  try {
+    await execFileAsync('ffmpeg', ['-version'], {
+      timeout: 3000,
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
+    })
+    cachedFfmpegAvailable = true
+  } catch {
+    cachedFfmpegAvailable = false
+  }
+  return cachedFfmpegAvailable
+}
+
+async function isFfprobeAvailable() {
+  if (cachedFfprobeAvailable !== null) return cachedFfprobeAvailable
+  try {
+    await execFileAsync('ffprobe', ['-version'], {
+      timeout: 3000,
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
+    })
+    cachedFfprobeAvailable = true
+  } catch {
+    cachedFfprobeAvailable = false
+  }
+  return cachedFfprobeAvailable
+}
+
+async function probeVideoStreamInfo(blobPath) {
+  if (!(await isFfprobeAvailable())) return null
+  try {
+    const {stdout} = await execFileAsync(
+      'ffprobe',
+      [
+        '-v',
+        'error',
+        '-select_streams',
+        'v:0',
+        '-show_entries',
+        'stream=width,height,codec_name,bit_rate',
+        '-of',
+        'json',
+        blobPath,
+      ],
+      {timeout: 5000, maxBuffer: 1024 * 1024, windowsHide: true},
+    )
+    const parsed = JSON.parse(String(stdout || '{}'))
+    const stream = Array.isArray(parsed.streams) ? parsed.streams[0] : null
+    if (!stream) return null
+    return {
+      width: Number(stream.width || 0),
+      height: Number(stream.height || 0),
+      codec: String(stream.codec_name || '').toLowerCase(),
+      bitrate: Number(stream.bit_rate || 0),
+    }
+  } catch {
+    return null
+  }
+}
+
+async function extractVideoThumbnailIfPossible(
+  store,
+  cid,
+  blobPath,
+  ownerDid = '',
+) {
+  if (!cid || !blobPath || !fs.existsSync(blobPath)) return null
+  if (!(await isFfmpegAvailable())) return null
+  const thumbSidecarPath = `${blobPath}.thumb.jpg`
+  const tmpThumbPath = `${blobPath}.thumb.tmp.${process.pid}.${Date.now()}.jpg`
+  try {
+    const runThumb = async seekSec => {
+      await execFileAsync(
+        'ffmpeg',
+        [
+          '-y',
+          '-hide_banner',
+          '-loglevel',
+          'error',
+          '-ss',
+          String(seekSec),
+          '-i',
+          blobPath,
+          '-frames:v',
+          '1',
+          '-vf',
+          "scale='min(540,iw)':-2",
+          '-q:v',
+          '4',
+          tmpThumbPath,
+        ],
+        {timeout: 12_000, maxBuffer: 2 * 1024 * 1024, windowsHide: true},
+      )
+    }
+    try {
+      await runThumb(0.3)
+    } catch {}
+    if (!fs.existsSync(tmpThumbPath) || fs.statSync(tmpThumbPath).size === 0) {
+      try {
+        await runThumb(0)
+      } catch {}
+    }
+    if (!fs.existsSync(tmpThumbPath)) return null
+    const thumbStat = fs.statSync(tmpThumbPath)
+    if (thumbStat.size === 0) return null
+    const thumbBuf = fs.readFileSync(tmpThumbPath)
+    try {
+      fs.renameSync(tmpThumbPath, thumbSidecarPath)
+    } catch {
+      fs.writeFileSync(thumbSidecarPath, thumbBuf)
+    }
+    const thumbBlob = storeLocalBlob(
+      store,
+      ownerDid || QUANTZING_OFFICIAL_DID,
+      thumbBuf,
+      'image/jpeg',
+    )
+    const thumbCid = thumbBlob?.ref?.$link || null
+    if (thumbCid && typeof store.setMeta === 'function') {
+      store.setMeta(`blob_thumb:${cid}`, thumbCid)
+    }
+    return {thumbPath: thumbSidecarPath, thumbCid}
+  } catch {
+    return null
+  } finally {
+    try {
+      if (fs.existsSync(tmpThumbPath)) fs.unlinkSync(tmpThumbPath)
+    } catch {}
+  }
+}
+
+async function optimizeVideoBlobIfPossible(
+  store,
+  cid,
+  blobPath,
+  mimeType,
+  ownerDid = '',
+) {
+  if (
+    !cid ||
+    !blobPath ||
+    typeof mimeType !== 'string' ||
+    !mimeType.toLowerCase().startsWith('video/') ||
+    !fs.existsSync(blobPath)
+  ) {
+    return {
+      optimized: false,
+      thumbCid: null,
+      thumbPath: null,
+      size: null,
+      mimeType,
+    }
+  }
+  if (!(await isFfmpegAvailable())) {
+    return {
+      optimized: false,
+      thumbCid: null,
+      thumbPath: null,
+      size: null,
+      mimeType,
+    }
+  }
+
+  let thumbCid = null
+  let thumbPath = null
+  let finalSize = null
+  let finalMimeType = mimeType
+  let optimized = false
+  const tmpOptPath = `${blobPath}.opt.tmp.${process.pid}.${Date.now()}.mp4`
+
+  try {
+    const origStat = fs.statSync(blobPath)
+    finalSize = origStat.size
+
+    // 1) Extract instant Frame-0/0.3s JPEG poster thumbnail
+    const thumbRes = await extractVideoThumbnailIfPossible(
+      store,
+      cid,
+      blobPath,
+      ownerDid,
+    )
+    if (thumbRes) {
+      thumbCid = thumbRes.thumbCid
+      thumbPath = thumbRes.thumbPath
+    }
+
+    // 2) Optimize MP4 in-place with +faststart and smooth 720p H.264 compression when large/high-res/non-H.264
+    const info = await probeVideoStreamInfo(blobPath)
+    const isLargeFile = origStat.size > 2.5 * 1024 * 1024
+    const isHighRes = Boolean(info && (info.width > 720 || info.height > 1280))
+    const isHighBitrate = Boolean(info && info.bitrate > 2_500_000)
+    const isNonH264 = Boolean(info && info.codec && info.codec !== 'h264')
+    const isNonMp4 = !mimeType.toLowerCase().includes('mp4')
+    const needsTranscode =
+      isLargeFile || isHighRes || isHighBitrate || isNonH264 || (!info && isNonMp4)
+
+    const transcodeArgs = [
+      '-y',
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-i',
+      blobPath,
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-crf',
+      '24',
+      '-pix_fmt',
+      'yuv420p',
+      '-vf',
+      "scale='min(720,iw)':-2",
+      '-c:a',
+      'aac',
+      '-b:a',
+      '96k',
+      '-movflags',
+      '+faststart',
+      '-f',
+      'mp4',
+      tmpOptPath,
+    ]
+
+    const faststartArgs = [
+      '-y',
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-i',
+      blobPath,
+      '-c',
+      'copy',
+      '-movflags',
+      '+faststart',
+      '-f',
+      'mp4',
+      tmpOptPath,
+    ]
+
+    if (needsTranscode) {
+      await execFileAsync('ffmpeg', transcodeArgs, {
+        timeout: 90_000,
+        maxBuffer: 4 * 1024 * 1024,
+        windowsHide: true,
+      })
+    } else {
+      try {
+        await execFileAsync('ffmpeg', faststartArgs, {
+          timeout: 15_000,
+          maxBuffer: 4 * 1024 * 1024,
+          windowsHide: true,
+        })
+      } catch {
+        // Fallback to clean H.264 transcode if stream copy is incompatible with MP4 muxer
+        await execFileAsync('ffmpeg', transcodeArgs, {
+          timeout: 90_000,
+          maxBuffer: 4 * 1024 * 1024,
+          windowsHide: true,
+        })
+      }
+    }
+
+    if (fs.existsSync(tmpOptPath)) {
+      const newStat = fs.statSync(tmpOptPath)
+      if (newStat.size > 0) {
+        fs.renameSync(tmpOptPath, blobPath)
+        finalSize = newStat.size
+        finalMimeType = 'video/mp4'
+        optimized = true
+        const existingMeta = store.getBlobMeta(cid)
+        store.putBlobMeta({
+          cid,
+          did: ownerDid || existingMeta?.did || QUANTZING_OFFICIAL_DID,
+          mimeType: finalMimeType,
+          size: finalSize,
+        })
+      }
+    }
+  } catch (err) {
+    console.warn(
+      `[QuantZing PDS] Video optimization skipped for ${cid}:`,
+      err?.message || err,
+    )
+  } finally {
+    try {
+      if (fs.existsSync(tmpOptPath)) fs.unlinkSync(tmpOptPath)
+    } catch {}
+  }
+
+  return {
+    optimized,
+    thumbCid,
+    thumbPath,
+    size: finalSize,
+    mimeType: finalMimeType,
+  }
+}
+
 function makeAvatarSvg(variant) {
   if (variant === 'founder') {
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
@@ -851,7 +1158,7 @@ const SOVEREIGN_FEED_GENERATORS = [
     displayName: 'Videos',
     description: 'Native video Zings and clips published on QuantZing.',
     category: 'Media',
-    tags: ['video'],
+    tags: [],
   },
 ]
 
@@ -1881,10 +2188,36 @@ function hydrateEmbedView(
     const cid = extractBlobCid(embed.video)
     const playlist = blobUrl(origin, authorDid, embed.video)
     if (cid && playlist) {
+      let thumbnail
+      const thumbCid =
+        typeof store.getMeta === 'function'
+          ? store.getMeta(`blob_thumb:${cid}`, '')
+          : ''
+      if (thumbCid && store.resolveExistingBlobPath(thumbCid)) {
+        thumbnail = `${origin}/blob/${encodeURIComponent(authorDid)}/${encodeURIComponent(thumbCid)}`
+      } else {
+        const blobPath = store.resolveExistingBlobPath(cid)
+        if (blobPath && fs.existsSync(`${blobPath}.thumb.jpg`)) {
+          thumbnail = `${origin}/blob/${encodeURIComponent(authorDid)}/${encodeURIComponent(cid)}?thumb=1`
+        } else if (
+          blobPath &&
+          cachedFfmpegAvailable !== false &&
+          !pendingLazyThumbCids.has(cid)
+        ) {
+          pendingLazyThumbCids.add(cid)
+          extractVideoThumbnailIfPossible(store, cid, blobPath, authorDid)
+            .catch(() => {})
+            .finally(() => {
+              const t = setTimeout(() => pendingLazyThumbCids.delete(cid), 60_000)
+              if (typeof t.unref === 'function') t.unref()
+            })
+        }
+      }
       return {
         $type: 'app.bsky.embed.video#view',
         cid,
         playlist,
+        ...(thumbnail ? {thumbnail} : {}),
         ...(embed.alt ? {alt: embed.alt} : {}),
         ...(embed.aspectRatio ? {aspectRatio: embed.aspectRatio} : {}),
         ...(embed.presentation ? {presentation: embed.presentation} : {}),
@@ -2218,17 +2551,48 @@ function computeSovereignTrends(storeOrDb, viewerDid, origin, limit = 10) {
     return 'QuantZing'
   }
 
+  const usedSampleUris = new Set()
+  const usedSnippets = new Set()
+
   return rawTrends.map((entry, idx) => {
     const actors = [...(entry.actorDids || [])]
       .slice(0, 3)
       .map(did => store.getAccountByDid(did))
       .filter(Boolean)
       .map(acc => buildLocalProfileView(store, acc, viewerDid, origin, false))
+
+    // Deduplicate sample post snippets across co-occurring tags (e.g., #QuantOS / #CloudInfra / #Quantrinity)
+    const samples = Array.isArray(entry.samplePosts) ? entry.samplePosts : []
+    const distinctSample = samples.find(sp => {
+      const norm = String(sp?.text || '').trim().toLowerCase().slice(0, 120)
+      return sp?.uri && !usedSampleUris.has(sp.uri) && (!norm || !usedSnippets.has(norm))
+    })
+
+    let description = ''
+    if (distinctSample) {
+      usedSampleUris.add(distinctSample.uri)
+      const snippet = String(distinctSample.text || '').trim().slice(0, 140)
+      if (snippet) {
+        usedSnippets.add(snippet.toLowerCase().slice(0, 120))
+        description = snippet
+      }
+    } else {
+      const fallbackSnippet = String(entry.snippet || '').trim().slice(0, 140)
+      const normFallback = fallbackSnippet.toLowerCase().slice(0, 120)
+      if (fallbackSnippet && !usedSnippets.has(normFallback)) {
+        usedSnippets.add(normFallback)
+        description = fallbackSnippet
+      } else {
+        const leadHandle = actors[0]?.handle ? ` with @${actors[0].handle}` : ''
+        description = `${entry.postCount} active ${entry.postCount === 1 ? 'Zing' : 'Zings'} discussing ${entry.displayName}${leadHandle}.`
+      }
+    }
+
     return {
       $type: 'app.bsky.unspecced.defs#trendView',
       topic: entry.topic,
       displayName: entry.displayName,
-      description: entry.snippet,
+      description,
       link: `/search?q=${encodeURIComponent(entry.displayName)}`,
       startedAt: entry.latestAt,
       postCount: entry.postCount,
@@ -4675,9 +5039,16 @@ export async function handleQuantZingPds(req, res) {
         20,
         Math.max(1, Number(searchParams.get('limit') || 8)),
       )
-      const rawTrends = store.getTimeDecayedTrends({limit})
-      const topics = rawTrends.map((t, idx) => {
-        const samplePosts = (t.samplePosts || []).map(sp => {
+      const rawTrends = store.getTimeDecayedTrends({
+        limit: Math.min(25, Math.max(limit * 2, 16)),
+      })
+      const usedLeadUris = new Set()
+      const usedSnippets = new Set()
+      const topics = []
+
+      for (let idx = 0; idx < rawTrends.length && topics.length < limit; idx++) {
+        const t = rawTrends[idx]
+        const mappedSamples = (t.samplePosts || []).map(sp => {
           const acc = store.getAccountByDid(sp.did)
           return {
             uri: sp.uri,
@@ -4687,18 +5058,50 @@ export async function handleQuantZingPds(req, res) {
             likeCount: sp.likeCount,
           }
         })
-        const leadPost = samplePosts[0]
+
+        // Prefer a distinct post URI not already quoted by a higher-ranked topic
+        const distinctLead = mappedSamples.find(sp => {
+          const norm = String(sp.text || '').trim().toLowerCase().slice(0, 120)
+          return (
+            sp.uri &&
+            !usedLeadUris.has(sp.uri) &&
+            (!norm || !usedSnippets.has(norm))
+          )
+        })
+
+        // Skip redundant co-occurring hashtag topics whose only post was already quoted above
+        if (!distinctLead && mappedSamples.length > 0 && topics.length > 0) {
+          continue
+        }
+
+        const leadPost = distinctLead || mappedSamples[0]
+        if (leadPost?.uri) {
+          usedLeadUris.add(leadPost.uri)
+          const norm = String(leadPost.text || '').trim().toLowerCase().slice(0, 120)
+          if (norm) usedSnippets.add(norm)
+        }
+
+        const orderedSamples = leadPost
+          ? [
+              leadPost,
+              ...mappedSamples.filter(
+                sp => sp.uri !== leadPost.uri && !usedLeadUris.has(sp.uri),
+              ),
+            ]
+          : mappedSamples
+
         const summary = leadPost
           ? `@${leadPost.authorHandle}: "${leadPost.text.slice(0, 140)}${leadPost.text.length > 140 ? '...' : ''}"`
           : `${t.postCount} active Zings discussing ${t.displayName} on QuantZing.`
-        return {
+
+        topics.push({
           id: `topic_${t.tag || idx}`,
           topic: t.displayName || `#${t.topic}`,
           summary,
           postCount: t.postCount,
-          samplePosts,
-        }
-      })
+          samplePosts: orderedSamples,
+        })
+      }
 
       sendJson(req, res, 200, {
         ok: true,
@@ -4746,12 +5149,20 @@ export async function handleQuantZingPds(req, res) {
     }
 
     // -----------------------------------------------------------------------
-    // Sovereign Blob serving: GET /blob/:did/:cid or GET /blob/:cid
+    // Sovereign Blob serving: GET /blob/:did/:cid (?thumb=1 or /thumb) or /blob/:cid
     // -----------------------------------------------------------------------
 
     if (pathname.startsWith('/blob/')) {
       const segments = pathname.slice('/blob/'.length).split('/').filter(Boolean)
-      const cid = decodeURIComponent(segments[segments.length - 1] || '')
+      const isThumbPath =
+        segments.length >= 2 && segments[segments.length - 1] === 'thumb'
+      const isThumbQuery =
+        searchParams.get('thumb') === '1' ||
+        searchParams.get('thumb') === 'true'
+      const rawCidSegment = isThumbPath
+        ? segments[segments.length - 2]
+        : segments[segments.length - 1]
+      const cid = decodeURIComponent(rawCidSegment || '')
       if (!cid || cid.includes('..') || cid.includes('/') || cid.includes('\\')) {
         sendXrpcError(req, res, 400, 'InvalidRequest', 'Invalid blob CID')
         return true
@@ -4761,11 +5172,62 @@ export async function handleQuantZingPds(req, res) {
         sendXrpcError(req, res, 404, 'BlobNotFound', 'Blob not found')
         return true
       }
+
+      if (isThumbPath || isThumbQuery) {
+        let thumbFile = `${blobFile}.thumb.jpg`
+        if (!fs.existsSync(thumbFile)) {
+          const thumbCid =
+            typeof store.getMeta === 'function'
+              ? store.getMeta(`blob_thumb:${cid}`, '')
+              : ''
+          const resolvedThumb = thumbCid
+            ? store.resolveExistingBlobPath(thumbCid)
+            : null
+          thumbFile = resolvedThumb || ''
+        }
+        if (!thumbFile || !fs.existsSync(thumbFile)) {
+          sendXrpcError(req, res, 404, 'BlobNotFound', 'Thumbnail not found')
+          return true
+        }
+        const thumbStat = fs.statSync(thumbFile)
+        const thumbHeaders = corsHeaders(req, {
+          'content-type': 'image/jpeg',
+          'content-length': thumbStat.size,
+          'cache-control': 'public, max-age=31536000, immutable',
+        })
+        if (method === 'HEAD') {
+          res.writeHead(200, thumbHeaders)
+          res.end()
+          return true
+        }
+        res.writeHead(200, thumbHeaders)
+        const thumbStream = fs.createReadStream(thumbFile)
+        thumbStream.on('error', () => {
+          if (!res.writableEnded) res.end()
+        })
+        thumbStream.pipe(res)
+        return true
+      }
+
       const meta = store.getBlobMeta(cid)
       const stat = fs.statSync(blobFile)
       const total = stat.size
       const contentType = meta?.mimeType || 'application/octet-stream'
       const rangeHeader = String(req.headers.range || '')
+
+      if (method === 'HEAD') {
+        res.writeHead(
+          200,
+          corsHeaders(req, {
+            'content-type': contentType,
+            'content-length': total,
+            'accept-ranges': 'bytes',
+            'cache-control': 'public, max-age=31536000, immutable',
+          }),
+        )
+        res.end()
+        return true
+      }
 
       if (rangeHeader.startsWith('bytes=')) {
         const [startStr, endStr] = rangeHeader.slice(6).split('-')
@@ -5710,6 +6172,21 @@ export async function handleQuantZingPds(req, res) {
         .split(';')[0]
         .trim()
       const blob = storeLocalBlob(store, auth.did, data, mimeType)
+      if (mimeType.toLowerCase().startsWith('video/')) {
+        const videoCid = blob?.ref?.$link
+        const videoPath = videoCid ? store.resolveExistingBlobPath(videoCid) : null
+        const opt = await optimizeVideoBlobIfPossible(
+          store,
+          videoCid,
+          videoPath,
+          mimeType,
+          auth.did,
+        )
+        if (opt.optimized && opt.size) {
+          blob.size = opt.size
+          blob.mimeType = opt.mimeType || blob.mimeType
+        }
+      }
       sendJson(req, res, 200, {blob})
       return true
     }
@@ -5970,7 +6447,9 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'app.bsky.feed.getFeedGenerator' && method === 'GET') {
       const feedUri = searchParams.get('feed') || DISCOVER_FEED_URI
       const parsed = parseAtUri(feedUri)
-      let spec = SOVEREIGN_FEED_GENERATORS.find(f => f.rkey === parsed?.rkey)
+      const normalizedRkey =
+        parsed?.rkey === 'video-feed' ? 'thevids' : parsed?.rkey
+      let spec = SOVEREIGN_FEED_GENERATORS.find(f => f.rkey === normalizedRkey)
       if (!spec && parsed) {
         const customRec = store.getRecord(
           parsed.repo,
@@ -6006,8 +6485,10 @@ export async function handleQuantZingPds(req, res) {
       const seen = new Set()
       for (const uri of uris) {
         const parsed = parseAtUri(uri)
+        const normalizedRkey =
+          parsed?.rkey === 'video-feed' ? 'thevids' : parsed?.rkey
         const spec =
-          SOVEREIGN_FEED_GENERATORS.find(f => f.rkey === parsed?.rkey) ||
+          SOVEREIGN_FEED_GENERATORS.find(f => f.rkey === normalizedRkey) ||
           (uri === LEGACY_DISCOVER_FEED_URI
             ? SOVEREIGN_FEED_GENERATORS[0]
             : null)
@@ -6109,15 +6590,23 @@ export async function handleQuantZingPds(req, res) {
       const cursor = searchParams.get('cursor')
       const limit = Number(searchParams.get('limit') || 30)
       const parsed = parseAtUri(feedUri)
-      const spec = SOVEREIGN_FEED_GENERATORS.find(f => f.rkey === parsed?.rkey)
+      const isVideoFeed =
+        parsed?.rkey === 'thevids' || parsed?.rkey === 'video-feed'
+      const spec = isVideoFeed
+        ? SOVEREIGN_FEED_GENERATORS.find(f => f.rkey === 'thevids')
+        : SOVEREIGN_FEED_GENERATORS.find(f => f.rkey === parsed?.rkey)
 
       let items = getLocalFeedItems(store, viewerDid, origin, {
         includeReplies: false,
-        filterTags: spec?.tags?.length ? spec.tags : null,
-        onlyVideo: spec?.rkey === 'thevids',
+        filterTags: isVideoFeed
+          ? null
+          : spec?.tags?.length
+            ? spec.tags
+            : null,
+        onlyVideo: isVideoFeed,
         limit: Math.max(limit * 2, 60),
       })
-      if (items.length === 0 && spec?.rkey !== 'thevids') {
+      if (items.length === 0 && !isVideoFeed) {
         items = getLocalFeedItems(store, viewerDid, origin, {
           includeReplies: false,
           limit: Math.max(limit * 2, 60),
@@ -8206,6 +8695,19 @@ export async function handleQuantZingPds(req, res) {
         .split(';')[0]
         .trim()
       const blob = storeLocalBlob(store, auth.did, data, mimeType)
+      const videoCid = blob?.ref?.$link
+      const videoPath = videoCid ? store.resolveExistingBlobPath(videoCid) : null
+      const opt = await optimizeVideoBlobIfPossible(
+        store,
+        videoCid,
+        videoPath,
+        mimeType,
+        auth.did,
+      )
+      if (opt.optimized && opt.size) {
+        blob.size = opt.size
+        blob.mimeType = opt.mimeType || blob.mimeType
+      }
       const jobId = `qzvid_${generateTid()}`
       const jobStatus = {
         jobId,
@@ -8217,8 +8719,8 @@ export async function handleQuantZingPds(req, res) {
       activeVideoUploads.set(jobId, {
         jobId,
         did: auth.did,
-        sizeBytes: data.length,
-        mimeType,
+        sizeBytes: blob.size,
+        mimeType: blob.mimeType,
         expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
         state: 'completed',
         parts: new Map(),
@@ -8409,6 +8911,19 @@ export async function handleQuantZingPds(req, res) {
         return true
       }
       const blob = storeLocalBlob(store, auth.did, fullBuf, job.mimeType)
+      const videoCid = blob?.ref?.$link
+      const videoPath = videoCid ? store.resolveExistingBlobPath(videoCid) : null
+      const opt = await optimizeVideoBlobIfPossible(
+        store,
+        videoCid,
+        videoPath,
+        job.mimeType,
+        auth.did,
+      )
+      if (opt.optimized && opt.size) {
+        blob.size = opt.size
+        blob.mimeType = opt.mimeType || blob.mimeType
+      }
       job.parts.clear()
       job.state = 'completed'
       job.jobStatus = {

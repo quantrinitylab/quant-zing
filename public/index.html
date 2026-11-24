@@ -87,21 +87,34 @@
         --background: #15202B;
         --backgroundLight: #1E2732;
       }
-      #splash {
+      @keyframes qz-splash-pulse {
+        0%, 100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.7;
+          transform: scale(0.95);
+        }
+      }
+      #qz-boot-splash {
         display: flex;
         position: fixed;
-        top: 0;
-        bottom: 0;
-        left: 0;
-        right: 0;
+        inset: 0;
         align-items: center;
         justify-content: center;
-        background-color: var(--background);
+        background-color: #000000;
+        z-index: 1;
       }
-      #splash svg {
-        position: relative;
-        top: -40px;
-        width: 88px;
+      #qz-boot-splash svg {
+        width: 76px;
+        height: 76px;
+        animation: qz-splash-pulse 1.5s ease-in-out infinite;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #qz-boot-splash svg {
+          animation: none;
+        }
       }
       body {
         width: 100%;
@@ -166,13 +179,14 @@
       </form>
     </noscript>
 
-    <div id="splash">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-        <rect x="2" y="2" width="60" height="60" rx="16" fill="#000000" stroke="#2F3336" stroke-width="2"/>
-        <path fill="#FFFFFF" d="M15 15H49V21L27 42H49V49H15V43L37 22H15Z"/>
-        <path fill="#1D9BF0" d="M23 29.5H46L41 34.5H18Z"/>
-      </svg>
+    <div id="root">
+      <div id="qz-boot-splash" role="status" aria-label="Loading QuantZing">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="76" height="76">
+          <rect x="2" y="2" width="60" height="60" rx="16" fill="#000000" stroke="#2F3336" stroke-width="2"/>
+          <path fill="#FFFFFF" d="M15 15H49V21L27 42H49V49H15V43L37 22H15Z"/>
+          <path fill="#1D9BF0" d="M23 29.5H46L41 34.5H18Z"/>
+        </svg>
+      </div>
     </div>
-    <div id="root"></div>
   </body>
 </html>

@@ -11,7 +11,7 @@ import {plural} from '@lingui/core/macro'
 import {Trans, useLingui} from '@lingui/react/macro'
 import {useNavigation, useNavigationState} from '@react-navigation/native'
 
-import {UNREAD_NOTIFICATION_CAP} from '#/lib/constants'
+import {UNREAD_NOTIFICATION_CAP, VIDEO_FEED_URI} from '#/lib/constants'
 import {useAccountSwitcher} from '#/lib/hooks/useAccountSwitcher'
 import {useOpenComposer} from '#/lib/hooks/useOpenComposer'
 import {
@@ -119,6 +119,7 @@ import {IS_IOS, IS_NATIVE, IS_WEB} from '#/env'
 import {isFollowingV2HomeDotEnabled} from '#/features/followingV2/eligibility'
 import {useActorStatus} from '#/features/liveNow'
 import {type app} from '#/lexicons'
+import {isBrowserNonStandaloneWeb} from '#/platform/detection'
 import {router} from '#/routes'
 import {getComposeButtonLayout} from './composeButtonLayout'
 
@@ -226,7 +227,7 @@ function ProfileCard({minimal}: {minimal: boolean}) {
   const {isActive: live} = useActorStatus(profile)
 
   return (
-    <View style={[a.pt_lg, !minimal && [a.w_full, a.align_start]]}>
+    <View style={[a.pt_sm, !minimal && [a.w_full, a.align_start]]}>
       {!isLoading && profile ? (
         <Menu.Root>
           <Menu.Trigger label={l`Switch accounts`}>
@@ -549,6 +550,12 @@ function NavItem({
       }
       if (isCurrent) {
         emitSoftReset()
+      } else if (IS_NATIVE && navItem === 'reels') {
+        navigation.navigate('VideoFeed', {
+          type: 'feedgen',
+          uri: VIDEO_FEED_URI,
+          sourceInterstitial: 'none',
+        })
       } else {
         const [screen, params] = router.matchPath(href)
         // @ts-expect-error TODO: type matchPath well enough that it can be plugged into navigation.navigate directly
@@ -573,7 +580,7 @@ function NavItem({
         a.transition_color,
         minimal
           ? {padding: 11}
-          : {paddingVertical: 10, paddingHorizontal: 14, alignSelf: 'flex-start'},
+          : {paddingVertical: 11, paddingHorizontal: 14, alignSelf: 'flex-start'},
       ]}
       hoverStyle={t.atoms.bg_contrast_25}
       // @ts-expect-error the function signature differs on web -prf
@@ -791,6 +798,308 @@ function ComposeBtn({minimal}: {minimal: boolean}) {
   )
 }
 
+const MORE_ROUTE_NAMES = [
+  'Lists',
+  'Articles',
+  'ZingSpaces',
+  'CreatorStudio',
+  'QuantZingPro',
+  'Settings',
+  'Download',
+] as const
+
+function MoreMenuItems({
+  hasSession,
+  numUnreadModerationInbox,
+  onNavigateTab,
+}: {
+  hasSession: boolean
+  numUnreadModerationInbox?: string
+  onNavigateTab?: (tab: SidebarTab) => void
+}) {
+  const t = useTheme()
+  const ax = useAnalytics()
+  const navigation = useNavigation<NavigationProp>()
+  const {control} = Menu.useMenuContext()
+  const currentRouteInfo = useNavigationState(state => {
+    if (!state) {
+      return {name: 'Home'}
+    }
+    return getCurrentRoute(state)
+  })
+  const showGetApp = isBrowserNonStandaloneWeb()
+
+  const navigateFromMenu = useCallback(
+    (
+      e: GestureResponderEvent,
+      href: string,
+      navItem: Events['nav:click']['item'],
+    ) => {
+      ax.metric('nav:click', {item: navItem, surface: 'leftNav'})
+      if (IS_WEB) {
+        const mouseEvent = e as unknown as React.MouseEvent<
+          HTMLAnchorElement,
+          MouseEvent
+        >
+        if (mouseEvent.ctrlKey || mouseEvent.metaKey || mouseEvent.altKey) {
+          return
+        }
+        mouseEvent.preventDefault()
+      }
+
+      const [pathName] = router.matchPath(href)
+      const tab = NAV_ITEM_TO_TAB[navItem]
+      const isCurrent = isTab(currentRouteInfo.name, pathName)
+
+      const onNavigate = () => {
+        if (tab && onNavigateTab) {
+          onNavigateTab(tab)
+          return
+        }
+        if (isCurrent) {
+          emitSoftReset()
+        } else {
+          const [screen, params] = router.matchPath(href)
+          // @ts-expect-error TODO: type matchPath well enough that it can be plugged into navigation.navigate directly
+          navigation.navigate(screen, params, {pop: true})
+        }
+      }
+
+      if (IS_IOS) {
+        onNavigate()
+      } else if (IS_NATIVE) {
+        control.close()
+        onNavigate()
+      } else {
+        control.close(onNavigate)
+      }
+    },
+    [ax, control, currentRouteInfo.name, navigation, onNavigateTab],
+  )
+
+  const isListsActive = isTab(currentRouteInfo.name, 'Lists')
+  const isSettingsActive = isTab(currentRouteInfo.name, 'Settings')
+
+  return (
+    <Menu.Outer style={[{minWidth: 232}]}>
+      <Menu.Group>
+        {hasSession && (
+          <Menu.Item
+            testID="leftNavMoreLists"
+            label="Lists"
+            onPress={e => navigateFromMenu(e, '/lists', 'lists')}
+            // @ts-expect-error href is web-only -prf
+            href="/lists">
+            <Menu.ItemIcon icon={isListsActive ? ListFilledIcon : ListIcon} />
+            <Menu.ItemText>Lists</Menu.ItemText>
+          </Menu.Item>
+        )}
+        <Menu.Item
+          testID="leftNavMoreArticles"
+          label="Articles"
+          onPress={e => navigateFromMenu(e, '/articles', 'articles')}
+          // @ts-expect-error href is web-only -prf
+          href="/articles">
+          <Menu.ItemIcon icon={NewspaperIcon} />
+          <Menu.ItemText>Articles</Menu.ItemText>
+        </Menu.Item>
+        <Menu.Item
+          testID="leftNavMoreSpaces"
+          label="ZingSpaces"
+          onPress={e => navigateFromMenu(e, '/spaces', 'spaces')}
+          // @ts-expect-error href is web-only -prf
+          href="/spaces">
+          <Menu.ItemIcon icon={StreamingLiveIcon} />
+          <Menu.ItemText>ZingSpaces</Menu.ItemText>
+        </Menu.Item>
+        <Menu.Item
+          testID="leftNavMoreStudio"
+          label="Creator Studio"
+          onPress={e => navigateFromMenu(e, '/studio', 'studio')}
+          // @ts-expect-error href is web-only -prf
+          href="/studio">
+          <Menu.ItemIcon icon={GrowthIcon} />
+          <Menu.ItemText>Creator Studio</Menu.ItemText>
+        </Menu.Item>
+        <Menu.Item
+          testID="leftNavMorePro"
+          label="QuantZing Pro"
+          onPress={e => navigateFromMenu(e, '/premium', 'pro')}
+          // @ts-expect-error href is web-only -prf
+          href="/premium">
+          <Menu.ItemIcon icon={VerifiedIcon} />
+          <Menu.ItemText>QuantZing Pro</Menu.ItemText>
+        </Menu.Item>
+      </Menu.Group>
+      {(hasSession || showGetApp) && (
+        <>
+          <Menu.Divider />
+          <Menu.Group>
+            {hasSession && (
+              <Menu.Item
+                testID="leftNavMoreSettings"
+                label="Settings"
+                onPress={e => navigateFromMenu(e, '/settings', 'settings')}
+                // @ts-expect-error href is web-only -prf
+                href="/settings">
+                <Menu.ItemIcon
+                  icon={isSettingsActive ? SettingsFilledIcon : SettingsIcon}
+                />
+                <Menu.ItemText>Settings</Menu.ItemText>
+                {numUnreadModerationInbox ? (
+                  <View
+                    style={[
+                      a.rounded_full,
+                      a.px_xs,
+                      {
+                        backgroundColor: '#1D9BF0',
+                        paddingVertical: 1,
+                        minWidth: 18,
+                      },
+                    ]}>
+                    <Text
+                      style={[
+                        a.text_xs,
+                        a.font_bold,
+                        a.text_center,
+                        {color: t.palette.white, lineHeight: 14},
+                      ]}>
+                      {numUnreadModerationInbox}
+                    </Text>
+                  </View>
+                ) : null}
+              </Menu.Item>
+            )}
+            {showGetApp && (
+              <Menu.Item
+                testID="leftNavMoreGetApp"
+                label="Get App"
+                onPress={e => navigateFromMenu(e, '/download', 'download')}
+                // @ts-expect-error href is web-only -prf
+                href="/download">
+                <Menu.ItemIcon icon={DownloadIcon} />
+                <Menu.ItemText>Get App</Menu.ItemText>
+              </Menu.Item>
+            )}
+          </Menu.Group>
+        </>
+      )}
+    </Menu.Outer>
+  )
+}
+
+function MoreNavMenu({
+  minimal,
+  hasSession,
+  numUnreadModerationInbox,
+  onNavigateTab,
+}: {
+  minimal: boolean
+  hasSession: boolean
+  numUnreadModerationInbox?: string
+  onNavigateTab?: (tab: SidebarTab) => void
+}) {
+  const t = useTheme()
+  const {t: l} = useLingui()
+  const navigationState = useNavigationState(state => state)
+  const currentRouteInfo = getCurrentRoute(navigationState)
+  const isMoreActive = MORE_ROUTE_NAMES.some(name =>
+    isTab(currentRouteInfo.name, name),
+  )
+
+  return (
+    <Menu.Root>
+      <Menu.Trigger label={l`More`}>
+        {({props, state, control}) => {
+          const hoveredOrOpen = state.hovered || state.focused || control.isOpen
+          return (
+            <Button
+              testID="leftNavMoreBtn"
+              label={props.accessibilityLabel}
+              {...props}
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.rounded_full,
+                a.gap_md,
+                a.outline_inset_1,
+                a.transition_color,
+                hoveredOrOpen
+                  ? t.atoms.bg_contrast_25
+                  : a.transition_delay_50ms,
+                minimal
+                  ? {padding: 11}
+                  : {
+                      paddingVertical: 11,
+                      paddingHorizontal: 14,
+                      alignSelf: 'flex-start',
+                    },
+              ]}>
+              <View
+                style={[
+                  a.align_center,
+                  a.justify_center,
+                  {width: 26, height: 26},
+                  a.z_10,
+                ]}>
+                <View
+                  style={[
+                    a.align_center,
+                    a.justify_center,
+                    {
+                      width: 24,
+                      height: 24,
+                      borderRadius: 12,
+                      borderWidth: 2,
+                      borderColor: t.atoms.text.color,
+                    },
+                  ]}>
+                  <EllipsisIcon
+                    aria-hidden={true}
+                    width={14}
+                    style={t.atoms.text}
+                  />
+                </View>
+                {hasSession && numUnreadModerationInbox ? (
+                  <View
+                    style={[
+                      a.absolute,
+                      a.rounded_full,
+                      a.z_20,
+                      {
+                        backgroundColor: '#1D9BF0',
+                        width: 7,
+                        height: 7,
+                        right: -2,
+                        top: -3,
+                      },
+                    ]}
+                  />
+                ) : null}
+              </View>
+              {!minimal && (
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    {fontSize: 19, lineHeight: 24},
+                    isMoreActive ? a.font_bold : a.font_normal,
+                  ]}>
+                  More
+                </Text>
+              )}
+            </Button>
+          )
+        }}
+      </Menu.Trigger>
+      <MoreMenuItems
+        hasSession={hasSession}
+        numUnreadModerationInbox={numUnreadModerationInbox}
+        onNavigateTab={onNavigateTab}
+      />
+    </Menu.Root>
+  )
+}
+
 export function DesktopLeftNav({
   routeName,
   onNavigateTab,
@@ -838,170 +1147,126 @@ export function DesktopLeftNav({
   }
 
   const content = (
-    <>
-      <BrandLogoHeader minimal={leftNavMinimal} onNavigateTab={onNavigateTab} />
-      <NavItem
-        label="Home"
-        href="/"
-        navItem="home"
-        onNavigateTab={onNavigateTab}
-        minimal={leftNavMinimal}
-        hasNew={hasSession && hasHomeBadge && isFollowingV2HomeDotEnabled(ax)}
-        icons={{
-          inactive: HomeIcon,
-          active: HomeFilledIcon,
-        }}
-      />
-      <NavItem
-        label="Explore"
-        href="/search"
-        navItem="search"
-        onNavigateTab={onNavigateTab}
-        minimal={leftNavMinimal}
-        icons={{
-          inactive: MagnifyingGlassIcon,
-          active: MagnifyingGlassFilledIcon,
-        }}
-      />
-      <NavItem
-        label="Reels"
-        href="/video-feed"
-        navItem="reels"
-        onNavigateTab={onNavigateTab}
-        minimal={leftNavMinimal}
-        icons={{
-          inactive: VideoClipIcon,
-          active: VideoClipIcon,
-        }}
-      />
-      <NavItem
-        label="Quanty"
-        href="/quanty"
-        navItem="quanty"
-        onNavigateTab={onNavigateTab}
-        minimal={leftNavMinimal}
-        icons={{
-          inactive: SparkleIcon,
-          active: SparkleIcon,
-        }}
-      />
-      {hasSession && (
-        <>
-          <NavItem
-            label="Notifications"
-            href="/notifications"
-            navItem="notifications"
-            onNavigateTab={onNavigateTab}
-            minimal={leftNavMinimal}
-            count={numUnreadNotifications}
-            icons={{inactive: BellIcon, active: BellFilledIcon}}
-          />
-          <NavItem
-            label="Chat"
-            href="/messages"
-            navItem="chat"
-            onNavigateTab={onNavigateTab}
-            minimal={leftNavMinimal}
-            count={
-              aa.flags.chatDisabled ? undefined : numUnreadMessages.numUnread
-            }
-            hasNew={!aa.flags.chatDisabled && numUnreadMessages.hasNew}
-            icons={{inactive: MessageIcon, active: MessageFilledIcon}}
-          />
-          <NavItem
-            label="Bookmarks"
-            href="/saved"
-            navItem="saved"
-            onNavigateTab={onNavigateTab}
-            minimal={leftNavMinimal}
-            icons={{inactive: BookmarkIcon, active: BookmarkFilledIcon}}
-          />
-          <NavItem
-            label="Lists"
-            href="/lists"
-            navItem="lists"
-            onNavigateTab={onNavigateTab}
-            minimal={leftNavMinimal}
-            icons={{inactive: ListIcon, active: ListFilledIcon}}
-          />
-        </>
-      )}
-      <NavItem
-        label="Articles"
-        href="/articles"
-        navItem="articles"
-        onNavigateTab={onNavigateTab}
-        minimal={leftNavMinimal}
-        icons={{inactive: NewspaperIcon, active: NewspaperIcon}}
-      />
-      <NavItem
-        label="ZingSpaces"
-        href="/spaces"
-        navItem="spaces"
-        onNavigateTab={onNavigateTab}
-        minimal={leftNavMinimal}
-        icons={{inactive: StreamingLiveIcon, active: StreamingLiveIcon}}
-      />
-      <NavItem
-        label="Creator Studio"
-        href="/studio"
-        navItem="studio"
-        onNavigateTab={onNavigateTab}
-        minimal={leftNavMinimal}
-        icons={{inactive: GrowthIcon, active: GrowthIcon}}
-      />
-      <NavItem
-        label="QuantZing Pro"
-        href="/premium"
-        navItem="pro"
-        onNavigateTab={onNavigateTab}
-        minimal={leftNavMinimal}
-        icons={{inactive: VerifiedIcon, active: VerifiedIcon}}
-      />
-      <NavItem
-        label="Get App"
-        href="/download"
-        navItem="download"
-        onNavigateTab={onNavigateTab}
-        minimal={leftNavMinimal}
-        icons={{inactive: DownloadIcon, active: DownloadIcon}}
-      />
-      {hasSession && (
-        <>
-          <NavItem
-            label="Profile"
-            href={makeProfileLink(currentAccount!)}
-            navItem="profile"
-            onNavigateTab={onNavigateTab}
-            minimal={leftNavMinimal}
-            icons={{inactive: UserCircleIcon, active: UserCircleFilledIcon}}
-          />
-          <NavItem
-            label="Settings"
-            href="/settings"
-            navItem="settings"
-            onNavigateTab={onNavigateTab}
-            minimal={leftNavMinimal}
-            count={numUnreadModerationInbox}
-            icons={{inactive: SettingsIcon, active: SettingsFilledIcon}}
-          />
-        </>
-      )}
-      <ComposeBtn minimal={leftNavMinimal} />
+    <View
+      style={[
+        a.flex_1,
+        a.w_full,
+        a.justify_between,
+        leftNavMinimal && a.align_center,
+      ]}>
+      <View style={[a.w_full, leftNavMinimal && a.align_center, {gap: 2}]}>
+        <BrandLogoHeader minimal={leftNavMinimal} onNavigateTab={onNavigateTab} />
+        <NavItem
+          label="Home"
+          href="/"
+          navItem="home"
+          onNavigateTab={onNavigateTab}
+          minimal={leftNavMinimal}
+          hasNew={hasSession && hasHomeBadge && isFollowingV2HomeDotEnabled(ax)}
+          icons={{
+            inactive: HomeIcon,
+            active: HomeFilledIcon,
+          }}
+        />
+        <NavItem
+          label="Explore"
+          href="/search"
+          navItem="search"
+          onNavigateTab={onNavigateTab}
+          minimal={leftNavMinimal}
+          icons={{
+            inactive: MagnifyingGlassIcon,
+            active: MagnifyingGlassFilledIcon,
+          }}
+        />
+        <NavItem
+          label="Reels"
+          href="/video-feed"
+          navItem="reels"
+          onNavigateTab={onNavigateTab}
+          minimal={leftNavMinimal}
+          icons={{
+            inactive: VideoClipIcon,
+            active: VideoClipIcon,
+          }}
+        />
+        <NavItem
+          label="Quanty"
+          href="/quanty"
+          navItem="quanty"
+          onNavigateTab={onNavigateTab}
+          minimal={leftNavMinimal}
+          icons={{
+            inactive: SparkleIcon,
+            active: SparkleIcon,
+          }}
+        />
+        {hasSession && (
+          <>
+            <NavItem
+              label="Notifications"
+              href="/notifications"
+              navItem="notifications"
+              onNavigateTab={onNavigateTab}
+              minimal={leftNavMinimal}
+              count={numUnreadNotifications}
+              icons={{inactive: BellIcon, active: BellFilledIcon}}
+            />
+            <NavItem
+              label="Chat"
+              href="/messages"
+              navItem="chat"
+              onNavigateTab={onNavigateTab}
+              minimal={leftNavMinimal}
+              count={
+                aa.flags.chatDisabled ? undefined : numUnreadMessages.numUnread
+              }
+              hasNew={!aa.flags.chatDisabled && numUnreadMessages.hasNew}
+              icons={{inactive: MessageIcon, active: MessageFilledIcon}}
+            />
+            <NavItem
+              label="Bookmarks"
+              href="/saved"
+              navItem="saved"
+              onNavigateTab={onNavigateTab}
+              minimal={leftNavMinimal}
+              icons={{inactive: BookmarkIcon, active: BookmarkFilledIcon}}
+            />
+            <NavItem
+              label="Profile"
+              href={makeProfileLink(currentAccount!)}
+              navItem="profile"
+              onNavigateTab={onNavigateTab}
+              minimal={leftNavMinimal}
+              icons={{inactive: UserCircleIcon, active: UserCircleFilledIcon}}
+            />
+          </>
+        )}
+        <MoreNavMenu
+          minimal={leftNavMinimal}
+          hasSession={hasSession}
+          numUnreadModerationInbox={numUnreadModerationInbox}
+          onNavigateTab={onNavigateTab}
+        />
+        <ComposeBtn minimal={leftNavMinimal} />
+        {!hasSession && !leftNavMinimal ? (
+          <View
+            style={[
+              a.mt_lg,
+              a.pt_md,
+              a.border_t,
+              t.atoms.border_contrast_low,
+            ]}>
+            <NavSignupCard />
+          </View>
+        ) : null}
+      </View>
       {hasSession ? (
-        <ProfileCard minimal={leftNavMinimal} />
-      ) : !leftNavMinimal ? (
-        <View
-          style={[
-            a.mt_lg,
-            a.pt_md,
-            a.border_t,
-            t.atoms.border_contrast_low,
-          ]}>
-          <NavSignupCard />
+        <View style={[a.w_full, a.pt_md, leftNavMinimal && a.align_center]}>
+          <ProfileCard minimal={leftNavMinimal} />
         </View>
       ) : null}
-    </>
+    </View>
   )
 
   return (
@@ -1020,7 +1285,12 @@ export function DesktopLeftNav({
           a.align_center,
           web(a.overflow_x_hidden),
         ],
-        web({maxHeight: '100vh', overflowY: 'auto', scrollbarWidth: 'none'}),
+        web({
+          height: '100dvh',
+          maxHeight: '100dvh',
+          overflowY: 'auto',
+          scrollbarWidth: 'none',
+        }),
         {
           transform: [
             {
@@ -1042,6 +1312,7 @@ export function DesktopLeftNav({
         <ScrollView
           style={[a.flex_1, a.w_full]}
           contentContainerStyle={[
+            a.flex_grow,
             a.p_lg,
             {
               paddingTop: insets.top + tokens.space.lg,

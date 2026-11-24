@@ -1,4 +1,50 @@
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
+import {fileURLToPath} from 'node:url'
+
+const __quantyDirname = path.dirname(fileURLToPath(import.meta.url))
+let quantyEnvLoaded = false
+
+function loadOptionalQuantyEnvOnce() {
+  if (quantyEnvLoaded) return
+  quantyEnvLoaded = true
+  const candidates = [
+    process.env.QUANTY_ENV_FILE,
+    '/etc/quantzing/quanty.env',
+    path.resolve(__quantyDirname, '..', 'quanty.env'),
+    path.resolve(__quantyDirname, '..', '.env'),
+  ].filter(Boolean)
+
+  for (const filePath of candidates) {
+    try {
+      if (!fs.existsSync(filePath)) continue
+      const raw = fs.readFileSync(filePath, 'utf8')
+      for (const rawLine of raw.split(/\r?\n/)) {
+        const line = rawLine.trim()
+        if (!line || line.startsWith('#')) continue
+        const stripped = line.startsWith('export ')
+          ? line.slice('export '.length).trim()
+          : line
+        const eqIdx = stripped.indexOf('=')
+        if (eqIdx <= 0) continue
+        const key = stripped.slice(0, eqIdx).trim()
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue
+        if (process.env[key] !== undefined && process.env[key] !== '') continue
+        let val = stripped.slice(eqIdx + 1).trim()
+        if (
+          (val.startsWith('"') && val.endsWith('"') && val.length >= 2) ||
+          (val.startsWith("'") && val.endsWith("'") && val.length >= 2)
+        ) {
+          val = val.slice(1, -1)
+        }
+        process.env[key] = val
+      }
+    } catch {
+      // Optional env file — fail open silently
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // QuantZing Quanty AI Sovereign Control Bridge & MCP 2025-03-26 Server
@@ -35,7 +81,7 @@ export const QUANTY_TOOLS = [
   // ---- 10 READ TOOLS (approvalRequired: false) ----
   {
     name: 'quantzing_get_trends',
-    title: 'Live Sovereign Trends',
+    title: 'Trending on QuantZing',
     description:
       'Fetch real-time trending topics, hashtags, and top momentum discussions on QuantZing.',
     category: 'read',
@@ -730,6 +776,335 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 1500) {
     }
   } finally {
     clearTimeout(timer)
+  }
+}
+
+function extractKnowledgeSubject(rawPrompt) {
+  let q = stripEmojis(rawPrompt || '').trim()
+  q = q.replace(/[?!.]+$/g, '').trim()
+  q = q
+    .replace(
+      /^(?:(?:hi+|hey+|hello+|namaste)[,\s]+)?(?:quanty[,\s]+)?(?:can\s+you\s+|could\s+you\s+|would\s+you\s+|please\s+)*/i,
+      '',
+    )
+    .replace(
+      /^(?:what\s+(?:is|are|was|were)\s+(?:a\s+|an\s+|the\s+)?|who\s+(?:is|are|was|were)\s+|where\s+(?:is|are|was|were)\s+|when\s+(?:was|did|is)\s+|why\s+(?:is|are|do|does|did)\s+|how\s+(?:does|do|did|is|are|to)\s+|explain\s+(?:to\s+me\s+)?(?:what\s+(?:is|are)\s+)?(?:the\s+)?|tell\s+me\s+(?:all\s+)?about\s+|define\s+|describe\s+|overview\s+of\s+|summary\s+of\s+|meaning\s+of\s+)/i,
+      '',
+    )
+    .replace(/\s+(?:work|works|mean|means|exist|exists)\s*$/i, '')
+    .replace(
+      /\s+in\s+(?:simple\s+terms|brief|short|detail|plain\s+english|one\s+sentence)$/i,
+      '',
+    )
+    .trim()
+  return q || stripEmojis(rawPrompt || '').trim()
+}
+
+function cleanWikiExtract(text) {
+  return stripEmojis(String(text || ''))
+    .replace(/\[\d+\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+async function fetchExternalKnowledge(rawPrompt, timeoutMs = 2500) {
+  const subject = extractKnowledgeSubject(rawPrompt)
+  if (!subject || subject.length < 2) return {ok: false, subject: ''}
+
+  const started = Date.now()
+  const headers = {
+    accept: 'application/json',
+    'user-agent': 'QuantZing-Quanty/2.0 (https://quantzing.quantrinity.in)',
+  }
+  const directSlug = (
+    subject.charAt(0).toUpperCase() + subject.slice(1)
+  ).replace(/\s+/g, '_')
+
+  const [directWiki, openSearch, ddgRes] = await Promise.all([
+    fetchJsonWithTimeout(
+      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(directSlug)}`,
+      {headers},
+      Math.min(timeoutMs, 2200),
+    ),
+    fetchJsonWithTimeout(
+      `https://en.wikipedia.org/w/api.php?action=opensearch&limit=3&namespace=0&format=json&search=${encodeURIComponent(subject)}`,
+      {headers},
+      Math.min(timeoutMs, 2200),
+    ),
+    fetchJsonWithTimeout(
+      `https://api.duckduckgo.com/?q=${encodeURIComponent(subject)}&format=json&no_html=1&skip_disambig=1`,
+      {headers},
+      Math.min(timeoutMs, 2200),
+    ),
+  ])
+
+  let wikiData =
+    directWiki.ok &&
+    directWiki.data &&
+    directWiki.data.type !== 'disambiguation' &&
+    typeof directWiki.data.extract === 'string' &&
+    directWiki.data.extract.trim().length >= 40
+      ? directWiki.data
+      : null
+
+  if (!wikiData && openSearch.ok && Array.isArray(openSearch.data?.[1])) {
+    const bestTitle = String(openSearch.data[1][0] || '').trim()
+    const remainingMs = Math.max(800, timeoutMs - (Date.now() - started))
+    if (bestTitle && bestTitle.toLowerCase() !== subject.toLowerCase()) {
+      const followUp = await fetchJsonWithTimeout(
+        `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(bestTitle.replace(/\s+/g, '_'))}`,
+        {headers},
+        remainingMs,
+      )
+      if (
+        followUp.ok &&
+        followUp.data &&
+        followUp.data.type !== 'disambiguation' &&
+        typeof followUp.data.extract === 'string' &&
+        followUp.data.extract.trim().length >= 30
+      ) {
+        wikiData = followUp.data
+      }
+    }
+  }
+
+  const ddg = ddgRes.ok && ddgRes.data ? ddgRes.data : null
+  const ddgAbstract = cleanWikiExtract(
+    ddg?.AbstractText || ddg?.Answer || ddg?.Definition || '',
+  )
+  const wikiExtract = cleanWikiExtract(wikiData?.extract || '')
+
+  const relatedPoints = []
+  const seenPoints = new Set()
+  if (Array.isArray(ddg?.RelatedTopics)) {
+    for (const item of ddg.RelatedTopics) {
+      const candidates = Array.isArray(item?.Topics) ? item.Topics : [item]
+      for (const c of candidates) {
+        const t = cleanWikiExtract(c?.Text || '')
+        if (t && t.length >= 25 && !seenPoints.has(t.toLowerCase().slice(0, 60))) {
+          seenPoints.add(t.toLowerCase().slice(0, 60))
+          relatedPoints.push(t.slice(0, 180))
+          if (relatedPoints.length >= 3) break
+        }
+      }
+      if (relatedPoints.length >= 3) break
+    }
+  }
+
+  const primarySummary = wikiExtract || ddgAbstract
+  if (!primarySummary && relatedPoints.length === 0) {
+    return {ok: false, subject}
+  }
+
+  const title = cleanWikiExtract(
+    wikiData?.title || ddg?.Heading || subject,
+  )
+  const shortDescription = cleanWikiExtract(wikiData?.description || '')
+  const sourceName = wikiExtract
+    ? 'Wikipedia'
+    : cleanWikiExtract(ddg?.AbstractSource || 'DuckDuckGo')
+  const sourceUrl =
+    wikiData?.content_urls?.desktop?.page || ddg?.AbstractURL || ''
+
+  return {
+    ok: true,
+    subject,
+    title,
+    shortDescription,
+    summary: primarySummary,
+    relatedPoints,
+    sourceName,
+    sourceUrl,
+    latencyMs: Date.now() - started,
+  }
+}
+
+function classifyConversationalIntent(prompt, mode, postContext) {
+  const trimmed = stripEmojis(prompt || '').trim()
+  const lower = trimmed.toLowerCase()
+  if (!trimmed || trimmed.startsWith('/')) return {kind: 'none'}
+
+  // 1. Warm greetings (English + Hinglish/Hindi, single or compound)
+  const greetingPhrase =
+    "(?:hi+|hey+|hello+|yo+|sup|hola|namaste|namaskar|good\\s+(?:morning|afternoon|evening|night)|kaise\\s+ho|kya\\s+haal(?:\\s+hai)?|what'?s\\s+up|wassup|how\\s+are\\s+you|how'?s\\s+it\\s+going)"
+  const greetingRe = new RegExp(
+    `^${greetingPhrase}(?:[\\s,!?.]+(?:quanty|there|bro|friend|ai|buddy|${greetingPhrase}))*[\\s!?.]*$`,
+    'i',
+  )
+  if (greetingRe.test(trimmed)) {
+    return {kind: 'greeting', lower}
+  }
+
+  // 2. Identity & capability queries
+  if (
+    /^(?:who\s+are\s+you|what\s+are\s+you|what\s+is\s+quanty|what\s+can\s+you\s+do|tell\s+me\s+about\s+yourself|who\s+(?:made|built|created)\s+you|help|commands|how\s+do\s+you\s+work|introduce\s+yourself)[\s!?.]*$/i.test(
+      trimmed,
+    )
+  ) {
+    return {kind: 'identity', lower}
+  }
+
+  // 3. Thanks / casual closing
+  if (
+    /^(?:thanks?(?:\s+(?:a\s+lot|so\s+much|quanty))?|thank\s+you(?:\s+(?:so\s+much|quanty))?|thx|ty|cheers|cool|nice|awesome|great|got\s+it|ok(?:ay)?|sounds\s+good|bye|goodbye|see\s+you)[\s!?.]*$/i.test(
+      trimmed,
+    )
+  ) {
+    return {kind: 'thanks', lower}
+  }
+
+  // 4. Creative drafting / rewriting requests (distinct from direct "post a zing saying ...")
+  const rewriteMatch = trimmed.match(
+    /^(?:please\s+)?(?:rewrite|improve|polish|tighten|shorten|rephrase|make\s+(?:this|it)\s+(?:sharper|better|shorter|punchier))(?:\s+(?:this|my\s+(?:zing|post|draft|tweet)))?(?:\s*[:\-]\s*|\s+)([\s\S]+)$/i,
+  )
+  if (rewriteMatch) {
+    return {
+      kind: 'draft',
+      format: 'rewrite',
+      topic: rewriteMatch[1].trim(),
+      sourceText: rewriteMatch[1].trim(),
+    }
+  }
+
+  const draftMatch = trimmed.match(
+    /^(?:please\s+)?(?:write|draft|compose|generate|give\s+me|help\s+me\s+(?:write|draft))\s+(?:a\s+|an\s+|some\s+|me\s+a\s+)?(?:short\s+|sharp\s+|punchy\s+|viral\s+|good\s+|engaging\s+|crisp\s+)?(zing|post|tweet|thread|caption|hook|announcement)(?:\s+(?:about|on|for|regarding|explaining))?\s*([\s\S]*)$/i,
+  )
+  if (draftMatch) {
+    const kindWord = draftMatch[1].toLowerCase()
+    const rawTopic = draftMatch[2].trim().replace(/^["':\-\s]+|["'\s]+$/g, '')
+    return {
+      kind: 'draft',
+      format: kindWord === 'thread' ? 'thread' : 'zing',
+      topic: rawTopic || postContext?.text || '',
+    }
+  }
+
+  if (mode === 'drafter') {
+    const cleanedTopic = trimmed
+      .replace(
+        /^(?:draft|write|compose)\s+(?:a\s+)?(?:sharp\s+)?(?:zing|post|tweet|reply|thread)(?:\s+(?:about|on|for))?\s*/i,
+        '',
+      )
+      .trim()
+    return {
+      kind: 'draft',
+      format: /\bthread\b/i.test(lower) ? 'thread' : 'zing',
+      topic: cleanedTopic || postContext?.text || trimmed,
+    }
+  }
+
+  // 5. General knowledge / factual explanation questions
+  const isQuantZingSpecific =
+    Boolean(postContext?.uri) ||
+    /@[a-zA-Z0-9._-]{3,}/.test(trimmed) ||
+    /\b(analytics|impressions|my\s+stats|engagement\s+rate|creator\s+studio|notifications|unread|bookmarks|saved\s+zings|my\s+dms|direct\s+messages|inbox|convos|my\s+lists|zingspaces|audio\s+rooms|quantos|wallet|credits|engine\s+status|trending|trends|what'?s\s+trending|happening\s+on\s+quantzing)\b/i.test(
+      lower,
+    )
+
+  const looksLikeQuestion =
+    /^(?:what|who|where|when|why|how|explain|tell\s+me\s+about|define|describe|compare|difference\s+between|overview\s+of|summary\s+of|meaning\s+of|is\s+|are\s+|can\s+you\s+explain)\b/i.test(
+      trimmed,
+    ) || trimmed.endsWith('?')
+
+  if (!isQuantZingSpecific && (looksLikeQuestion || trimmed.length >= 3)) {
+    return {
+      kind: 'knowledge',
+      subject: extractKnowledgeSubject(trimmed),
+    }
+  }
+
+  return {kind: 'none'}
+}
+
+function buildSmartCreativeDraft({topic, format, sourceText, knowledge, citations}) {
+  const cleanTopic = stripEmojis(topic || '').trim()
+  if (format === 'rewrite' && sourceText) {
+    const base = stripEmojis(sourceText)
+      .replace(/^["']|["']$/g, '')
+      .replace(/\b(just|really|very|actually|basically|literally)\s+/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const tightened =
+      base.length > 260 ? `${base.slice(0, 257).trim()}...` : base
+    const polished =
+      tightened.charAt(0).toUpperCase() +
+      tightened.slice(1) +
+      (/[.!?]$/.test(tightened) ? '' : '.')
+    return {
+      suggestedZingDraft: polished.slice(0, 280),
+      markdown: [
+        'Here is a tighter, sharper rewrite:',
+        '',
+        `> ${polished}`,
+        '',
+        'Tap **Confirm** below if you want to post it straight to QuantZing, or edit the copy right in the card.',
+      ].join('\n'),
+    }
+  }
+
+  const factLead = knowledge?.ok && knowledge.summary
+    ? knowledge.summary.split(/(?<=[.!?])\s+/)[0]
+    : ''
+
+  if (format === 'thread') {
+    const title = cleanTopic || 'building independent software'
+    const capTitle = title.charAt(0).toUpperCase() + title.slice(1)
+    const tag = cleanTopic
+      ? `#${cleanTopic.replace(/[^a-zA-Z0-9]+/g, '').slice(0, 22)}`
+      : '#QuantZing'
+    const p1 = factLead
+      ? `1/ Quick breakdown on ${title}: ${factLead}`.slice(0, 275)
+      : `1/ Everyone talks about ${title}, but most people miss what actually matters once it hits real-world scale. Here is the short version:`
+    const p2 = knowledge?.relatedPoints?.[0]
+      ? `2/ Why it matters right now: ${knowledge.relatedPoints[0]}`.slice(0, 275)
+      : `2/ The real edge with ${title} comes down to speed, reliability, and clear execution rather than hype.`
+    const p3 = `3/ Bottom line on ${capTitle}: teams that ship fast and stay grounded in real users win. What is your take? ${tag.length > 2 ? tag : ''}`.trim().slice(0, 275)
+    return {
+      suggestedZingDraft: p1,
+      markdown: [
+        `Here is a crisp 3-part thread on **${capTitle}**:`,
+        '',
+        `**Post 1**`,
+        `> ${p1}`,
+        '',
+        `**Post 2**`,
+        `> ${p2}`,
+        '',
+        `**Post 3**`,
+        `> ${p3}`,
+        '',
+        'You can post the opener below or tweak any line before publishing.',
+      ].join('\n'),
+    }
+  }
+
+  const subject = cleanTopic || 'what we are building next'
+  const capSubject = subject.charAt(0).toUpperCase() + subject.slice(1)
+  const refHandle = citations?.[0]?.handle ? ` (building on @${citations[0].handle})` : ''
+  const draftOne = factLead
+    ? `${capSubject}: ${factLead.slice(0, 210)} What do you think comes next?`.slice(0, 275)
+    : `${capSubject}${refHandle} is moving faster than most people expect. The winners are focusing on speed, clarity, and real-world utility over noise.`.slice(
+        0,
+        275,
+      )
+  const draftTwo = `Hot take on ${subject}: the best breakthroughs feel obvious in hindsight, right after someone ships the clean version first.`.slice(
+    0,
+    275,
+  )
+
+  return {
+    suggestedZingDraft: draftOne,
+    markdown: [
+      `Here are two ready-to-post Zing drafts on **${capSubject}**:`,
+      '',
+      `**Option 1 (Direct)**`,
+      `> ${draftOne}`,
+      '',
+      `**Option 2 (Conversational)**`,
+      `> ${draftTwo}`,
+      '',
+      'Want it shorter, bolder, or turned into a 3-post thread? Otherwise confirm the card below to post Option 1.',
+    ].join('\n'),
   }
 }
 
@@ -1797,7 +2172,7 @@ export function createQuantyBridge(deps = {}) {
           ok: true,
           normalized,
           title: `${verb} Account`,
-          summary: `${verb} @${target.handle} on your Sovereign QuantZing account`,
+          summary: `${verb} @${target.handle} on QuantZing`,
           resolvedTarget: {
             did: target.did,
             handle: target.handle,
@@ -3003,7 +3378,7 @@ export function createQuantyBridge(deps = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // QuantOS LLM Reasoning Cascade (Valid quant/auto-fast & quant/auto-pro ONLY)
+  // Multi-Provider LLM Reasoning Cascade (QuantAI -> QuantRouter -> Gemini -> Groq -> OpenRouter/OpenAI -> Ollama)
   // -------------------------------------------------------------------------
 
   async function callQuantOsReasoning({
@@ -3015,30 +3390,40 @@ export function createQuantyBridge(deps = {}) {
     allowToolProposals = true,
     timeoutMs = AI_CALL_TIMEOUT_MS,
   }) {
+    loadOptionalQuantyEnvOnce()
     const urls = getQuantOsUrls()
     const model = getValidQuantOsModel(mode)
     const ownerId = viewerDid || 'quantzing-guest'
     const quantos = await probeQuantOsHealth(viewerDid)
 
     const systemPrompt = [
-      'You are Quanty, the Sovereign AI assistant and control co-pilot built natively into QuantZing.',
-      'Be crisp, factual, grounded in the live QuantZing data provided below, and never use emojis.',
-      'Never mention or reference Bluesky or third-party networks; QuantZing is a Sovereign ATProto network.',
+      'You are Quanty, the sharp, witty, and genuinely helpful AI assistant built into QuantZing.',
+      'Write naturally, clearly, and directly like a world-class conversational AI. Use concise markdown when helpful, stay factual, and never use emojis.',
+      'Never use robotic boilerplate or mention Bluesky or other third-party social networks.',
       allowToolProposals
-        ? 'You NEVER execute write actions directly. If the user asks to publish a Zing, reply, send a DM, publish an article, create a poll, host a Space, create a list, follow/unfollow, bookmark, update bio, or mute/block, explain the proposal briefly and append a fenced ```quanty-actions JSON array [{"toolName":"...","arguments":{...}}].'
-        : 'Keep your reply concise and strictly under 260 characters.',
-      groundingBlock ? `\nLIVE SOVEREIGN CONTEXT:\n${groundingBlock}` : '',
+        ? 'You never execute account write actions on your own. If the user asks to publish a Zing, reply, send a DM, publish an article, create a poll, host a Space, create a list, follow/unfollow, bookmark, update bio, or mute/block, explain the draft briefly and append a fenced ```quanty-actions JSON array [{"toolName":"...","arguments":{...}}].'
+        : 'Keep your reply concise, sharp, and strictly under 260 characters.',
+      groundingBlock ? `\nLIVE CONTEXT:\n${groundingBlock}` : '',
     ]
       .filter(Boolean)
       .join('\n')
 
+    const recentHistory = (Array.isArray(history) ? history.slice(-6) : [])
+      .filter(m => m && (m.role === 'user' || m.role === 'assistant') && m.content)
+      .map(m => ({role: m.role, content: String(m.content).slice(0, 1200)}))
+
     const chatMessages = [
       {role: 'system', content: systemPrompt},
-      ...(Array.isArray(history) ? history.slice(-6) : [])
-        .filter(m => m && (m.role === 'user' || m.role === 'assistant') && m.content)
-        .map(m => ({role: m.role, content: String(m.content).slice(0, 1200)})),
+      ...recentHistory,
       {role: 'user', content: prompt},
     ]
+
+    const maxTokens = allowToolProposals
+      ? mode === 'deepsearch'
+        ? 950
+        : 600
+      : 180
+    const cloudTimeoutMs = allowToolProposals ? Math.max(timeoutMs, 10_000) : timeoutMs
 
     // Tier 1: quant-ai (/v1/agent/reason)
     if (quantos.ai.online) {
@@ -3057,7 +3442,7 @@ export function createQuantyBridge(deps = {}) {
             messages: chatMessages,
             includeMemoryContext: true,
             includeSkillContext: true,
-            maxTokens: mode === 'deepsearch' ? 900 : 550,
+            maxTokens,
           }),
         },
         timeoutMs,
@@ -3095,7 +3480,7 @@ export function createQuantyBridge(deps = {}) {
           body: JSON.stringify({
             model,
             messages: chatMessages,
-            max_tokens: mode === 'deepsearch' ? 900 : 550,
+            max_tokens: maxTokens,
           }),
         },
         timeoutMs,
@@ -3114,6 +3499,178 @@ export function createQuantyBridge(deps = {}) {
           provider: routerRes.data?.provider || 'quant-router',
           billingMode: routerRes.data?.billingMode || undefined,
           latencyMs: routerRes.latencyMs,
+        }
+      }
+    }
+
+    // Tier 3: Google Gemini (GEMINI_API_KEY -> gemini-2.5-flash)
+    const geminiKey = String(process.env.GEMINI_API_KEY || '').trim()
+    if (geminiKey) {
+      const geminiModel = String(
+        process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+      ).trim()
+      const geminiContents = [
+        ...recentHistory.map(m => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{text: m.content}],
+        })),
+        {role: 'user', parts: [{text: prompt}]},
+      ]
+      const geminiRes = await fetchJsonWithTimeout(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent?key=${encodeURIComponent(geminiKey)}`,
+        {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', accept: 'application/json'},
+          body: JSON.stringify({
+            systemInstruction: {parts: [{text: systemPrompt}]},
+            contents: geminiContents,
+            generationConfig: {
+              maxOutputTokens: maxTokens,
+              temperature: mode === 'drafter' ? 0.8 : 0.6,
+            },
+          }),
+        },
+        cloudTimeoutMs,
+      )
+      const parts = geminiRes.data?.candidates?.[0]?.content?.parts
+      const rawContent = Array.isArray(parts)
+        ? parts.map(p => p?.text || '').join('')
+        : ''
+      const content = stripEmojis(rawContent)
+      if (geminiRes.ok && content) {
+        return {
+          ok: true,
+          origin: 'gemini',
+          content,
+          model: geminiModel,
+          provider: 'google-gemini',
+          latencyMs: geminiRes.latencyMs,
+        }
+      }
+    }
+
+    // Tier 4: Groq OpenAI-compatible (GROQ_API_KEY -> llama-3.3-70b-versatile)
+    const groqKey = String(process.env.GROQ_API_KEY || '').trim()
+    if (groqKey) {
+      const groqModel = String(
+        process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+      ).trim()
+      const groqRes = await fetchJsonWithTimeout(
+        'https://api.groq.com/openai/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            accept: 'application/json',
+            Authorization: `Bearer ${groqKey}`,
+          },
+          body: JSON.stringify({
+            model: groqModel,
+            messages: chatMessages,
+            max_tokens: maxTokens,
+            temperature: mode === 'drafter' ? 0.8 : 0.6,
+          }),
+        },
+        cloudTimeoutMs,
+      )
+      const content = stripEmojis(
+        groqRes.data?.choices?.[0]?.message?.content || '',
+      )
+      if (groqRes.ok && content) {
+        return {
+          ok: true,
+          origin: 'groq',
+          content,
+          model: groqRes.data?.model || groqModel,
+          provider: 'groq',
+          latencyMs: groqRes.latencyMs,
+        }
+      }
+    }
+
+    // Tier 5: OpenRouter or OpenAI compatible endpoint
+    const openRouterKey = String(process.env.OPENROUTER_API_KEY || '').trim()
+    const openAiKey = String(process.env.OPENAI_API_KEY || '').trim()
+    if (openRouterKey || openAiKey) {
+      const isOpenRouter = Boolean(openRouterKey)
+      const apiKey = isOpenRouter ? openRouterKey : openAiKey
+      const endpoint = isOpenRouter
+        ? String(
+            process.env.OPENROUTER_BASE_URL ||
+              'https://openrouter.ai/api/v1/chat/completions',
+          ).trim()
+        : `${String(process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '')}/chat/completions`
+      const targetModel = isOpenRouter
+        ? String(process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash').trim()
+        : String(process.env.OPENAI_MODEL || 'gpt-4o-mini').trim()
+      const reqHeaders = {
+        'Content-Type': 'application/json',
+        accept: 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      }
+      if (isOpenRouter) {
+        reqHeaders['HTTP-Referer'] = 'https://quantzing.quantrinity.in'
+        reqHeaders['X-Title'] = 'QuantZing Quanty'
+      }
+      const oaiRes = await fetchJsonWithTimeout(
+        endpoint,
+        {
+          method: 'POST',
+          headers: reqHeaders,
+          body: JSON.stringify({
+            model: targetModel,
+            messages: chatMessages,
+            max_tokens: maxTokens,
+            temperature: mode === 'drafter' ? 0.8 : 0.6,
+          }),
+        },
+        cloudTimeoutMs,
+      )
+      const content = stripEmojis(
+        oaiRes.data?.choices?.[0]?.message?.content || '',
+      )
+      if (oaiRes.ok && content) {
+        return {
+          ok: true,
+          origin: isOpenRouter ? 'openrouter' : 'openai',
+          content,
+          model: oaiRes.data?.model || targetModel,
+          provider: isOpenRouter ? 'openrouter' : 'openai',
+          latencyMs: oaiRes.latencyMs,
+        }
+      }
+    }
+
+    // Tier 6: Local / Self-Hosted Ollama (OLLAMA_URL -> /api/chat)
+    const ollamaUrl = String(process.env.OLLAMA_URL || '')
+      .trim()
+      .replace(/\/+$/, '')
+    if (ollamaUrl) {
+      const ollamaModel = String(process.env.OLLAMA_MODEL || 'llama3.2').trim()
+      const ollamaRes = await fetchJsonWithTimeout(
+        `${ollamaUrl}/api/chat`,
+        {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', accept: 'application/json'},
+          body: JSON.stringify({
+            model: ollamaModel,
+            messages: chatMessages,
+            stream: false,
+          }),
+        },
+        cloudTimeoutMs,
+      )
+      const content = stripEmojis(
+        ollamaRes.data?.message?.content || ollamaRes.data?.response || '',
+      )
+      if (ollamaRes.ok && content) {
+        return {
+          ok: true,
+          origin: 'ollama',
+          content,
+          model: ollamaRes.data?.model || ollamaModel,
+          provider: 'ollama',
+          latencyMs: ollamaRes.latencyMs,
         }
       }
     }
@@ -3264,7 +3821,7 @@ export function createQuantyBridge(deps = {}) {
               toolName: 'quantzing_publish_article',
               arguments: {
                 title: parts[0].slice(0, 180),
-                body: `${parts[0]}\n\nDrafted on Sovereign QuantZing. Edit this body directly in the approval card before publishing.`,
+                body: `${parts[0]}\n\nDrafted with Quanty. Edit this body directly before publishing.`,
                 status: 'draft',
               },
             })
@@ -3402,9 +3959,11 @@ export function createQuantyBridge(deps = {}) {
       return {readCalls, writeProposals, isExplicitSlash}
     }
 
+    const conversational = classifyConversationalIntent(trimmed, mode, postContext)
+
     // Natural-language write intent patterns (always proposed, never auto-executed)
     const zingMatch = trimmed.match(
-      /^(?:post|publish|send|create)\s+(?:a\s+)?zing(?:\s+(?:saying|that|:))?\s+([\s\S]+)$/i,
+      /^(?:post|publish|send)\s+(?:a\s+)?zing(?:\s+(?:saying|that|:))?\s+([\s\S]+)$/i,
     )
     if (zingMatch) {
       writeProposals.push({
@@ -3533,10 +4092,20 @@ export function createQuantyBridge(deps = {}) {
           title: (parts[0] || articleMatch[1]).slice(0, 180),
           body:
             parts.slice(1).join('\n\n') ||
-            `${parts[0]}\n\nDrafted via Quanty on Sovereign QuantZing. Review and edit before publishing.`,
+            `${parts[0]}\n\nDrafted with Quanty. Review and edit before publishing.`,
           status: parts.length >= 2 ? 'published' : 'draft',
         },
       })
+    }
+
+    // Pure greetings / identity / thanks: skip noisy feed/trends queries so responses feel instant & natural
+    if (
+      writeProposals.length === 0 &&
+      (conversational.kind === 'greeting' ||
+        conversational.kind === 'identity' ||
+        conversational.kind === 'thanks')
+    ) {
+      return {readCalls: [], writeProposals: [], isExplicitSlash, conversational}
     }
 
     // Natural-language read intents
@@ -3586,16 +4155,23 @@ export function createQuantyBridge(deps = {}) {
       })
     }
 
-    // Default live grounding search when asking general questions
+    // Search QuantZing gently for general questions/drafts (without dumping unrelated trends!)
     if (readCalls.length === 0 && writeProposals.length === 0) {
-      const kws = extractKeywords(trimmed, 4)
-      if (kws.length > 0) {
+      const searchSeed =
+        conversational.kind === 'knowledge'
+          ? conversational.subject || extractKeywords(trimmed, 4).join(' ')
+          : conversational.kind === 'draft'
+            ? extractKeywords(conversational.topic || trimmed, 4).join(' ')
+            : extractKeywords(trimmed, 4).join(' ')
+      if (searchSeed && searchSeed.length >= 2) {
         readCalls.push({
           toolName: 'quantzing_search_zings',
-          arguments: {query: kws.join(' '), sort: 'top', limit: 8},
+          arguments: {query: searchSeed.slice(0, 120), sort: 'top', limit: 6},
         })
       }
-      readCalls.push({toolName: 'quantzing_get_trends', arguments: {limit: 6}})
+      if (conversational.kind === 'none') {
+        readCalls.push({toolName: 'quantzing_get_trends', arguments: {limit: 6}})
+      }
     }
 
     // Deduplicate read calls by toolName
@@ -3606,11 +4182,16 @@ export function createQuantyBridge(deps = {}) {
       return true
     })
 
-    return {readCalls: dedupReads, writeProposals, isExplicitSlash}
+    return {
+      readCalls: dedupReads,
+      writeProposals,
+      isExplicitSlash,
+      conversational,
+    }
   }
 
   // -------------------------------------------------------------------------
-  // Grounded Local Sovereign Synthesis (Honest 'live-network' Origin)
+  // Grounded Local & External Knowledge Synthesis (Natural Grok-Style Fallback)
   // -------------------------------------------------------------------------
 
   function synthesizeGroundedAnswer({
@@ -3620,26 +4201,126 @@ export function createQuantyBridge(deps = {}) {
     toolOutputs,
     proposedActions,
     citations,
+    conversational = {kind: 'none'},
+    externalKnowledge = null,
   }) {
     const sections = []
+    let suggestedZingDraft
 
+    // 1. Warm, crisp conversational replies for greetings, identity, and casual acks
+    if (proposedActions.length === 0 && conversational?.kind === 'greeting') {
+      const l = conversational.lower || ''
+      if (/\b(namaste|namaskar|kaise\s+ho|kya\s+haal)\b/i.test(l)) {
+        return {
+          answer:
+            "Namaste! I'm doing great and ready to help. Ask me anything — from breaking down complex topics and live QuantZing trends to drafting sharp Zings or checking your analytics. What's on your mind?",
+        }
+      }
+      if (/\bgood\s+morning\b/i.test(l)) {
+        return {
+          answer:
+            "Good morning! I'm Quanty. Ask me about any topic, catch up on what's trending on QuantZing, or tell me what you'd like to draft today.",
+        }
+      }
+      if (/\bgood\s+(?:afternoon|evening|night)\b/i.test(l)) {
+        return {
+          answer:
+            "Hey there! I'm Quanty, built right into QuantZing. Ask me anything, pull up live trends, or let's draft your next Zing together. What are we looking into?",
+        }
+      }
+      return {
+        answer:
+          "Hey! I'm Quanty, built right into QuantZing. Ask me anything — explain a concept, check what's trending, draft a sharp Zing or thread, or pull up your stats and notifications. What's on your mind?",
+      }
+    }
+
+    if (proposedActions.length === 0 && conversational?.kind === 'identity') {
+      return {
+        answer: [
+          "I'm **Quanty**, the built-in AI assistant on QuantZing.",
+          '',
+          'Here is what I can help you with right here:',
+          '- **Answer & explain** almost any topic with live factual context and discussions from QuantZing',
+          '- **Track what is happening** — trending topics (`/trends`), threads, profiles, and ZingSpaces',
+          '- **Draft & sharpen copy** — single Zings, threads, polls, or long-form articles',
+          '- **Run account actions with your confirmation** — publish Zings (`/zing`), view Creator Studio analytics (`/analytics`), check notifications, DMs, or bookmarks',
+          '',
+          'Ask naturally or type `/` to browse quick commands.',
+        ].join('\n'),
+      }
+    }
+
+    if (proposedActions.length === 0 && conversational?.kind === 'thanks') {
+      return {
+        answer:
+          "Anytime. Let me know what you'd like to explore, check, or draft next.",
+      }
+    }
+
+    // 2. Creative drafting / rewriting requests
+    if (conversational?.kind === 'draft' && proposedActions.length === 0) {
+      const drafted = buildSmartCreativeDraft({
+        topic: conversational.topic,
+        format: conversational.format,
+        sourceText: conversational.sourceText,
+        knowledge: externalKnowledge,
+        citations,
+      })
+      suggestedZingDraft = drafted.suggestedZingDraft
+      sections.push(drafted.markdown)
+      return {
+        answer: sections.join('\n\n'),
+        suggestedZingDraft,
+      }
+    }
+
+    // 3. Explicit write action proposal intro
     if (proposedActions.length > 0) {
       const a = proposedActions[0]
       if (a.requiresAuth) {
         sections.push(
-          `### ${a.title}\nSign in to your Sovereign QuantZing account to review and approve this action:\n- ${a.summary}`,
+          `Sign in to QuantZing to review and confirm this action:\n- **${a.title}**: ${a.summary}`,
         )
       } else {
         sections.push(
-          `### Action Ready for Your Approval\nReview the parameters below and tap **Approve & Execute** to run this on Sovereign QuantZing:\n- ${a.summary}`,
+          `Ready when you are — review the details below and confirm to run it:\n- **${a.title}**: ${a.summary}`,
         )
       }
     }
 
+    // 4. External factual knowledge lead (Wikipedia + DuckDuckGo) for general questions
+    if (externalKnowledge?.ok && externalKnowledge.summary) {
+      const heading = externalKnowledge.title
+        ? `### ${externalKnowledge.title}`
+        : ''
+      const lead = externalKnowledge.shortDescription &&
+        !externalKnowledge.summary
+          .toLowerCase()
+          .includes(externalKnowledge.shortDescription.toLowerCase())
+        ? `*${externalKnowledge.shortDescription}*\n\n${externalKnowledge.summary}`
+        : externalKnowledge.summary
+
+      const parts = [heading, lead].filter(Boolean)
+      if (
+        Array.isArray(externalKnowledge.relatedPoints) &&
+        externalKnowledge.relatedPoints.length > 0
+      ) {
+        parts.push(
+          '**Key context**\n' +
+            externalKnowledge.relatedPoints.map(pt => `- ${pt}`).join('\n'),
+        )
+      }
+      if (externalKnowledge.sourceName) {
+        parts.push(`*Source: ${externalKnowledge.sourceName}*`)
+      }
+      sections.push(parts.join('\n\n'))
+    }
+
+    // 5. QuantZing tool outputs (clean, natural markdown — zero robotic boilerplate)
     for (const out of toolOutputs) {
       if (out.status === 'auth_required') {
         sections.push(
-          `### ${out.title}\nSign in to your QuantZing account to access your private ${out.title.toLowerCase()}.`,
+          `### ${out.title}\nSign in to your QuantZing account to view your ${out.title.toLowerCase()}.`,
         )
         continue
       }
@@ -3653,13 +4334,13 @@ export function createQuantyBridge(deps = {}) {
               .slice(0, 6)
               .map(
                 (t, idx) =>
-                  `${idx + 1}. **${stripEmojis(t.displayName || t.topic)}**${t.postCount ? ` (${t.postCount} Zings)` : ''}${t.description ? ` — ${stripEmojis(t.description).slice(0, 100)}` : ''}`,
+                  `${idx + 1}. **${stripEmojis(t.displayName || t.topic)}**${t.postCount ? ` (${t.postCount} ${t.postCount === 1 ? 'Zing' : 'Zings'})` : ''}${t.description ? ` — ${stripEmojis(t.description).slice(0, 110)}` : ''}`,
               )
               .join('\n')
-            sections.push(`### Live Sovereign Trends\n${bullets}`)
+            sections.push(`### Trending on QuantZing\n${bullets}`)
           } else {
             sections.push(
-              '### Live Sovereign Trends\nNo active trend spikes recorded yet. Publish a Zing with a hashtag to kick off a live topic.',
+              '### Trending on QuantZing\nNothing is spiking just yet. Start a conversation with a hashtag to kick off a live topic.',
             )
           }
           break
@@ -3670,7 +4351,7 @@ export function createQuantyBridge(deps = {}) {
           const top = (out.data.topPosts || []).slice(0, 3)
           let block = [
             `### Creator Analytics (${out.data.windowDays || 30} Days)`,
-            `- **Real Impressions (viewCount)**: ${t.impressions ?? 0}`,
+            `- **Impressions**: ${t.impressions ?? 0}`,
             `- **Zings Published**: ${t.postsCount ?? 0} | **Followers**: ${t.followersCount ?? 0} | **Following**: ${t.followingCount ?? 0}`,
             `- **Engagements**: ${t.likes ?? 0} likes, ${t.rezings ?? 0} rezings, ${t.replies ?? 0} replies, ${t.bookmarks ?? 0} bookmarks (${Number(t.engagementRate || 0).toFixed(1)}% rate)`,
           ].join('\n')
@@ -3691,7 +4372,7 @@ export function createQuantyBridge(deps = {}) {
         case 'quantzing_get_notifications': {
           const items = out.data.notifications || []
           if (items.length === 0) {
-            sections.push('### Notifications\nYou are all caught up with 0 notifications.')
+            sections.push('### Notifications\nYou are all caught up — no new notifications right now.')
           } else {
             const lines = items.slice(0, 6).map(n => {
               const who = n.author?.handle ? `@${n.author.handle}` : 'Member'
@@ -3711,7 +4392,7 @@ export function createQuantyBridge(deps = {}) {
         case 'quantzing_get_bookmarks': {
           const bms = out.data.bookmarks || []
           if (bms.length === 0) {
-            sections.push('### Saved Bookmarks\nYou have no bookmarked Zings yet.')
+            sections.push('### Saved Bookmarks\nYou have not bookmarked any Zings yet.')
           } else {
             const lines = bms.slice(0, 6).map(
               p =>
@@ -3725,7 +4406,7 @@ export function createQuantyBridge(deps = {}) {
         case 'quantzing_list_convos': {
           const convos = out.data.convos || []
           if (convos.length === 0) {
-            sections.push('### Direct Messages\nNo active conversations yet. Use `/dm @handle message` to start one.')
+            sections.push('### Direct Messages\nNo active conversations yet. Try `/dm @handle message` to start one.')
           } else {
             const lines = convos.slice(0, 6).map(c => {
               const members = (c.members || [])
@@ -3744,12 +4425,12 @@ export function createQuantyBridge(deps = {}) {
         case 'quantzing_search_zings': {
           const posts = out.data.posts || []
           if (posts.length > 0) {
-            const lines = posts.slice(0, 5).map(
+            const lines = posts.slice(0, 4).map(
               (p, i) =>
                 `${i + 1}. **@${p.author?.handle || 'member'}**: "${stripEmojis(p.record?.text || '').slice(0, 120)}" (${p.likeCount || 0} likes, ${p.repostCount || 0} rezings)`,
             )
             sections.push(
-              `### Live Network Signal (${posts.length} matching Zings)\n${lines.join('\n')}`,
+              `### On QuantZing (${posts.length} ${posts.length === 1 ? 'Zing' : 'Zings'})\n${lines.join('\n')}`,
             )
           }
           break
@@ -3762,9 +4443,9 @@ export function createQuantyBridge(deps = {}) {
               acc =>
                 `- **${stripEmojis(acc.displayName || acc.handle)}** (@${acc.handle})${acc.description ? ` — ${stripEmojis(acc.description).slice(0, 90)}` : ''}`,
             )
-            sections.push(`### Matching Accounts (${actors.length})\n${lines.join('\n')}`)
+            sections.push(`### People on QuantZing (${actors.length})\n${lines.join('\n')}`)
           } else {
-            sections.push(`### People Search\nNo QuantZing accounts matched "${out.data.query}".`)
+            sections.push(`I didn't find any accounts matching "${out.data.query}" on QuantZing.`)
           }
           break
         }
@@ -3773,7 +4454,7 @@ export function createQuantyBridge(deps = {}) {
           const p = out.data.profile || {}
           sections.push(
             [
-              `### Profile: ${stripEmojis(p.displayName || p.handle || 'Account')} (@${p.handle || ''})`,
+              `### ${stripEmojis(p.displayName || p.handle || 'Account')} (@${p.handle || ''})`,
               p.description ? `> ${stripEmojis(p.description)}` : null,
               `- **Followers**: ${p.followersCount ?? 0} | **Following**: ${p.followsCount ?? 0} | **Zings**: ${p.postsCount ?? 0}`,
             ]
@@ -3788,13 +4469,13 @@ export function createQuantyBridge(deps = {}) {
           const reps = out.data.replies || []
           if (p) {
             const lines = [
-              `### Thread Context (@${p.author?.handle || postContext?.authorHandle || 'author'})`,
+              `### Thread (@${p.author?.handle || postContext?.authorHandle || 'author'})`,
               `> ${stripEmojis(p.record?.text || postContext?.text || '').slice(0, 220)}`,
               `- **Engagement**: ${out.data.viewCount ?? 0} views, ${p.likeCount ?? 0} likes, ${p.repostCount ?? 0} rezings, ${reps.length} replies`,
             ]
             if (reps.length > 0) {
               lines.push(
-                '**Key Replies**\n' +
+                '**Top Replies**\n' +
                   reps
                     .slice(0, 3)
                     .map(
@@ -3832,7 +4513,7 @@ export function createQuantyBridge(deps = {}) {
                     .slice(0, 6)
                     .map(s => `- **${stripEmojis(s.title)}** [${s.status}] hosted by @${s.hostHandle || 'host'} (${s.listenerCount || 0} listeners)`)
                     .join('\n')
-              : '### ZingSpaces\nNo active rooms right now. Use `/space Title | Topic` to host one.',
+              : '### ZingSpaces\nNo live rooms right now. Use `/space Title | Topic` to start one.',
           )
           break
         }
@@ -3841,12 +4522,12 @@ export function createQuantyBridge(deps = {}) {
           const articles = out.data.articles || []
           sections.push(
             articles.length > 0
-              ? `### Sovereign Articles (${articles.length})\n` +
+              ? `### Articles on QuantZing (${articles.length})\n` +
                   articles
                     .slice(0, 6)
                     .map(ar => `- **${stripEmojis(ar.title)}** by @${ar.authorHandle || 'author'} (${ar.readTimeMinutes || 1} min read)`)
                     .join('\n')
-              : '### Sovereign Articles\nNo published articles found yet. Use `/article Title | Body` to write one.',
+              : '### Articles on QuantZing\nNo published articles yet. Use `/article Title | Body` to start writing.',
           )
           break
         }
@@ -3855,10 +4536,10 @@ export function createQuantyBridge(deps = {}) {
           const q = out.data.quantos || {}
           sections.push(
             [
-              `### QuantOS Engine Status: ${out.data.modeLabel || 'Live Sovereign Network'}`,
-              `- **QuantAI**: ${q.ai?.online ? `Online (${q.ai.latencyMs}ms)` : 'Offline (fallback active)'}`,
-              `- **QuantRouter**: ${q.router?.online ? `Online (${q.router.latencyMs}ms)` : 'Offline'}`,
-              `- **QuantPay**: ${q.pay?.online ? `Online${typeof q.pay.balanceCredits === 'number' ? ` (${q.pay.balanceCredits} credits)` : ''}` : 'Offline'}`,
+              `### QuantOS Engine Status: ${out.data.modeLabel || 'QuantZing Live'}`,
+              `- **QuantAI**: ${q.ai?.online ? `Online (${q.ai.latencyMs}ms)` : 'Standby'}`,
+              `- **QuantRouter**: ${q.router?.online ? `Online (${q.router.latencyMs}ms)` : 'Standby'}`,
+              `- **QuantPay**: ${q.pay?.online ? `Online${typeof q.pay.balanceCredits === 'number' ? ` (${q.pay.balanceCredits} credits)` : ''}` : 'Standby'}`,
             ].join('\n'),
           )
           break
@@ -3869,21 +4550,18 @@ export function createQuantyBridge(deps = {}) {
     if (sections.length === 0) {
       const cleanQ = stripEmojis(prompt || '').slice(0, 120)
       sections.push(
-        `### Sovereign Network Brief\nNo exact post matches were indexed yet for "${cleanQ}". Try \`/trends\`, \`/search <topic>\`, \`/analytics\`, or \`/zing <your take>\` to launch a live conversation.`,
+        `I couldn't find live discussions or an instant reference summary for "${cleanQ}" just yet. Try rephrasing with a specific term, ask me to draft a Zing to start the conversation, or type \`/trends\` to see what's active right now.`,
       )
     }
 
-    let suggestedZingDraft
-    if (mode === 'drafter') {
-      const seedTopic = stripEmojis(prompt || '')
-        .replace(/^(draft|write|compose)\s+(a\s+)?(sharp\s+)?(zing|post|reply)(\s+about)?/i, '')
-        .trim()
-      const refHandle = citations[0]?.handle ? ` (building on @${citations[0].handle})` : ''
-      suggestedZingDraft = stripEmojis(
-        seedTopic
-          ? `${seedTopic.charAt(0).toUpperCase() + seedTopic.slice(1)}${refHandle}: Execution speed, real metrics, and sovereign ownership win long-term on QuantZing.`
-          : 'Building in the open on Sovereign QuantZing — real impressions, verifiable identity, and zero algorithmic lock-in.',
-      ).slice(0, 275)
+    if (mode === 'drafter' && !suggestedZingDraft) {
+      const drafted = buildSmartCreativeDraft({
+        topic: prompt,
+        format: 'zing',
+        knowledge: externalKnowledge,
+        citations,
+      })
+      suggestedZingDraft = drafted.suggestedZingDraft
     }
 
     return {
@@ -4061,11 +4739,37 @@ export function createQuantyBridge(deps = {}) {
       await addProposedAction(prop)
     }
 
-    // Stage 3: Build grounding context and try QuantAI / QuantRouter (honest origin!)
+    // Stage 2B: Fetch external factual knowledge in parallel when answering general knowledge or drafting on a topic
+    const conversational = intent.conversational || {kind: 'none'}
+    const shouldFetchKnowledge =
+      !intent.isExplicitSlash &&
+      proposedActions.length === 0 &&
+      (conversational.kind === 'knowledge' ||
+        (conversational.kind === 'draft' &&
+          conversational.format !== 'rewrite' &&
+          Boolean(conversational.topic)))
+
+    const externalKnowledgePromise = shouldFetchKnowledge
+      ? fetchExternalKnowledge(
+          conversational.kind === 'draft'
+            ? conversational.topic
+            : prompt,
+          2500,
+        ).catch(() => ({ok: false}))
+      : Promise.resolve(null)
+
+    const externalKnowledge = await externalKnowledgePromise
+
+    // Stage 3: Build grounding context and try configured LLM cascade
     const groundingLines = []
     if (postContext?.text) {
       groundingLines.push(
         `Attached Zing (@${postContext.authorHandle || 'author'}): "${stripEmojis(postContext.text).slice(0, 260)}"`,
+      )
+    }
+    if (externalKnowledge?.ok && externalKnowledge.summary) {
+      groundingLines.push(
+        `[reference:${externalKnowledge.sourceName}] ${externalKnowledge.title}: ${externalKnowledge.summary.slice(0, 600)}`,
       )
     }
     for (const out of toolOutputs) {
@@ -4120,15 +4824,17 @@ export function createQuantyBridge(deps = {}) {
         toolOutputs,
         proposedActions,
         citations,
+        conversational,
+        externalKnowledge,
       })
       answer = local.answer
       suggestedZingDraft = local.suggestedZingDraft
-      engineOrigin = 'live-network'
+      engineOrigin = externalKnowledge?.ok ? 'quanty-knowledge' : 'live-network'
     }
 
-    // In drafter mode, also attach a Phase 1 Publish Zing action card if not already proposed
+    // Attach a clean Phase 1 "Post this Zing" action card for creative drafts & drafter mode
     if (
-      mode === 'drafter' &&
+      (mode === 'drafter' || conversational.kind === 'draft') &&
       !proposedActions.some(p => p.toolName === 'quantzing_publish_zing')
     ) {
       const draftCandidate =
@@ -4472,30 +5178,42 @@ export function createQuantyBridge(deps = {}) {
         .map(t => stripEmojis(t.displayName || t.topic))
         .filter(Boolean)
         .join(', ')
-      replyText = `${handlePrefix}Live on QuantZing right now: ${topTrendNames || 'active builder discussions'}${citations[0] ? ` — top signal from @${citations[0].handle} (${citations[0].likeCount} likes)` : ''}.`.slice(
-        0,
-        280,
-      )
-    } else if (citations.length > 0) {
-      const top = citations[0]
-      replyText = `${handlePrefix}Live Sovereign signal: @${top.handle} notes "${top.text.slice(0, 115)}${top.text.length > 115 ? '...' : ''}" (${citations.length} related Zings indexed).`.slice(
-        0,
-        280,
-      )
-    } else if (parentText) {
-      const viewCount = postContext?.uri
-        ? Number(helpers.getPostViewCount?.(postContext.uri) || 0)
-        : 0
-      replyText = `${handlePrefix}Thread context on "${parentText.slice(0, 90)}${parentText.length > 90 ? '...' : ''}": ${viewCount > 0 ? `${viewCount} views logged; ` : ''}open Quanty DeepSearch for live cross-checking and reply drafts.`.slice(
+      replyText = `${handlePrefix}Trending on QuantZing right now: ${topTrendNames || 'active builder discussions'}${citations[0] ? ` — top post from @${citations[0].handle} (${citations[0].likeCount} likes)` : ''}.`.slice(
         0,
         280,
       )
     } else {
-      const topTrend = trends[0]?.displayName || trends[0]?.topic
-      replyText = `${handlePrefix}Quanty live check: "${(cleanedPrompt || 'your question').slice(0, 80)}"${topTrend ? ` (top trend: ${stripEmojis(topTrend)})` : ''}. Open Quanty for full search and tools.`.slice(
-        0,
-        280,
-      )
+      const mentionKnowledge =
+        cleanedPrompt.length >= 4
+          ? await fetchExternalKnowledge(cleanedPrompt, 1800).catch(() => null)
+          : null
+      if (mentionKnowledge?.ok && mentionKnowledge.summary) {
+        const firstSentence =
+          mentionKnowledge.summary.split(/(?<=[.!?])\s+/)[0] ||
+          mentionKnowledge.summary
+        replyText = `${handlePrefix}${firstSentence}`.slice(0, 276)
+        replyOrigin = 'quanty-knowledge'
+      } else if (citations.length > 0) {
+        const top = citations[0]
+        replyText = `${handlePrefix}From QuantZing: @${top.handle} notes "${top.text.slice(0, 120)}${top.text.length > 120 ? '...' : ''}" (${citations.length} related ${citations.length === 1 ? 'Zing' : 'Zings'}).`.slice(
+          0,
+          280,
+        )
+      } else if (parentText) {
+        const viewCount = postContext?.uri
+          ? Number(helpers.getPostViewCount?.(postContext.uri) || 0)
+          : 0
+        replyText = `${handlePrefix}Context on "${parentText.slice(0, 95)}${parentText.length > 95 ? '...' : ''}": ${viewCount > 0 ? `${viewCount} views so far; ` : ''}open Quanty to explore deeper or draft a reply.`.slice(
+          0,
+          280,
+        )
+      } else {
+        const topTrend = trends[0]?.displayName || trends[0]?.topic
+        replyText = `${handlePrefix}Hey! Ask me anything or tap Quanty for a full breakdown${topTrend ? ` — ${stripEmojis(topTrend)} is active right now` : ''}.`.slice(
+          0,
+          280,
+        )
+      }
     }
 
     return {

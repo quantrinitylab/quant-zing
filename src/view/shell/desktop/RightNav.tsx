@@ -8,6 +8,7 @@ import {
   getQuantZingColors,
   type QuantZingNewsBriefingTopic,
   type QuantZingSpace,
+  stripEmojisAndSymbols,
 } from '#/lib/quantos/client'
 import {useSession} from '#/state/session'
 import {DesktopFeeds} from '#/view/shell/desktop/Feeds'
@@ -87,11 +88,16 @@ export function DesktopRightNav({routeName}: {routeName: string}) {
 
   const cardWidth = centerColumnOffset ? 250 : 300
   const showLoggedOutBottomBar = !hasSession && leftNavMinimal
+  const rowHoverBg =
+    t.scheme === 'dark'
+      ? 'rgba(255, 255, 255, 0.03)'
+      : 'rgba(15, 20, 25, 0.03)'
 
   return (
     <View
       testID="desktopRightNav"
       style={[
+        t.atoms.bg,
         web({
           position: 'fixed',
           top: 0,
@@ -114,7 +120,7 @@ export function DesktopRightNav({routeName}: {routeName: string}) {
           scrollbarWidth: 'none',
         }),
       ]}>
-      <View style={[a.w_full, a.gap_md]}>
+      <View style={[a.w_full, a.gap_md, {minWidth: 0}]}>
         {!isSearchScreen && <DesktopSearch />}
 
         {showExploreScreenDuplicatedContent && <SidebarLiveEventFeedsBanner />}
@@ -128,14 +134,30 @@ export function DesktopRightNav({routeName}: {routeName: string}) {
               a.rounded_lg,
               a.p_md,
               a.gap_xs,
+              a.border,
+              a.overflow_hidden,
               {
                 backgroundColor: colors.card,
-                borderWidth: 1,
                 borderColor: colors.rezing,
+                minWidth: 0,
               },
             ]}>
-            <View style={[a.flex_row, a.align_center, a.justify_between]}>
-              <Text style={[a.text_xs, a.font_bold, {color: colors.rezing}]}>
+            <View
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.justify_between,
+                a.gap_sm,
+                {minWidth: 0},
+              ]}>
+              <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                style={[
+                  a.text_xs,
+                  a.font_bold,
+                  {color: colors.rezing, flexShrink: 1, minWidth: 0},
+                ]}>
                 LIVE ZINGSPACES ({liveSpaces.length})
               </Text>
               <Link to="/spaces" label="Open ZingSpaces">
@@ -149,26 +171,63 @@ export function DesktopRightNav({routeName}: {routeName: string}) {
                 </Text>
               </Link>
             </View>
-            {liveSpaces.map(space => (
-              <Link
-                key={space.slug}
-                to="/spaces"
-                label={`Join ${space.title}`}
-                style={[a.py_2xs]}>
-                <View style={[a.gap_2xs]}>
-                  <Text
-                    numberOfLines={1}
-                    style={[a.text_sm, a.font_bold, {color: colors.text}]}>
-                    {space.title}
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[a.text_xs, {color: colors.muted}]}>
-                    @{space.hostHandle} · {space.listenerCount} listeners
-                  </Text>
-                </View>
-              </Link>
-            ))}
+            {liveSpaces.map(space => {
+              const cleanTitle = stripEmojisAndSymbols(space.title).trim()
+              return (
+                <Link
+                  key={space.slug}
+                  to="/spaces"
+                  label={`Join ${cleanTitle || space.title}`}
+                  style={[
+                    a.w_full,
+                    a.py_xs,
+                    a.px_xs,
+                    a.rounded_sm,
+                    a.overflow_hidden,
+                    {minWidth: 0},
+                  ]}
+                  hoverStyle={{backgroundColor: rowHoverBg}}>
+                  <View
+                    style={[
+                      a.flex_1,
+                      a.w_full,
+                      a.gap_2xs,
+                      a.overflow_hidden,
+                      {flexShrink: 1, minWidth: 0},
+                    ]}>
+                    <Text
+                      numberOfLines={2}
+                      ellipsizeMode="tail"
+                      style={[
+                        a.text_sm,
+                        a.font_bold,
+                        a.leading_snug,
+                        {color: colors.text, flexShrink: 1, minWidth: 0},
+                        web({
+                          overflowWrap: 'anywhere',
+                          wordBreak: 'break-word',
+                        }),
+                      ]}>
+                      {cleanTitle || space.title}
+                    </Text>
+                    <Text
+                      numberOfLines={2}
+                      ellipsizeMode="tail"
+                      style={[
+                        a.text_xs,
+                        a.leading_snug,
+                        {color: colors.muted, flexShrink: 1, minWidth: 0},
+                        web({
+                          overflowWrap: 'anywhere',
+                          wordBreak: 'break-word',
+                        }),
+                      ]}>
+                      @{space.hostHandle} · {space.listenerCount} listeners
+                    </Text>
+                  </View>
+                </Link>
+              )
+            })}
           </View>
         )}
 
@@ -182,15 +241,32 @@ export function DesktopRightNav({routeName}: {routeName: string}) {
               a.w_full,
               a.rounded_lg,
               a.p_md,
-              a.gap_sm,
+              a.gap_xs,
+              a.border,
+              t.atoms.border_contrast_low,
+              a.overflow_hidden,
               {
                 backgroundColor: colors.card,
-                borderWidth: 1,
-                borderColor: colors.border,
+                minWidth: 0,
               },
             ]}>
-            <View style={[a.flex_row, a.align_center, a.justify_between]}>
-              <Text style={[a.text_md, a.font_bold, {color: colors.text}]}>
+            <View
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.justify_between,
+                a.gap_sm,
+                a.pb_2xs,
+                {minWidth: 0},
+              ]}>
+              <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                style={[
+                  a.text_md,
+                  a.font_bold,
+                  {color: colors.text, flexShrink: 1, minWidth: 0},
+                ]}>
                 Network Briefing
               </Text>
               <Link to="/quanty" label="Open Quanty News">
@@ -204,26 +280,64 @@ export function DesktopRightNav({routeName}: {routeName: string}) {
                 </Text>
               </Link>
             </View>
-            {briefingTopics.map(item => (
-              <Link
-                key={item.id}
-                to={`/search?q=${encodeURIComponent(item.topic)}`}
-                label={item.topic}
-                style={[a.py_2xs]}>
-                <View style={[a.gap_2xs]}>
-                  <Text
-                    numberOfLines={1}
-                    style={[a.text_sm, a.font_bold, {color: colors.text}]}>
-                    {item.topic}
-                  </Text>
-                  <Text
-                    numberOfLines={2}
-                    style={[a.text_xs, {color: colors.muted}]}>
-                    {item.summary}
-                  </Text>
-                </View>
-              </Link>
-            ))}
+            {briefingTopics.map(item => {
+              const cleanTopic = stripEmojisAndSymbols(item.topic).trim()
+              const cleanSummary = stripEmojisAndSymbols(item.summary).trim()
+              return (
+                <Link
+                  key={item.id}
+                  to={`/search?q=${encodeURIComponent(item.topic)}`}
+                  label={cleanTopic || item.topic}
+                  style={[
+                    a.w_full,
+                    a.py_xs,
+                    a.px_xs,
+                    a.rounded_sm,
+                    a.overflow_hidden,
+                    {minWidth: 0},
+                  ]}
+                  hoverStyle={{backgroundColor: rowHoverBg}}>
+                  <View
+                    style={[
+                      a.flex_1,
+                      a.w_full,
+                      a.gap_2xs,
+                      a.overflow_hidden,
+                      {flexShrink: 1, minWidth: 0},
+                    ]}>
+                    <Text
+                      numberOfLines={2}
+                      ellipsizeMode="tail"
+                      style={[
+                        a.text_sm,
+                        a.font_bold,
+                        a.leading_snug,
+                        {color: colors.text, flexShrink: 1, minWidth: 0},
+                        web({
+                          overflowWrap: 'anywhere',
+                          wordBreak: 'break-word',
+                        }),
+                      ]}>
+                      {cleanTopic || item.topic}
+                    </Text>
+                    <Text
+                      numberOfLines={2}
+                      ellipsizeMode="tail"
+                      style={[
+                        a.text_xs,
+                        a.leading_snug,
+                        {color: colors.muted, flexShrink: 1, minWidth: 0},
+                        web({
+                          overflowWrap: 'anywhere',
+                          wordBreak: 'break-word',
+                        }),
+                      ]}>
+                      {cleanSummary || item.summary}
+                    </Text>
+                  </View>
+                </Link>
+              )
+            })}
           </View>
         )}
 

@@ -48,6 +48,8 @@ export function VideoEmbedInnerWeb({
   const [focused, setFocused] = useState(false)
   const [hasSubtitleTrack, setHasSubtitleTrack] = useState(false)
   const [hlsLoading, setHlsLoading] = useState(false)
+  const [isBuffering, setIsBuffering] = useState(!embed.thumbnail)
+  const [hasFirstFrame, setHasFirstFrame] = useState(false)
   const figId = useId()
   const {t: l} = useLingui()
   const [isFullscreen] = useFullscreen(containerRef)
@@ -61,7 +63,6 @@ export function VideoEmbedInnerWeb({
     throw error
   }
 
-  const isHlsPlaylist = /\.m3u8(?:$|\?)/i.test(embed.playlist)
   const {hlsRef, loop, updateCuePositions} = useHLS({
     playlist: embed.playlist,
     setHasSubtitleTrack,
@@ -69,6 +70,17 @@ export function VideoEmbedInnerWeb({
     videoRef,
     setHlsLoading,
   })
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (video && video.readyState >= 2) {
+      setHasFirstFrame(true)
+      setIsBuffering(false)
+    } else {
+      setHasFirstFrame(false)
+      setIsBuffering(!embed.thumbnail)
+    }
+  }, [embed.playlist, embed.thumbnail])
 
   useEffect(() => {
     if (lastKnownTime.current && videoRef.current) {
@@ -81,16 +93,49 @@ export function VideoEmbedInnerWeb({
       style={[a.flex_1, a.rounded_md, a.overflow_hidden]}
       accessibilityLabel={l`Embedded video player`}
       accessibilityHint="">
-      <div ref={containerRef} style={{height: '100%', width: '100%'}}>
+      <div
+        ref={containerRef}
+        style={{height: '100%', width: '100%', position: 'relative'}}>
+        {!embed.thumbnail && !hasFirstFrame && (
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              pointerEvents: 'none',
+              background:
+                'linear-gradient(145deg, #0F1419 0%, #16181C 52%, #1E2732 100%)',
+            }}
+          />
+        )}
         <figure style={{margin: 0, position: 'absolute', inset: 0}}>
           <video
             ref={videoRef}
-            poster={embed.thumbnail}
-            style={{width: '100%', height: '100%', objectFit: 'contain'}}
+            poster={embed.thumbnail || undefined}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              backgroundColor: 'transparent',
+            }}
             playsInline
-            preload={isHlsPlaylist ? 'none' : 'metadata'}
+            preload="metadata"
             muted={embed.presentation === 'gif' || !focused}
             aria-labelledby={embed.alt ? figId : undefined}
+            onLoadStart={() => setIsBuffering(true)}
+            onLoadedMetadata={() => {
+              const video = videoRef.current
+              if (video && video.readyState >= 2) {
+                setHasFirstFrame(true)
+                setIsBuffering(false)
+              } else if (!active && video?.paused) {
+                setIsBuffering(false)
+              }
+            }}
+            onLoadedData={() => {
+              setHasFirstFrame(true)
+              setIsBuffering(false)
+            }}
             onTimeUpdate={e => {
               const currentTime = e.currentTarget.currentTime
               lastKnownTime.current = currentTime
@@ -111,14 +156,24 @@ export function VideoEmbedInnerWeb({
                 reportDialogMetadata.current.videoTimestampSeconds = currentTime
               }
             }}
-            onPlaying={() => onPlaybackStateChange('playing')}
+            onPlaying={() => {
+              setHasFirstFrame(true)
+              setIsBuffering(false)
+              onPlaybackStateChange('playing')
+            }}
             onPause={() => onPlaybackStateChange('paused')}
-            onWaiting={() => onPlaybackStateChange('buffering')}
+            onWaiting={() => {
+              setIsBuffering(true)
+              onPlaybackStateChange('buffering')
+            }}
             onCanPlay={() => {
+              setHasFirstFrame(true)
+              setIsBuffering(false)
               if (!videoRef.current?.paused) {
                 onPlaybackStateChange('playing')
               }
             }}
+            onError={() => setIsBuffering(false)}
             onEnded={onPlaybackEnd}
             loop={loop}
           />
@@ -138,7 +193,9 @@ export function VideoEmbedInnerWeb({
           setActive={setActive}
           focused={focused}
           setFocused={setFocused}
-          hlsLoading={hlsLoading}
+          hlsLoading={
+            hlsLoading || (isBuffering && (!embed.thumbnail || !hasFirstFrame))
+          }
           onScreen={onScreen}
           fullscreenRef={containerRef}
           hasSubtitleTrack={hasSubtitleTrack}

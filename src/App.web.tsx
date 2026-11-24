@@ -101,20 +101,38 @@ function InnerApp() {
 
   // init
   useEffect(() => {
+    let active = true
+    let timer: ReturnType<typeof setTimeout> | undefined
     async function onLaunch(account?: SessionAccount) {
-      try {
-        if (account) {
-          await resumeSession(account)
-        } else {
-          await features.init
+      const safetyTimeout = new Promise<'timeout'>(resolve => {
+        timer = setTimeout(() => resolve('timeout'), 1200)
+      })
+      const bootTask = (async () => {
+        try {
+          if (account) {
+            await resumeSession(account)
+          } else {
+            await features.init
+          }
+        } catch (e) {
+          logger.warn('session: resumeSession failed', {message: e})
         }
-      } catch (e) {
-        logger.warn('session: resumeSession failed', {message: e})
+      })()
+      const outcome = await Promise.race([bootTask, safetyTimeout])
+      if (timer) clearTimeout(timer)
+      if (outcome === 'timeout') {
+        logger.debug('app: boot timeout reached, continuing in background')
       }
-      setIsReady(true)
+      if (active) {
+        setIsReady(true)
+      }
     }
     const account = readLastActiveAccount()
     void onLaunch(account)
+    return () => {
+      active = false
+      if (timer) clearTimeout(timer)
+    }
   }, [resumeSession])
 
   useEffect(() => {
@@ -202,9 +220,25 @@ function App() {
   const [isReady, setIsReady] = useState(false)
 
   useEffect(() => {
-    void Promise.all([initPersistedState(), Geo.resolve(), setupDeviceId]).then(
-      () => setIsReady(true),
-    )
+    let active = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    void Geo.resolve()
+    const safetyTimeout = new Promise<void>(resolve => {
+      timer = setTimeout(resolve, 1000)
+    })
+    void Promise.race([
+      Promise.all([initPersistedState(), setupDeviceId]).catch(e => {
+        logger.warn('app: local startup init warning', {message: e})
+      }),
+      safetyTimeout,
+    ]).finally(() => {
+      if (timer) clearTimeout(timer)
+      if (active) setIsReady(true)
+    })
+    return () => {
+      active = false
+      if (timer) clearTimeout(timer)
+    }
   }, [])
 
   if (!isReady) {

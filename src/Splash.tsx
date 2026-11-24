@@ -148,47 +148,71 @@ export function Splash(props: React.PropsWithChildren<Props>) {
   const onLoadEnd = useCallback(() => setIsImageLoaded(true), [])
 
   useEffect(() => {
+    const fallbackTimer = setTimeout(() => {
+      setIsImageLoaded(true)
+      setIsLayoutReady(true)
+      setReduceMotion(prev => prev ?? false)
+    }, 250)
+    return () => clearTimeout(fallbackTimer)
+  }, [])
+
+  useEffect(() => {
     if (isReady) {
+      const failsafeTimer = setTimeout(() => {
+        outroApp.set(1)
+        outroSplashOpacity.set(1)
+        outroLogo.set(1)
+        onFinish()
+      }, 600)
+
+      const startOutro = () => {
+        intro.set(
+          withTiming(
+            1,
+            {duration: 120, easing: Easing.out(Easing.cubic)},
+            () => {
+              'worklet'
+              // set these values to check animation at specific point
+              outroLogo.set(
+                withTiming(
+                  1,
+                  {duration: 240, easing: Easing.in(Easing.cubic)},
+                  () => {
+                    scheduleOnRN(onFinish)
+                  },
+                ),
+              )
+              outroApp.set(
+                withTiming(1, {
+                  duration: 240,
+                  easing: Easing.inOut(Easing.cubic),
+                }),
+              )
+              outroSplashOpacity.set(
+                withTiming(1, {
+                  duration: 240,
+                  easing: Easing.in(Easing.cubic),
+                }),
+              )
+            },
+          ),
+        )
+      }
+
       SplashScreen.hideAsync()
-        .then(() => {
-          intro.set(
-            withTiming(
-              1,
-              {duration: 400, easing: Easing.out(Easing.cubic)},
-              () => {
-                'worklet'
-                // set these values to check animation at specific point
-                outroLogo.set(
-                  withTiming(
-                    1,
-                    {duration: 1200, easing: Easing.in(Easing.cubic)},
-                    () => {
-                      scheduleOnRN(onFinish)
-                    },
-                  ),
-                )
-                outroApp.set(
-                  withTiming(1, {
-                    duration: 1200,
-                    easing: Easing.inOut(Easing.cubic),
-                  }),
-                )
-                outroSplashOpacity.set(
-                  withTiming(1, {
-                    duration: 1200,
-                    easing: Easing.in(Easing.cubic),
-                  }),
-                )
-              },
-            ),
-          )
+        .then(startOutro)
+        .catch(() => {
+          startOutro()
         })
-        .catch(() => {})
+
+      return () => clearTimeout(failsafeTimer)
     }
   }, [onFinish, intro, outroLogo, outroApp, outroSplashOpacity, isReady])
 
   useEffect(() => {
-    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion)
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then(setReduceMotion)
+      .catch(() => setReduceMotion(false))
   }, [])
 
   const logoBg = isDarkMode ? '#000000' : '#0F1419'

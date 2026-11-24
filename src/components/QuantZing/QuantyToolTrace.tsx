@@ -1,9 +1,11 @@
 import {useMemo, useState} from 'react'
 import {Pressable, View} from 'react-native'
 
-import {type QuantyEngineOrigin} from '#/lib/quantos/client'
 import {
-  formatOriginLabel,
+  type QuantyEngineOrigin,
+  stripEmojisAndSymbols,
+} from '#/lib/quantos/client'
+import {
   getQuantyThemeColors,
   type QuantyToolTraceItem,
 } from '#/lib/quantos/quantyBridge'
@@ -12,7 +14,6 @@ import {
   ChevronBottom_Stroke2_Corner0_Rounded as ChevronDownIcon,
   ChevronRight_Stroke2_Corner0_Rounded as ChevronRightIcon,
 } from '#/components/icons/Chevron'
-import {Wrench_Stroke2_Corner2_Rounded as ToolIcon} from '#/components/icons/Wrench'
 import {Text} from '#/components/Typography'
 
 export interface QuantyToolTraceProps {
@@ -24,178 +25,139 @@ export interface QuantyToolTraceProps {
   compact?: boolean
 }
 
+function formatTraceCaptionItem(item: QuantyToolTraceItem): string {
+  const key = (item.toolName || '').toLowerCase()
+  const count =
+    typeof item.itemCount === 'number' && item.itemCount > 0
+      ? item.itemCount
+      : null
+
+  if (key.includes('trend')) {
+    return count ? `Checked ${count} live trends` : 'Checked live trends'
+  }
+  if (key.includes('search_zing') || key === 'search') {
+    return count
+      ? `Searched ${count} ${count === 1 ? 'Zing' : 'Zings'}`
+      : 'Searched Zings'
+  }
+  if (key.includes('people') || key.includes('account')) {
+    return count
+      ? `Searched ${count} ${count === 1 ? 'account' : 'accounts'}`
+      : 'Searched accounts'
+  }
+  if (key.includes('analytic')) {
+    return 'Reviewed your analytics'
+  }
+  if (key.includes('profile')) {
+    return 'Checked profile'
+  }
+  if (key.includes('thread')) {
+    return 'Read thread'
+  }
+  if (key.includes('notif')) {
+    return count
+      ? `Checked ${count} ${count === 1 ? 'notification' : 'notifications'}`
+      : 'Checked notifications'
+  }
+  if (key.includes('bookmark')) {
+    return count
+      ? `Checked ${count} ${count === 1 ? 'bookmark' : 'bookmarks'}`
+      : 'Checked bookmarks'
+  }
+  if (key.includes('dm') || key.includes('message')) {
+    return 'Checked direct messages'
+  }
+  if (key.includes('list')) {
+    return 'Checked lists'
+  }
+
+  const cleanTitle = stripEmojisAndSymbols(item.title || 'Checked source').trim()
+  if (!cleanTitle) return 'Checked source'
+  return count ? `${cleanTitle} (${count})` : cleanTitle
+}
+
 export function QuantyToolTrace({
   traces = [],
-  origin,
-  model,
-  provider,
-  latencyMs,
   compact = false,
 }: QuantyToolTraceProps) {
   const t = useTheme()
   const colors = useMemo(() => getQuantyThemeColors(t.name), [t.name])
   const [expanded, setExpanded] = useState(false)
 
-  const originLabel = formatOriginLabel(origin)
-  const originDotColor =
-    origin === 'quant-ai' || origin === 'quant-router'
-      ? colors.rezing
-      : colors.accent
+  const captionText = useMemo(() => {
+    if (traces.length === 0) return ''
+    if (traces.length === 1) {
+      return formatTraceCaptionItem(traces[0])
+    }
+    const first = formatTraceCaptionItem(traces[0])
+    if (compact || traces.length > 2) {
+      return `${first} + ${traces.length - 1} more`
+    }
+    return `${first} · ${formatTraceCaptionItem(traces[1])}`
+  }, [compact, traces])
 
-  const totalToolMs = useMemo(
-    () => traces.reduce((acc, item) => acc + Number(item.latencyMs || 0), 0),
-    [traces],
-  )
-
-  if (!origin && traces.length === 0) {
+  if (traces.length === 0) {
     return null
   }
+
+  const detailsBg =
+    colors.mode === 'dark'
+      ? '#16181C'
+      : colors.mode === 'dim'
+        ? '#1E2732'
+        : '#F7F9F9'
 
   return (
     <View style={[a.gap_xs]}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Toggle live tool execution trace"
-        onPress={() => {
-          if (traces.length > 0) setExpanded(prev => !prev)
-        }}
+        accessibilityLabel={`${captionText}. Tap to inspect details`}
+        onPress={() => setExpanded(prev => !prev)}
         style={[
           a.flex_row,
-          a.flex_wrap,
           a.align_center,
-          a.justify_between,
-          a.gap_xs,
-          a.px_sm,
-          a.py_2xs,
-          a.rounded_md,
-          {
-            backgroundColor: colors.surface,
-            borderWidth: 1,
-            borderColor: colors.border,
-          },
-          traces.length > 0 ? web({cursor: 'pointer'}) : undefined,
+          a.gap_2xs,
+          {alignSelf: 'flex-start', paddingVertical: 2},
+          web({cursor: 'pointer'}),
         ]}>
-        <View style={[a.flex_row, a.align_center, a.gap_xs, a.flex_wrap]}>
-          <View
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: 99,
-              backgroundColor: originDotColor,
-            }}
-          />
-          <Text style={[a.text_2xs, a.font_bold, {color: colors.text}]}>
-            {originLabel}
-          </Text>
-          {model && !compact ? (
-            <Text style={[a.text_2xs, {color: colors.muted}]}>
-              {model}
-            </Text>
-          ) : null}
-          {provider &&
-          provider !== origin &&
-          provider !== 'quant-ai' &&
-          provider !== 'quant-router' &&
-          !compact ? (
-            <Text style={[a.text_2xs, {color: colors.muted}]}>
-              {provider}
-            </Text>
-          ) : null}
-        </View>
-
-        <View style={[a.flex_row, a.align_center, a.gap_xs]}>
-          {traces.length > 0 && (
-            <View style={[a.flex_row, a.align_center, a.gap_2xs]}>
-              <ToolIcon size="xs" fill={colors.muted} />
-              <Text
-                style={[a.text_2xs, a.font_semi_bold, {color: colors.muted}]}>
-                {traces.length} {traces.length === 1 ? 'tool' : 'tools'}
-                {totalToolMs > 0 ? ` (${totalToolMs}ms)` : ''}
-              </Text>
-            </View>
+        <Text
+          numberOfLines={1}
+          style={[
+            a.text_xs,
+            {
+              color: colors.muted,
+              fontSize: compact ? 11 : 12,
+              lineHeight: compact ? 15 : 16,
+            },
+          ]}>
+          {captionText}
+        </Text>
+        <View style={{opacity: 0.7}}>
+          {expanded ? (
+            <ChevronDownIcon size="xs" fill={colors.muted} />
+          ) : (
+            <ChevronRightIcon size="xs" fill={colors.muted} />
           )}
-          {typeof latencyMs === 'number' && (
-            <Text style={[a.text_2xs, {color: colors.muted}]}>
-              {latencyMs}ms
-            </Text>
-          )}
-          {traces.length > 0 &&
-            (expanded ? (
-              <ChevronDownIcon size="xs" fill={colors.muted} />
-            ) : (
-              <ChevronRightIcon size="xs" fill={colors.muted} />
-            ))}
         </View>
       </Pressable>
 
-      {/* Compact inline summary pills when collapsed */}
-      {!expanded && traces.length > 0 && (
-        <View style={[a.flex_row, a.flex_wrap, a.gap_2xs]}>
-          {traces.slice(0, compact ? 3 : 6).map((item, idx) => {
-            const dotColor =
-              item.status === 'ok'
-                ? colors.rezing
-                : item.status === 'auth_required'
-                  ? colors.accent
-                  : colors.danger
-            return (
-              <Pressable
-                key={`${item.toolName}_${idx}`}
-                accessibilityRole="button"
-                accessibilityLabel={item.title}
-                onPress={() => setExpanded(true)}
-                style={[
-                  a.flex_row,
-                  a.align_center,
-                  a.gap_2xs,
-                  a.px_xs,
-                  {
-                    paddingVertical: 3,
-                    borderRadius: 999,
-                    backgroundColor: colors.bg,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                  },
-                  web({cursor: 'pointer'}),
-                ]}>
-                <View
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: 99,
-                    backgroundColor: dotColor,
-                  }}
-                />
-                <Text
-                  style={[a.text_2xs, a.font_semi_bold, {color: colors.text}]}>
-                  {item.title}
-                  {typeof item.itemCount === 'number'
-                    ? ` (${item.itemCount})`
-                    : ''}
-                </Text>
-                <Text style={[a.text_2xs, {color: colors.muted}]}>
-                  {item.latencyMs}ms
-                </Text>
-              </Pressable>
-            )
-          })}
-        </View>
-      )}
-
-      {/* Detailed expanded tool trace */}
-      {expanded && traces.length > 0 && (
+      {expanded && (
         <View
           style={[
             a.p_sm,
-            a.rounded_md,
             a.gap_xs,
             {
-              backgroundColor: colors.bg,
+              borderRadius: 12,
+              backgroundColor: detailsBg,
               borderWidth: 1,
               borderColor: colors.border,
             },
           ]}>
           {traces.map((item, idx) => {
+            const cleanTitle =
+              stripEmojisAndSymbols(item.title || '') ||
+              formatTraceCaptionItem(item)
+            const cleanSummary = stripEmojisAndSymbols(item.summary || '')
             const statusColor =
               item.status === 'ok'
                 ? colors.rezing
@@ -204,17 +166,18 @@ export function QuantyToolTrace({
                   : colors.danger
             const statusText =
               item.status === 'ok'
-                ? 'Live'
+                ? 'Done'
                 : item.status === 'auth_required'
-                  ? 'Sign in'
-                  : 'Error'
+                  ? 'Sign in needed'
+                  : 'Unavailable'
+
             return (
               <View
-                key={`${item.toolName}_d_${idx}`}
+                key={`${item.toolName}_${idx}`}
                 style={[
                   a.gap_2xs,
                   idx > 0 && {
-                    paddingTop: 6,
+                    paddingTop: 8,
                     borderTopWidth: 1,
                     borderTopColor: colors.border,
                   },
@@ -227,26 +190,33 @@ export function QuantyToolTrace({
                     a.gap_xs,
                   ]}>
                   <Text
-                    style={[a.text_xs, a.font_bold, {color: colors.text}]}>
-                    {item.title}
+                    numberOfLines={1}
+                    style={[
+                      a.text_xs,
+                      a.font_semi_bold,
+                      a.flex_1,
+                      {color: colors.text},
+                    ]}>
+                    {cleanTitle}
                   </Text>
-                  <View style={[a.flex_row, a.align_center, a.gap_xs]}>
-                    <Text
-                      style={[
-                        a.text_2xs,
-                        a.font_bold,
-                        {color: statusColor},
-                      ]}>
-                      {statusText}
-                    </Text>
-                    <Text style={[a.text_2xs, {color: colors.muted}]}>
-                      {item.latencyMs}ms
-                    </Text>
-                  </View>
+                  <Text
+                    style={[
+                      a.text_2xs,
+                      a.font_semi_bold,
+                      {color: statusColor},
+                    ]}>
+                    {statusText}
+                  </Text>
                 </View>
-                <Text style={[a.text_2xs, {color: colors.muted}]}>
-                  {item.summary}
-                </Text>
+                {cleanSummary ? (
+                  <Text
+                    style={[
+                      a.text_xs,
+                      {color: colors.muted, lineHeight: 17},
+                    ]}>
+                    {cleanSummary}
+                  </Text>
+                ) : null}
               </View>
             )
           })}
