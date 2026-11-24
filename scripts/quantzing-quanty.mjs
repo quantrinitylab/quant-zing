@@ -619,6 +619,11 @@ const TOOL_ALIASES = {
   quantzing_create_zing: 'quantzing_publish_zing',
   quantzing_reply_zing: 'quantzing_reply_to_zing',
   quantzing_follow_actor: 'quantzing_follow_account',
+  trending_topics: 'quantzing_get_trends',
+  get_trends: 'quantzing_get_trends',
+  search_zings: 'quantzing_search_zings',
+  get_thread: 'quantzing_get_thread',
+  get_profile: 'quantzing_get_profile',
 }
 
 const TOOL_MAP = new Map(QUANTY_TOOLS.map(t => [t.name, t]))
@@ -3060,32 +3065,33 @@ function classifyConversationalIntent(prompt, mode, postContext, history = []) {
 
   if (target.primaryText) {
     let rewriteTone = null
+    const rewritePrefix = '(?:(?:please|bhai|yaar)\\s+)?(?:(?:make|rewrite|write)\\s+(?:it|this|that)?\\s*)?'
     if (
-      /^(?:(?:please|bhai|yaar)\s+)?(?:make\s+(?:it|this|that)\s+)?(?:funnier|more\s+funny|wittier|more\s+witty|add\s+humor|aur\s+funny\s+banao|thoda\s+funny\s+(?:karo|banao)|funny\s+banao|mazedaar\s+banao)[\s?!.]*$/i.test(
+      new RegExp(`^${rewritePrefix}(?:funnier|more\\s+funny|wittier|more\\s+witty|add\\s+humor|aur\\s+funny\\s+banao|thoda\\s+funny\\s+(?:karo|banao)|funny\\s+banao|mazedaar\\s+banao)[\\s?!.]*$`, 'i').test(
         trimmed,
       )
     ) {
       rewriteTone = 'funny'
     } else if (
-      /^(?:(?:please|bhai|yaar)\s+)?(?:make\s+(?:it|this|that)\s+)?(?:sharper|punchier|crisper|more\s+direct|tighten\s+(?:it|this)|polish\s+(?:it|this)|aur\s+sharp\s+banao)[\s?!.]*$/i.test(
+      new RegExp(`^${rewritePrefix}(?:sharper|punchier|crisper|more\\s+direct|tighten(?:\\s+(?:it|this))?|polish(?:\\s+(?:it|this))?|aur\\s+sharp\\s+banao)[\\s?!.]*$`, 'i').test(
         trimmed,
       )
     ) {
       rewriteTone = 'sharp'
     } else if (
-      /^(?:(?:please|bhai|yaar)\s+)?(?:make\s+(?:it|this|that)\s+)?(?:more\s+professional|professional|more\s+formal|formal\s+tone|executive\s+tone|business\s+tone|professional\s+banao)[\s?!.]*$/i.test(
+      new RegExp(`^${rewritePrefix}(?:more\\s+professional|professional|more\\s+formal|formal\\s+tone|executive\\s+tone|business\\s+tone|professional\\s+banao)[\\s?!.]*$`, 'i').test(
         trimmed,
       )
     ) {
       rewriteTone = 'professional'
     } else if (
-      /^(?:(?:please|bhai|yaar)\s+)?(?:make\s+(?:it|this|that)\s+)?(?:bolder|spicier|more\s+bold|hot\s+take\s+version|aur\s+bold\s+banao|bold\s+banao)[\s?!.]*$/i.test(
+      new RegExp(`^${rewritePrefix}(?:bolder|spicier|more\\s+bold|hot\\s+take\\s+version|aur\\s+bold\\s+banao|bold\\s+banao)[\\s?!.]*$`, 'i').test(
         trimmed,
       )
     ) {
       rewriteTone = 'bold'
     } else if (
-      /^(?:(?:please|bhai|yaar)\s+)?(?:turn\s+(?:it|this|that)\s+into\s+a\s+thread|make\s+(?:it|this|that)\s+(?:into\s+)?a\s+thread|expand\s+(?:it|this)\s+into\s+a\s+thread|split\s+(?:it|this)\s+into\s+a\s+thread|(?:iska\s+)?thread\s+banao|3-?post\s+thread)[\s?!.]*$/i.test(
+      new RegExp(`^${rewritePrefix}(?:turn(?:\\s+(?:it|this|that))?\\s+into\\s+a\\s+thread|into\\s+a\\s+thread|expand(?:\\s+(?:it|this))?\\s+into\\s+a\\s+thread|split(?:\\s+(?:it|this))?\\s+into\\s+a\\s+thread|(?:iska\\s+)?thread\\s+banao|3-?post\\s+thread)[\\s?!.]*$`, 'i').test(
         trimmed,
       )
     ) {
@@ -3790,18 +3796,28 @@ export function createQuantyBridge(deps = {}) {
       return
     }
     const body = JSON.stringify(payload)
-    res.writeHead(status, {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers':
-        'Authorization, Content-Type, X-Quant-Service-Token, X-Quant-Owner-Id',
-      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    })
-    res.end(body)
+    if (typeof res.writeHead === 'function') {
+      res.writeHead(status, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers':
+          'Authorization, Content-Type, X-Quant-Service-Token, X-Quant-Owner-Id',
+        'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+      })
+    }
+    if (typeof res.statusCode === 'number') {
+      res.statusCode = status
+    }
+    if (typeof res.end === 'function') {
+      res.end(body)
+    }
   }
 
   async function parseBody(req, maxBytes = 256 * 1024) {
+    if (req?.body && typeof req.body === 'object') {
+      return req.body
+    }
     if (typeof deps.readJsonBody === 'function') {
       const parsed = await deps.readJsonBody(req, maxBytes)
       return parsed && typeof parsed === 'object' ? parsed : {}
@@ -6556,7 +6572,7 @@ export function createQuantyBridge(deps = {}) {
     if (proposedActions.length === 0 && conversational?.kind === 'followup_shorten') {
       const tldr = extractCoreTldr(conversational.sourceText)
       return {
-        answer: `### Core Takeaway (TL;DR)\n\n> ${tldr.summary}\n\n**Zing-ready draft:**\n\`${tldr.zingReady}\``,
+        answer: `> ${tldr.zingReady}`,
         suggestedZingDraft: tldr.zingReady,
       }
     }
@@ -7142,7 +7158,7 @@ export function createQuantyBridge(deps = {}) {
           romanize: conversational.romanize,
           langLabel: conversational.langLabel,
         },
-        2200,
+        3500,
       )
       if (transResult.ok && transResult.translated) {
         answer = [
@@ -7164,12 +7180,15 @@ export function createQuantyBridge(deps = {}) {
     // or if a deterministic handler (math, coding, translation, follow-up) should take precedence when offline
     const isDeterministicInstant = Boolean(
       answer ||
+      conversational?.kind === 'greeting' ||
+      conversational?.kind === 'identity' ||
+      conversational?.kind === 'thanks' ||
       conversational?.kind === 'math' ||
       conversational?.kind === 'coding' ||
       conversational?.kind === 'followup_shorten' ||
       conversational?.kind === 'followup_rewrite'
     )
-    const shouldCallLlm = !answer && !(intent.isExplicitSlash && proposedActions.length > 0)
+    const shouldCallLlm = !answer && !isDeterministicInstant && !(intent.isExplicitSlash && proposedActions.length > 0)
     if (shouldCallLlm) {
       const llm = await callQuantOsReasoning({
         prompt,
@@ -7488,13 +7507,23 @@ export function createQuantyBridge(deps = {}) {
       .replace(/@quanty(?:\.quantzing\.(?:com|in))?/gi, '')
       .replace(/\s+/g, ' ')
       .trim()
+    const parentUri = postContext?.uri || postContext?.entryUri || ''
     const authorHandle = cleanHandle(postContext?.authorHandle || '')
-    const handlePrefix = authorHandle ? `@${authorHandle} ` : ''
-    const parentText = stripEmojis(postContext?.text || '')
+    const replierHandle = cleanHandle(postContext?.replierHandle || '')
+    const targetHandle = replierHandle || authorHandle
+    const handlePrefix = targetHandle ? `@${targetHandle} ` : ''
+    const parentText = stripEmojis(postContext?.text || postContext?.rootText || '')
 
+    const isDeictic =
+      /^(?:(?:can\s+you|please|bhai|yaar)\s+)?(?:explain\s+(?:this|that)|what\s+is\s+(?:this|that)|fact\s*check(?:\s+(?:this|that))?|summarize(?:\s+(?:this|that))?|summary|translate(?:\s+(?:this|that))?(?:\s+to\s+\w+)?|iska\s+matlab(?:\s+kya\s+hai)?|tell\s+me\s+more|check\s+this|is\s+this\s+true|real\s+or\s+fake)[\s?!.]*$/i.test(
+        cleanedPrompt,
+      ) || cleanedPrompt.length <= 3
+
+    const topicKeywords = parentText ? extractKeywords(parentText, 3).join(' ') : ''
+    const knowledgeQuery = isDeictic && topicKeywords ? topicKeywords : cleanedPrompt
     const searchSeed =
       extractKeywords(`${cleanedPrompt} ${parentText}`, 4).join(' ') ||
-      cleanedPrompt.slice(0, 60)
+      (isDeictic && topicKeywords ? topicKeywords : cleanedPrompt.slice(0, 60))
 
     const [searchRaw, trendsRaw] = await Promise.all([
       searchSeed
@@ -7517,7 +7546,16 @@ export function createQuantyBridge(deps = {}) {
     const trends = Array.isArray(trendsRaw)
       ? trendsRaw
       : trendsRaw?.trends || []
-    const citations = posts.map(postViewToCitation).filter(Boolean)
+    const citations = posts
+      .map(postViewToCitation)
+      .filter(
+        c =>
+          c &&
+          c.uri &&
+          c.uri !== parentUri &&
+          c.uri !== postContext?.uri &&
+          c.uri !== postContext?.entryUri,
+      )
 
     const groundingLines = []
     if (parentText) groundingLines.push(`Parent Zing: "${parentText.slice(0, 180)}"`)
@@ -7541,7 +7579,10 @@ export function createQuantyBridge(deps = {}) {
     }
 
     const llm = await callQuantOsReasoning({
-      prompt: cleanedPrompt || 'Summarize and provide factual context on this Zing.',
+      prompt:
+        isDeictic && parentText
+          ? `Explain and provide factual context on this Zing about "${topicKeywords || parentText.slice(0, 60)}": "${parentText.slice(0, 200)}"`
+          : cleanedPrompt || 'Summarize and provide factual context on this Zing.',
       mode: 'ask',
       viewerDid,
       history: [],
@@ -7573,8 +7614,8 @@ export function createQuantyBridge(deps = {}) {
       )
     } else {
       const mentionKnowledge =
-        cleanedPrompt.length >= 4
-          ? await fetchExternalKnowledge(cleanedPrompt, 1800).catch(() => null)
+        knowledgeQuery.length >= 4
+          ? await fetchExternalKnowledge(knowledgeQuery, 1800).catch(() => null)
           : null
       if (mentionKnowledge?.ok && mentionKnowledge.summary) {
         const firstSentence =
@@ -7637,6 +7678,7 @@ export function createQuantyBridge(deps = {}) {
       pathname === '/api/quantzing/quanty/manifest' ||
       pathname === '/api/quantzing/quanty/execute' ||
       pathname === '/api/quantzing/quanty/chat' ||
+      pathname === '/api/quantzing/quanty/ask' ||
       pathname === '/api/quantzing/quanty/threads' ||
       pathname.startsWith('/api/quantzing/quanty/threads/')
 
@@ -7672,7 +7714,11 @@ export function createQuantyBridge(deps = {}) {
       }
 
       // Conversational Tool-Orchestrated Chat
-      if (method === 'POST' && pathname === '/api/quantzing/quanty/chat') {
+      if (
+        method === 'POST' &&
+        (pathname === '/api/quantzing/quanty/chat' ||
+          pathname === '/api/quantzing/quanty/ask')
+      ) {
         await handleChat(req, res, origin || parsedUrl.origin)
         return true
       }
