@@ -293,7 +293,7 @@ export function SettingsScreen({}: Props) {
               <Trans>Sign out</Trans>
             </SettingsList.ItemText>
           </SettingsList.PressableItem>
-          {IS_INTERNAL && (
+          {Boolean(__DEV__) && (
             <>
               <SettingsList.Divider />
               <SettingsList.PressableItem

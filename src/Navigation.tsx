@@ -362,11 +362,13 @@ function commonScreens(Stack: typeof Flat, unreadCountLabel?: string) {
         getComponent={() => ProfileLabelerLikedByScreen}
         options={{title: title(msg`Liked by`)}}
       />
-      <Stack.Screen
-        name="Debug"
-        getComponent={() => StorybookScreen}
-        options={{title: title(msg`Storybook`), requireAuth: true}}
-      />
+      {Boolean(__DEV__) && (
+        <Stack.Screen
+          name="Debug"
+          getComponent={() => StorybookScreen}
+          options={{title: title(msg`Storybook`), requireAuth: true}}
+        />
+      )}
       <Stack.Screen
         name="DebugMod"
         getComponent={() => DebugModScreen}
