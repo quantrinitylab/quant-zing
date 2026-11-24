@@ -491,6 +491,25 @@ async function resolveMedia(
       }
     }
   }
+  if (embedDraft.media?.type === 'poll') {
+    const pollDraft = embedDraft.media
+    const validOptions = pollDraft.options
+      .map((text, idx) => ({id: `opt_${idx + 1}`, text: text.trim()}))
+      .filter(o => o.text.length > 0)
+    if (validOptions.length >= 2) {
+      const now = Date.now()
+      const expiresAt = new Date(
+        now + (pollDraft.durationHours || 24) * 3600000,
+      ).toISOString()
+      return {
+        $type: 'com.quantzing.embed.poll',
+        question: '',
+        options: validOptions,
+        durationHours: pollDraft.durationHours || 24,
+        expiresAt,
+      } as any
+    }
+  }
   return undefined
 }
 

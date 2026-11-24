@@ -13,9 +13,9 @@ export function useFilterFieldLabels(): Record<
   const {t: l} = useLingui()
 
   const hashtags = [
-    'bluesky atproto',
+    'quantzing quanty',
     l({
-      message: 'bloomscrolling booksky',
+      message: 'india ai startups',
       comment: 'Advanced search: Examples of hashtags',
     }),
   ]

@@ -732,7 +732,6 @@ export function Explore({
       i.push(trendingTopicsModule)
       i.push(...suggestedFeedsModule)
       i.push(...suggestedFollowsModule)
-      i.push(...suggestedStarterPacksModule)
       i.push(...feedPreviewsModule)
     } else {
       i.push(...suggestedFollowsModule)
@@ -742,7 +741,6 @@ export function Explore({
   }, [
     topBorder,
     suggestedFollowsModule,
-    suggestedStarterPacksModule,
     suggestedFeedsModule,
     trendingTopicsModule,
     feedPreviewsModule,

@@ -36,7 +36,7 @@ export function NewChat({
   const {data: chatStatus} = useChatActorStatusQuery()
   const chatDisabled = !!chatStatus?.chatDisabled
 
-  const isGroupChatEnabled = !ax.features.enabled(ax.features.GroupChatsDisable)
+  const isGroupChatEnabled = false
 
   const {mutate: createChat} = useGetConvoForMembers({
     onSuccess: data => {

@@ -56,7 +56,7 @@ export function ProfileHeaderMetrics({
       <Text style={[a.font_semi_bold, t.atoms.text, a.text_md]}>
         {formatCount(i18n, profile.postsCount || 0)}{' '}
         <Text style={[t.atoms.text_contrast_medium, a.font_normal, a.text_md]}>
-          {plural(profile.postsCount || 0, {one: 'post', other: 'posts'})}
+          {plural(profile.postsCount || 0, {one: 'Zing', other: 'Zings'})}
         </Text>
       </Text>
     </View>

@@ -111,10 +111,13 @@ let SearchResults = ({
         ),
       },
       noFilters && {
-        title: l`Starter Packs`,
+        title: l`Media`,
         component: (
-          <SearchScreenStarterPackResults
-            query={query}
+          <SearchScreenPostResults
+            hasFilters={hasFilters}
+            query={`${query} has:media`}
+            filters={filters}
+            sort="top"
             active={activePage === 4}
           />
         ),

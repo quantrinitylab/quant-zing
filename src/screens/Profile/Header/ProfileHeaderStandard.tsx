@@ -41,7 +41,7 @@ import {InviteFriendsDialog} from '#/features/inviteFriends'
 import {useActorStatus} from '#/features/liveNow'
 import {ProfileHeaderLinks} from '#/features/profileLinks'
 import {type app} from '#/lexicons'
-import {GermButton, isGermButtonShown} from '../components/GermButton'
+import {Calendar_Stroke2_Corner0_Rounded as CalendarIcon} from '#/components/icons/Calendar'
 import {ProfileHeaderDisplayName} from './DisplayName'
 import {EditProfileDialog} from './EditProfileDialog'
 import {ProfileHeaderHandle} from './Handle'
@@ -101,6 +101,16 @@ let ProfileHeaderStandard = ({
   }
 
   const isMe = currentAccount?.did === profile.did
+  const joinedDate = useMemo(() => {
+    if (!profile.createdAt) return null
+    try {
+      const d = new Date(profile.createdAt)
+      if (isNaN(d.getTime())) return null
+      return d.toLocaleDateString('en-US', {month: 'long', year: 'numeric'})
+    } catch {
+      return null
+    }
+  }, [profile.createdAt])
 
   const {isActive: live} = useActorStatus(profile)
 
@@ -162,19 +172,16 @@ let ProfileHeaderStandard = ({
               <ProfileHeaderLinks
                 profile={profile}
                 hidden={!!moderation.ui('profileView').blur}
-                germButton={
-                  isGermButtonShown(
-                    profile.associated?.germ,
-                    profile,
-                    currentAccount?.did,
-                  ) ? (
-                    <GermButton
-                      germ={profile.associated.germ}
-                      profile={profile}
-                    />
-                  ) : undefined
-                }
               />
+
+              {joinedDate && (
+                <View style={[a.flex_row, a.align_center, a.gap_xs, a.pt_2xs]}>
+                  <CalendarIcon size="xs" style={{color: t.palette.contrast_500}} />
+                  <Text style={[a.text_sm, {color: t.palette.contrast_500}]}>
+                    Joined {joinedDate}
+                  </Text>
+                </View>
+              )}
 
               {!isMe &&
                 !isBlockedUser &&

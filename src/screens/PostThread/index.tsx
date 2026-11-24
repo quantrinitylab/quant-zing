@@ -68,7 +68,7 @@ const CHILDREN_CHUNK_SIZE = 50
 
 export function PostThread({uri}: {uri: string}) {
   const ax = useAnalytics()
-  const showViewCount = ax.features.enabled(ax.features.PostViewCountsEnable)
+  const showViewCount = true
   const {gtMobile} = useBreakpoints()
   const {hasSession} = useSession()
   const initialNumToRender = useInitialNumToRender()

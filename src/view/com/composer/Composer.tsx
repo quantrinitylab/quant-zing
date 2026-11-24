@@ -124,6 +124,7 @@ import {atoms as a, native, useBreakpoints, useTheme, web} from '#/alf'
 import {Admonition} from '#/components/Admonition'
 import {Button, ButtonIcon, ButtonText} from '#/components/Button'
 import * as EmojiPicker from '#/components/EmojiPicker'
+import {BulletList_Stroke2_Corner0_Rounded as PollIcon} from '#/components/icons/BulletList'
 import {CircleCheck_Stroke2_Corner0_Rounded as CircleCheckIcon} from '#/components/icons/CircleCheck'
 import {CircleInfo_Stroke2_Corner0_Rounded as CircleInfoIcon} from '#/components/icons/CircleInfo'
 import {EmojiArc_Stroke2_Corner0_Rounded as EmojiSmileIcon} from '#/components/icons/Emoji'
@@ -990,6 +991,10 @@ export const ComposePost = ({
           !(
             post.embed.media?.type === 'video' &&
             post.embed.media.video.status === 'error'
+          ) &&
+          !(
+            post.embed.media?.type === 'poll' &&
+            post.embed.media.options.filter(o => o.trim().length > 0).length < 2
           )),
     )
 
@@ -2050,7 +2055,164 @@ function ComposerEmbeds({
           </View>
         </View>
       ) : null}
+      {embed.media?.type === 'poll' && (
+        <ComposerPollCard poll={embed.media} dispatch={dispatch} />
+      )}
     </>
+  )
+}
+
+function ComposerPollCard({
+  poll,
+  dispatch,
+}: {
+  poll: PollMedia
+  dispatch: (action: ComposerAction) => void
+}) {
+  const t = useTheme()
+  const {t: l} = useLingui()
+
+  return (
+    <View
+      style={[
+        a.w_full,
+        a.mt_md,
+        a.p_md,
+        a.rounded_md,
+        a.gap_sm,
+        {
+          backgroundColor: t.palette.contrast_25,
+          borderWidth: 1,
+          borderColor: t.palette.contrast_100,
+        },
+      ]}>
+      <View style={[a.flex_row, a.align_center, a.justify_between]}>
+        <View style={[a.flex_row, a.align_center, a.gap_xs]}>
+          <PollIcon size="sm" style={{color: t.palette.primary_500}} />
+          <Text style={[a.text_sm, a.font_bold, t.atoms.text]}>
+            <Trans>Poll</Trans>
+          </Text>
+        </View>
+        <Button
+          label={l`Remove poll`}
+          size="tiny"
+          variant="ghost"
+          color="negative"
+          onPress={() => dispatch({type: 'embed_toggle_poll'})}>
+          <ButtonText style={{color: t.palette.negative_400}}>
+            <Trans>Remove poll</Trans>
+          </ButtonText>
+        </Button>
+      </View>
+
+      <View style={[a.gap_xs]}>
+        {poll.options.map((opt, idx) => (
+          <View key={idx} style={[a.flex_row, a.align_center, a.gap_xs]}>
+            <TextInput
+              value={opt}
+              onChangeText={val =>
+                dispatch({
+                  type: 'embed_update_poll_option',
+                  index: idx,
+                  value: val,
+                })
+              }
+              placeholder={`Option ${idx + 1}`}
+              placeholderTextColor={t.palette.contrast_400}
+              maxLength={50}
+              style={[
+                a.flex_1,
+                a.px_sm,
+                a.py_xs,
+                a.text_sm,
+                a.rounded_sm,
+                t.atoms.text,
+                {
+                  backgroundColor: t.palette.contrast_50,
+                  borderWidth: 1,
+                  borderColor: t.palette.contrast_100,
+                },
+              ]}
+            />
+            {poll.options.length > 2 && (
+              <Button
+                label={l`Remove option`}
+                size="tiny"
+                variant="ghost"
+                shape="round"
+                onPress={() =>
+                  dispatch({type: 'embed_remove_poll_option', index: idx})
+                }>
+                <ButtonIcon icon={XIcon} />
+              </Button>
+            )}
+          </View>
+        ))}
+      </View>
+
+      {poll.options.length < 4 && (
+        <Button
+          label={l`Add option`}
+          size="small"
+          variant="ghost"
+          color="primary"
+          onPress={() => dispatch({type: 'embed_add_poll_option'})}>
+          <ButtonIcon icon={PlusIcon} />
+          <ButtonText>
+            <Trans>Add option</Trans>
+          </ButtonText>
+        </Button>
+      )}
+
+      <View style={[a.flex_row, a.align_center, a.gap_xs, a.pt_xs]}>
+        <Text style={[a.text_xs, t.atoms.text_contrast_medium]}>
+          <Trans>Poll length:</Trans>
+        </Text>
+        {[
+          {hours: 1, label: '1 hour'},
+          {hours: 6, label: '6 hours'},
+          {hours: 24, label: '1 day'},
+          {hours: 72, label: '3 days'},
+          {hours: 168, label: '7 days'},
+        ].map(d => {
+          const isSelected = poll.durationHours === d.hours
+          return (
+            <Pressable
+              key={d.hours}
+              accessibilityRole="button"
+              onPress={() =>
+                dispatch({
+                  type: 'embed_set_poll_duration',
+                  durationHours: d.hours,
+                })
+              }
+              style={[
+                a.px_xs,
+                a.py_2xs,
+                a.rounded_full,
+                {
+                  backgroundColor: isSelected
+                    ? t.palette.primary_500
+                    : t.palette.contrast_50,
+                  borderWidth: 1,
+                  borderColor: isSelected
+                    ? t.palette.primary_500
+                    : t.palette.contrast_100,
+                },
+              ]}>
+              <Text
+                style={[
+                  a.text_2xs,
+                  a.font_semi_bold,
+                  {color: isSelected ? '#FFFFFF' : t.atoms.text.color},
+                ]}>
+                {d.label}
+              </Text>
+            </Pressable>
+          )
+        })}
+      </View>
+    </View>
   )
 }
 
@@ -2275,6 +2437,24 @@ function ComposerFooter({
                 onAdd={onImageAdd}
               />
               <SelectGifBtn onSelectGif={onSelectGif} disabled={!!media} />
+              <Button
+                style={a.p_sm}
+                label={l`Add a poll`}
+                variant="ghost"
+                shape="round"
+                color="primary"
+                disabled={!!media && media.type !== 'poll'}
+                onPress={() => dispatch({type: 'embed_toggle_poll'})}>
+                <PollIcon
+                  size="lg"
+                  style={{
+                    color:
+                      media?.type === 'poll'
+                        ? t.palette.primary_500
+                        : undefined,
+                  }}
+                />
+              </Button>
               {IS_WEB && gtPhone ? (
                 <EmojiPicker.Root nextFocusRef={textInputRef}>
                   <EmojiPicker.Trigger label={l`Open emoji picker`}>

@@ -21,15 +21,7 @@ export function PostViewCount({post}: {post: app.bsky.feed.defs.PostView}) {
   const count = post.viewCount
   const explanation = l`This view count shows how many unique times your Zing was viewed on QuantZing.`
 
-  if (
-    currentAccount?.did !== post.author.did ||
-    state.isLoading ||
-    !flags.hasDeclaredAge ||
-    flags.isDeclaredUnderAdultAge ||
-    count === undefined ||
-    !Number.isSafeInteger(count) ||
-    count < 100
-  ) {
+  if (count === undefined || !Number.isSafeInteger(count) || count <= 0) {
     return null
   }
 

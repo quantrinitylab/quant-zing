@@ -1,5 +1,5 @@
 import {useCallback, useMemo, useState} from 'react'
-import {View} from 'react-native'
+import {TextInput, View} from 'react-native'
 import {type $Typed} from '@atproto/lex'
 import {msg} from '@lingui/core/macro'
 import {useLingui} from '@lingui/react'
@@ -30,9 +30,11 @@ import {
   BookmarkDelete_Stroke2_Corner0_Rounded_Large as BookmarkDeleteLarge,
 } from '#/components/icons/Bookmark'
 import {CircleQuestion_Stroke2_Corner2_Rounded as QuestionIcon} from '#/components/icons/CircleQuestion'
+import {MagnifyingGlass2_Stroke2_Corner0_Rounded as MagnifyingGlassIcon} from '#/components/icons/MagnifyingGlass'
 import * as Layout from '#/components/Layout'
 import {ListFooter} from '#/components/Lists'
 import {PostFeedSkeleton} from '#/components/PostFeedSkeleton'
+import * as Prompt from '#/components/Prompt'
 import * as Skele from '#/components/Skeleton'
 import * as toast from '#/components/Toast'
 import {Text} from '#/components/Typography'
@@ -45,11 +47,32 @@ type Props = NativeStackScreenProps<CommonNavigatorParams, 'Bookmarks'>
 
 export function BookmarksScreen({}: Props) {
   const ax = useAnalytics()
+  const t = useTheme()
+  const [searchQuery, setSearchQuery] = useState('')
+  const {data, refetch} = useBookmarksQuery()
+  const {mutateAsync: toggleBookmark} = useBookmarkMutation()
+  const clearPromptControl = Prompt.usePromptControl()
 
   useFocusEffect(
     useCallback(() => {
       ax.metric('bookmarks:view', {})
     }, [ax]),
+  )
+
+  const handleClearAll = useCallback(async () => {
+    const allUris =
+      data?.pages.flatMap(p => p.bookmarks).map(b => b.item.uri) || []
+    for (const uri of allUris) {
+      try {
+        await toggleBookmark({uri, action: 'delete'})
+      } catch {}
+    }
+    toast.show('All bookmarks cleared')
+    void refetch()
+  }, [data?.pages, refetch, toggleBookmark])
+
+  const hasBookmarks = Boolean(
+    data && data.pages.some(p => p.bookmarks.length > 0),
   )
 
   return (
@@ -58,12 +81,34 @@ export function BookmarksScreen({}: Props) {
         <Layout.Header.BackButton />
         <Layout.Header.Content>
           <Layout.Header.TitleText>
-            <Trans>Saved Posts</Trans>
+            <Trans>Bookmarks</Trans>
           </Layout.Header.TitleText>
         </Layout.Header.Content>
-        <Layout.Header.Slot />
+        <Layout.Header.Slot>
+          {hasBookmarks && (
+            <Button
+              label="Clear all"
+              size="tiny"
+              variant="ghost"
+              color="negative"
+              onPress={() => clearPromptControl.open()}>
+              <ButtonText style={{color: t.palette.negative_400}}>Clear all</ButtonText>
+            </Button>
+          )}
+        </Layout.Header.Slot>
       </Layout.Header.Outer>
-      <BookmarksInner />
+      <BookmarksInner
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+      />
+      <Prompt.Basic
+        control={clearPromptControl}
+        title="Clear all bookmarks?"
+        description="This will remove all saved Zings from your bookmarks."
+        onConfirm={handleClearAll}
+        confirmButtonCta="Clear all"
+        confirmButtonColor="negative"
+      />
     </Layout.Screen>
   )
 }
@@ -92,7 +137,14 @@ type ListItem =
       }
     }
 
-function BookmarksInner() {
+function BookmarksInner({
+  searchQuery,
+  setSearchQuery,
+}: {
+  searchQuery: string
+  setSearchQuery: (q: string) => void
+}) {
+  const t = useTheme()
   const initialNumToRender = useInitialNumToRender()
   const [isPTRing, setIsPTRing] = useState(false)
   const trackPostView = usePostViewTracking('Bookmarks')
@@ -130,7 +182,24 @@ function BookmarksInner() {
     } else if (error || !data) {
       // handled in Footer
     } else {
-      const bookmarks = data.pages.flatMap(p => p.bookmarks)
+      const allBookmarks = data.pages.flatMap(p => p.bookmarks)
+      const q = searchQuery.trim().toLowerCase()
+      const bookmarks = q
+        ? allBookmarks.filter(b => {
+            const post = bsky.isType(app.bsky.feed.defs.postView, b.item)
+              ? b.item
+              : null
+            if (!post) return false
+            const text = (post.record as any)?.text || ''
+            const handle = post.author.handle || ''
+            const name = post.author.displayName || ''
+            return (
+              text.toLowerCase().includes(q) ||
+              handle.toLowerCase().includes(q) ||
+              name.toLowerCase().includes(q)
+            )
+          })
+        : allBookmarks
 
       if (bookmarks.length > 0) {
         for (const bookmark of bookmarks) {
@@ -161,7 +230,7 @@ function BookmarksInner() {
     }
 
     return i
-  }, [isLoading, error, data])
+  }, [isLoading, error, data, searchQuery])
 
   const isEmpty = items.length === 1 && items[0]?.type === 'empty'
 
@@ -174,6 +243,35 @@ function BookmarksInner() {
       onRefresh={() => void onRefresh()}
       onEndReached={() => void onEndReached()}
       onEndReachedThreshold={4}
+      ListHeaderComponent={
+        <View style={[a.px_md, a.py_sm, a.border_b, t.atoms.border_contrast_low]}>
+          <View
+            style={[
+              a.flex_row,
+              a.align_center,
+              a.gap_xs,
+              a.px_sm,
+              a.py_xs,
+              a.rounded_full,
+              t.atoms.bg_contrast_25,
+              {borderWidth: 1, borderColor: t.palette.contrast_100},
+            ]}>
+            <MagnifyingGlassIcon size="xs" style={{color: t.palette.contrast_500}} />
+            <TextInput
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search Bookmarks..."
+              placeholderTextColor={t.palette.contrast_500}
+              style={[
+                a.flex_1,
+                a.text_sm,
+                t.atoms.text,
+                {padding: 0},
+              ]}
+            />
+          </View>
+        </View>
+      }
       onItemSeen={(item: ListItem) => {
         if (item.type === 'bookmark') {
           trackPostView(item.bookmark.item)

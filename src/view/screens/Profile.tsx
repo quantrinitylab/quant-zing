@@ -51,6 +51,8 @@ import {Message_Stroke1_Corner0_Rounded_Filled as MessageIcon} from '#/component
 import {VideoClip_Stroke1_Corner0_Rounded as VideoIcon} from '#/components/icons/VideoClip'
 import * as Layout from '#/components/Layout'
 import {ScreenHider} from '#/components/moderation/ScreenHider'
+import {Page_Stroke2_Corner0_Rounded as PageIcon} from '#/components/icons/Page'
+import {fetchArticles, type QuantZingArticleRecord} from '#/lib/quantos/client'
 import {ProfileStarterPacks} from '#/components/StarterPack/ProfileStarterPacks'
 import {type app} from '#/lexicons'
 import {navigate} from '#/Navigation'
@@ -88,6 +90,94 @@ export function ProfileScreen(props: Props) {
   )
 }
 
+function ProfileArticlesSection({
+  did,
+  headerHeight,
+  isFocused,
+  scrollElRef,
+  setScrollViewTag,
+}: {
+  did: string
+  headerHeight: number
+  isFocused: boolean
+  scrollElRef: ListRef
+  setScrollViewTag: (tag: number | null) => void
+}) {
+  const t = useTheme()
+  const {currentAccount} = useSession()
+  const [articles, setArticles] = useState<QuantZingArticleRecord[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!isFocused) return
+    let active = true
+    setLoading(true)
+    fetchArticles({author: did, accessJwt: currentAccount?.accessJwt})
+      .then(res => {
+        if (active) setArticles(res)
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [did, isFocused, currentAccount?.accessJwt])
+
+  if (loading && articles.length === 0) {
+    return (
+      <View style={[a.p_xl, a.align_center]}>
+        <ActivityIndicator size="small" />
+      </View>
+    )
+  }
+
+  if (articles.length === 0) {
+    return (
+      <View style={[a.p_xl, a.align_center, a.gap_sm]}>
+        <PageIcon size="lg" style={{color: t.palette.contrast_400}} />
+        <Text style={[a.text_md, a.font_semi_bold, t.atoms.text]}>
+          No Articles yet
+        </Text>
+        <Text style={[a.text_sm, t.atoms.text_contrast_medium, a.text_center]}>
+          Long-form sovereign articles published by this user will appear here.
+        </Text>
+      </View>
+    )
+  }
+
+  return (
+    <View style={[a.p_md, a.gap_md]}>
+      {articles.map(art => (
+        <View
+          key={art.id}
+          style={[
+            a.p_md,
+            a.rounded_md,
+            a.gap_xs,
+            {
+              backgroundColor: t.palette.contrast_25,
+              borderWidth: 1,
+              borderColor: t.palette.contrast_100,
+            },
+          ]}>
+          <Text style={[a.text_md, a.font_bold, t.atoms.text]}>{art.title}</Text>
+          {art.subtitle && (
+            <Text style={[a.text_sm, t.atoms.text_contrast_medium]}>
+              {art.subtitle}
+            </Text>
+          )}
+          <Text style={[a.text_xs, t.atoms.text_contrast_low]}>
+            {art.readingTimeMinutes ? `${art.readingTimeMinutes} min read · ` : ''}
+            {new Date(art.createdAt).toLocaleDateString()}
+          </Text>
+        </View>
+      ))}
+    </View>
+  )
+}
+
 function ProfileScreenInner({route}: Props) {
   const {_} = useLingui()
   const {currentAccount} = useSession()
@@ -118,16 +208,6 @@ function ProfileScreenInner({route}: Props) {
       void refetchProfile()
     }
   }, [resolveError, refetchDid, refetchProfile])
-
-  // Apply hard-coded redirects as need
-  useEffect(() => {
-    if (resolveError) {
-      if (name === 'lulaoficial.bsky.social') {
-        console.log('Applying redirect to lula.com.br')
-        void navigate({name: 'Profile', params: {name: 'lula.com.br'}})
-      }
-    }
-  }, [name, resolveError])
 
   // When we open the profile, we want to reset the posts query if we are blocked.
   useEffect(() => {
@@ -230,7 +310,7 @@ function ProfileScreenLoaded({
   const likesSectionRef = useRef<SectionRef>(null)
   const feedsSectionRef = useRef<SectionRef>(null)
   const listsSectionRef = useRef<SectionRef>(null)
-  const starterPacksSectionRef = useRef<SectionRef>(null)
+  const articlesSectionRef = useRef<SectionRef>(null)
   const labelsSectionRef = useRef<SectionRef>(null)
 
   useSetTitle(combinedDisplayName(profile))
@@ -266,13 +346,13 @@ function ProfileScreenLoaded({
   const sectionTitles = [
     showFiltersTab ? _(msg`Labels`) : undefined,
     showListsTab && hasLabeler ? _(msg`Lists`) : undefined,
-    showPostsTab ? _(msg`Posts`) : undefined,
+    showPostsTab ? _(msg`Zings`) : undefined,
     showRepliesTab ? _(msg`Replies`) : undefined,
     showMediaTab ? _(msg`Media`) : undefined,
     showVideosTab ? _(msg`Videos`) : undefined,
     showLikesTab ? _(msg`Likes`) : undefined,
     showFeedsTab ? _(msg`Feeds`) : undefined,
-    showStarterPacksTab ? _(msg`Starter Packs`) : undefined,
+    _(msg`Articles`),
     showListsTab && !hasLabeler ? _(msg`Lists`) : undefined,
   ].filter(Boolean) as string[]
 
@@ -284,7 +364,7 @@ function ProfileScreenLoaded({
   let videosIndex: number | null = null
   let likesIndex: number | null = null
   let feedsIndex: number | null = null
-  let starterPacksIndex: number | null = null
+  let articlesIndex: number | null = null
   let listsIndex: number | null = null
   if (showFiltersTab) {
     filtersIndex = nextIndex++
@@ -310,9 +390,7 @@ function ProfileScreenLoaded({
   if (showFeedsTab) {
     feedsIndex = nextIndex++
   }
-  if (showStarterPacksTab) {
-    starterPacksIndex = nextIndex++
-  }
+  articlesIndex = nextIndex++
   if (showListsTab && !hasLabeler) {
     listsIndex = nextIndex++
   }
@@ -325,7 +403,7 @@ function ProfileScreenLoaded({
       media: mediaIndex,
       videos: videosIndex,
       feeds: feedsIndex,
-      'starter-packs': starterPacksIndex,
+      'starter-packs': articlesIndex,
       lists: listsIndex,
     },
     0,
@@ -348,8 +426,8 @@ function ProfileScreenLoaded({
         likesSectionRef.current?.scrollToTop()
       } else if (index === feedsIndex) {
         feedsSectionRef.current?.scrollToTop()
-      } else if (index === starterPacksIndex) {
-        starterPacksSectionRef.current?.scrollToTop()
+      } else if (index === articlesIndex) {
+        articlesSectionRef.current?.scrollToTop()
       } else if (index === listsIndex) {
         listsSectionRef.current?.scrollToTop()
       }
@@ -362,8 +440,8 @@ function ProfileScreenLoaded({
       videosIndex,
       likesIndex,
       feedsIndex,
+      articlesIndex,
       listsIndex,
-      starterPacksIndex,
     ],
   )
 
@@ -606,38 +684,15 @@ function ProfileScreenLoaded({
               />
             )
           : null}
-        {showStarterPacksTab
-          ? ({headerHeight, isFocused, scrollElRef}) => (
-              <ProfileStarterPacks
-                ref={starterPacksSectionRef}
-                did={profile.did}
-                isMe={isMe}
-                scrollElRef={scrollElRef as ListRef}
-                headerOffset={headerHeight}
-                enabled={isFocused}
-                setScrollViewTag={setScrollViewTag}
-                emptyStateMessage={
-                  isMe
-                    ? _(
-                        msg`Starter Packs let you share your favorite feeds and people with your friends.`,
-                      )
-                    : _(msg`No Starter Packs yet`)
-                }
-                emptyStateButton={
-                  isMe
-                    ? {
-                        label: _(msg`Create a Starter Pack`),
-                        text: _(msg`Create a Starter Pack`),
-                        onPress: wrappedNavToWizard,
-                        color: 'primary',
-                        size: 'small',
-                      }
-                    : undefined
-                }
-                emptyStateIcon={CircleAndSquareIcon}
-              />
-            )
-          : null}
+        {({headerHeight, isFocused, scrollElRef}) => (
+          <ProfileArticlesSection
+            did={profile.did}
+            headerHeight={headerHeight}
+            isFocused={isFocused}
+            scrollElRef={scrollElRef as ListRef}
+            setScrollViewTag={setScrollViewTag}
+          />
+        )}
         {showListsTab && !profile.associated?.labeler
           ? ({headerHeight, isFocused, scrollElRef}) => (
               <ProfileLists

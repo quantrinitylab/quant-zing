@@ -54,6 +54,12 @@ type GifMedia = {
   alt: string
 }
 
+export type PollMedia = {
+  type: 'poll'
+  options: string[]
+  durationHours: number
+}
+
 type Link = {
   type: 'link'
   /*
@@ -69,7 +75,7 @@ type Link = {
 export type EmbedDraft = {
   // We'll always submit quote and actual media (images, video, gifs) chosen by the user.
   quote: Link | undefined
-  media: ImagesMedia | GalleryMedia | VideoMedia | GifMedia | undefined
+  media: ImagesMedia | GalleryMedia | VideoMedia | GifMedia | PollMedia | undefined
   // This field may end up ignored if we have more important things to display than a link card:
   link: Link | undefined
 }
@@ -102,6 +108,11 @@ export type PostAction =
   | {type: 'embed_add_gif'; gif: Gif}
   | {type: 'embed_update_gif'; alt: string}
   | {type: 'embed_remove_gif'}
+  | {type: 'embed_toggle_poll'}
+  | {type: 'embed_update_poll_option'; index: number; value: string}
+  | {type: 'embed_add_poll_option'}
+  | {type: 'embed_remove_poll_option'; index: number}
+  | {type: 'embed_set_poll_duration'; durationHours: number}
 
 export type ThreadDraft = {
   posts: PostDraft[]
@@ -609,6 +620,96 @@ function postReducer(state: PostDraft, action: PostAction): PostDraft {
       let nextMedia = prevMedia
       if (prevMedia?.type === 'gif') {
         nextMedia = undefined
+      }
+      return {
+        ...state,
+        embed: {
+          ...state.embed,
+          media: nextMedia,
+        },
+      }
+    }
+    case 'embed_toggle_poll': {
+      const prevMedia = state.embed.media
+      let nextMedia = prevMedia
+      if (prevMedia?.type === 'poll') {
+        nextMedia = undefined
+      } else if (!prevMedia) {
+        nextMedia = {
+          type: 'poll',
+          options: ['', ''],
+          durationHours: 24,
+        }
+      }
+      return {
+        ...state,
+        embed: {
+          ...state.embed,
+          media: nextMedia,
+        },
+      }
+    }
+    case 'embed_update_poll_option': {
+      const prevMedia = state.embed.media
+      let nextMedia = prevMedia
+      if (prevMedia?.type === 'poll') {
+        const nextOpts = [...prevMedia.options]
+        nextOpts[action.index] = action.value
+        nextMedia = {
+          ...prevMedia,
+          options: nextOpts,
+        }
+      }
+      return {
+        ...state,
+        embed: {
+          ...state.embed,
+          media: nextMedia,
+        },
+      }
+    }
+    case 'embed_add_poll_option': {
+      const prevMedia = state.embed.media
+      let nextMedia = prevMedia
+      if (prevMedia?.type === 'poll' && prevMedia.options.length < 4) {
+        nextMedia = {
+          ...prevMedia,
+          options: [...prevMedia.options, ''],
+        }
+      }
+      return {
+        ...state,
+        embed: {
+          ...state.embed,
+          media: nextMedia,
+        },
+      }
+    }
+    case 'embed_remove_poll_option': {
+      const prevMedia = state.embed.media
+      let nextMedia = prevMedia
+      if (prevMedia?.type === 'poll' && prevMedia.options.length > 2) {
+        nextMedia = {
+          ...prevMedia,
+          options: prevMedia.options.filter((_, i) => i !== action.index),
+        }
+      }
+      return {
+        ...state,
+        embed: {
+          ...state.embed,
+          media: nextMedia,
+        },
+      }
+    }
+    case 'embed_set_poll_duration': {
+      const prevMedia = state.embed.media
+      let nextMedia = prevMedia
+      if (prevMedia?.type === 'poll') {
+        nextMedia = {
+          ...prevMedia,
+          durationHours: action.durationHours,
+        }
       }
       return {
         ...state,

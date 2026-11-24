@@ -27,6 +27,8 @@ import {useFormatPostStatCount} from '#/components/PostControls/util'
 import * as Skele from '#/components/Skeleton'
 import * as Toast from '#/components/Toast'
 import {Text} from '#/components/Typography'
+import {requestOpenQuantyDock} from '#/lib/quantos/quantyBridge'
+import {IS_WEB} from '#/env'
 import {useAnalytics} from '#/analytics'
 import {useFeedItemFeedback} from '#/features/feedFeedback'
 import {app} from '#/lexicons'
@@ -95,7 +97,7 @@ let PostControls = ({
     post.author.viewer?.blockingByList,
   )
   const replyDisabled = post.viewer?.replyDisabled
-  const {gtPhone} = useBreakpoints()
+  const {gtPhone, gtMobile} = useBreakpoints()
   const formatPostStatCount = useFormatPostStatCount()
 
   const [hasLikeIconBeenToggled, setHasLikeIconBeenToggled] = useState(false)
@@ -180,12 +182,25 @@ let PostControls = ({
 
   const onAskQuanty = () => {
     const richContext = extractRichZingContext(post, record)
-    navigation.navigate('Quanty', {
-      postUri: post.uri,
-      postText: richContext,
-      authorHandle: post.author.handle,
-      prompt: `Explain, fact-check, and summarize the context behind @${post.author.handle}'s Zing`,
-    })
+    const promptText = `Explain, fact-check, and summarize the context behind @${post.author.handle}'s Zing`
+    if (IS_WEB && gtMobile) {
+      requestOpenQuantyDock({
+        postContext: {
+          uri: post.uri,
+          text: richContext,
+          authorHandle: post.author.handle,
+        },
+        prompt: promptText,
+      })
+    } else {
+      navigation.navigate('Quanty', {
+        postUri: post.uri,
+        postText: richContext,
+        authorHandle: post.author.handle,
+        prompt: promptText,
+        triggerId: Date.now(),
+      })
+    }
   }
 
   const secondaryControlSpacingStyles = useSecondaryControlSpacingStyles({

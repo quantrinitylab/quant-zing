@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
-import {View} from 'react-native'
+import {TextInput, View} from 'react-native'
 import {Trans, useLingui} from '@lingui/react/macro'
 import {
   useFocusEffect,
@@ -47,6 +47,7 @@ import {
   MessagePlus_Stroke2_Corner0_Rounded as MessagePlusIcon,
   MessagePlus_Stroke2_Corner0_Rounded as NewChatIcon,
 } from '#/components/icons/Message'
+import {MagnifyingGlass2_Stroke2_Corner0_Rounded as MagnifyingGlassIcon} from '#/components/icons/MagnifyingGlass'
 import {SettingsGear2_Stroke2_Corner0_Rounded as SettingsIcon} from '#/components/icons/SettingsGear2'
 import * as Layout from '#/components/Layout'
 import {Link} from '#/components/Link'
@@ -292,6 +293,7 @@ export function ChatList({
 
   const initialNumToRender = useInitialNumToRender({minItemHeight: 80})
   const [isPTRing, setIsPTRing] = useState(false)
+  const [dmSearch, setDmSearch] = useState('')
 
   const {
     data,
@@ -317,9 +319,20 @@ export function ChatList({
 
   const conversations = useMemo(() => {
     if (data?.pages) {
-      const conversations = data.pages.flatMap(page => page.convos)
+      const allConvos = data.pages.flatMap(page => page.convos)
+      const q = dmSearch.trim().toLowerCase()
+      const filtered = q
+        ? allConvos.filter(convo => {
+            const members = convo.members || []
+            return members.some(
+              m =>
+                (m.handle || '').toLowerCase().includes(q) ||
+                (m.displayName || '').toLowerCase().includes(q),
+            )
+          })
+        : allConvos
 
-      return conversations.map(
+      return filtered.map(
         convo =>
           ({
             type: 'CONVERSATION',
@@ -329,7 +342,7 @@ export function ChatList({
       ) satisfies ListItem[]
     }
     return []
-  }, [data, selectedChat])
+  }, [data, dmSearch, selectedChat])
 
   const onRefresh = useCallback(async () => {
     setIsPTRing(true)
@@ -479,9 +492,38 @@ export function ChatList({
       onRefresh={() => void onRefresh()}
       onEndReached={() => void onEndReached()}
       ListHeaderComponent={
-        chatStatus?.chatDisabled ? (
-          <ChatDisabled shape="banner" style={[isWithinSplitView && a.mb_sm]} />
-        ) : undefined
+        <>
+          {chatStatus?.chatDisabled && (
+            <ChatDisabled shape="banner" style={[isWithinSplitView && a.mb_sm]} />
+          )}
+          <View style={[a.px_md, a.py_sm, a.border_b, t.atoms.border_contrast_low]}>
+            <View
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.gap_xs,
+                a.px_sm,
+                a.py_xs,
+                a.rounded_full,
+                t.atoms.bg_contrast_25,
+                {borderWidth: 1, borderColor: t.palette.contrast_100},
+              ]}>
+              <MagnifyingGlassIcon size="xs" style={{color: t.palette.contrast_500}} />
+              <TextInput
+                value={dmSearch}
+                onChangeText={setDmSearch}
+                placeholder="Search Direct Messages..."
+                placeholderTextColor={t.palette.contrast_500}
+                style={[
+                  a.flex_1,
+                  a.text_sm,
+                  t.atoms.text,
+                  {padding: 0},
+                ]}
+              />
+            </View>
+          </View>
+        </>
       }
       ListFooterComponent={
         <ListFooter
