@@ -76,12 +76,15 @@ jobs:
             package.json
 
       - name: Deploy to Oracle Cloud vm-quantzing
-        if: ${{ secrets.QUANTZING_OCI_SSH_KEY != '' }}
         env:
           SSH_KEY: ${{ secrets.QUANTZING_OCI_SSH_KEY }}
           VM_IP: ${{ vars.QUANTZING_VM_IP || '130.210.86.242' }}
           SSH_USER: ${{ vars.QUANTZING_SSH_USER || 'ubuntu' }}
         run: |
+          if [ -z "$SSH_KEY" ]; then
+            echo "Skipping OCI SSH deploy (QUANTZING_OCI_SSH_KEY secret is not configured)."
+            exit 0
+          fi
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/quantzing_oci
           chmod 600 ~/.ssh/quantzing_oci
