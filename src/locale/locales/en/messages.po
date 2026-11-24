@@ -196,9 +196,9 @@ msgstr ""
 
 #. placeholder {0}: numUnreadMessages.numUnread ?? 0
 #. placeholder {0}: numUnreadNotifications ?? 0
-#: src/view/shell/bottom-bar/BottomBar.tsx:255
-#: src/view/shell/bottom-bar/BottomBar.tsx:287
-#: src/view/shell/Drawer.tsx:779
+#: src/view/shell/bottom-bar/BottomBar.tsx:313
+#: src/view/shell/bottom-bar/BottomBar.tsx:353
+#: src/view/shell/Drawer.tsx:792
 msgid "{0, plural, one {# unread item} other {# unread items}}"
 msgstr ""
 
@@ -394,7 +394,7 @@ msgstr "{0} tab, selected"
 
 #. Accessibility hint for the bottom bar chat icon when the number of unread messages exceeds the cap, with the + symbol already included – for example, 99+ unread items
 #. placeholder {0}: numUnreadMessages.numUnread
-#: src/view/shell/bottom-bar/BottomBar.tsx:250
+#: src/view/shell/bottom-bar/BottomBar.tsx:348
 msgid "{0} unread items"
 msgstr "{0} unread items"
 
@@ -486,8 +486,8 @@ msgstr "{0}/{imageCount}"
 #. placeholder {0}: i18n.number(UNREAD_NOTIFICATION_CAP - 1)
 #: src/screens/Messages/components/InboxRequests.tsx:55
 #: src/screens/Settings/components/SettingsList.tsx:328
-#: src/view/shell/desktop/LeftNav.tsx:824
-#: src/view/shell/Drawer.tsx:911
+#: src/view/shell/desktop/LeftNav.tsx:1133
+#: src/view/shell/Drawer.tsx:924
 msgid "{0}+"
 msgstr "{0}+"
 
@@ -621,7 +621,7 @@ msgstr "{count, plural, one {# new join request} other {# new join requests}}"
 msgid "{count, plural, one {# request} other {# requests}}"
 msgstr "{count, plural, one {# request} other {# requests}}"
 
-#: src/view/shell/desktop/LeftNav.tsx:614
+#: src/view/shell/desktop/LeftNav.tsx:621
 msgid "{count, plural, one {# unread item} other {# unread items}}"
 msgstr ""
 
@@ -743,7 +743,7 @@ msgstr "{JOIN_REQUESTS_THRESHOLD}+ new join requests"
 msgid "{joinedAllTimeCount, plural, other {# users have}} joined!"
 msgstr ""
 
-#: src/view/shell/Drawer.tsx:1049
+#: src/view/shell/Drawer.tsx:1062
 msgid "{label}, Beta"
 msgstr "{label}, Beta"
 
@@ -917,7 +917,7 @@ msgstr "{name}'s favorite feeds and people - join me!"
 msgid "{name}’s Starter Pack"
 msgstr "{name}’s Starter Pack"
 
-#: src/view/shell/bottom-bar/BottomBarWeb.tsx:419
+#: src/view/shell/bottom-bar/BottomBarWeb.tsx:395
 msgid "{notificationCount, plural, one {# unread item} other {# unread items}}"
 msgstr ""
 
@@ -1007,7 +1007,7 @@ msgid "{total, plural, one {# photo} other {# photos}}"
 msgstr "{total, plural, one {# photo} other {# photos}}"
 
 #: src/screens/Settings/Settings.tsx:205
-#: src/view/shell/Drawer.tsx:926
+#: src/view/shell/Drawer.tsx:939
 msgid "{unreadCount, plural, one {# unread update} other {# unread updates}}"
 msgstr "{unreadCount, plural, one {# unread update} other {# unread updates}}"
 
@@ -1169,13 +1169,13 @@ msgstr "<0>{0}, </0><1>{1}, </1>and {2, plural, one {# other} other {# others}} 
 
 #. placeholder {0}: formatCount(i18n, profile?.followersCount ?? 0)
 #. placeholder {1}: profile?.followersCount || 0
-#: src/view/shell/Drawer.tsx:185
+#: src/view/shell/Drawer.tsx:186
 msgid "<0>{0}</0> {1, plural, one {follower} other {followers}}"
 msgstr ""
 
 #. placeholder {0}: formatCount(i18n, profile?.followsCount ?? 0)
 #. placeholder {1}: profile?.followsCount || 0
-#: src/view/shell/Drawer.tsx:196
+#: src/view/shell/Drawer.tsx:197
 msgid "<0>{0}</0> {1, plural, one {following} other {following}}"
 msgstr ""
 
@@ -1645,8 +1645,8 @@ msgstr ""
 
 #: src/screens/Settings/Settings.tsx:603
 #: src/screens/Settings/Settings.tsx:606
-#: src/view/shell/desktop/LeftNav.tsx:437
-#: src/view/shell/desktop/LeftNav.tsx:440
+#: src/view/shell/desktop/LeftNav.tsx:438
+#: src/view/shell/desktop/LeftNav.tsx:441
 msgid "Add another account"
 msgstr ""
 
@@ -2542,7 +2542,7 @@ msgstr "AT Protocol FAQ"
 
 #: src/Navigation.tsx:204
 #: src/screens/Atmosphere/index.tsx:78
-#: src/view/shell/Drawer.tsx:804
+#: src/view/shell/Drawer.tsx:817
 msgid "Atmosphere"
 msgstr "Atmosphere"
 
@@ -3091,7 +3091,7 @@ msgstr "Camera access needed"
 #: src/view/com/composer/Composer.tsx:1857
 #: src/view/com/composer/photos/EditImageDialog.web.tsx:44
 #: src/view/com/composer/photos/EditImageDialog.web.tsx:53
-#: src/view/shell/desktop/LeftNav.tsx:316
+#: src/view/shell/desktop/LeftNav.tsx:317
 msgid "Cancel"
 msgstr ""
 
@@ -3269,8 +3269,8 @@ msgstr "Channel"
 
 #: src/lib/hooks/useNotificationHandler.ts:134
 #: src/Navigation.tsx:569
-#: src/view/shell/bottom-bar/BottomBar.tsx:246
-#: src/view/shell/Drawer.tsx:748
+#: src/view/shell/bottom-bar/BottomBar.tsx:344
+#: src/view/shell/Drawer.tsx:761
 msgid "Chat"
 msgstr ""
 
@@ -4339,12 +4339,12 @@ msgstr "Create a Starter Pack for me"
 #: src/components/WelcomeModal.tsx:169
 #: src/screens/Messages/JoinRequest.tsx:314
 #: src/view/com/auth/NativeSplashScreen.tsx:158
-#: src/view/com/auth/SplashScreen.web.tsx:212
-#: src/view/com/auth/SplashScreen.web.tsx:223
-#: src/view/shell/bottom-bar/BottomBar.tsx:355
-#: src/view/shell/bottom-bar/BottomBar.tsx:359
-#: src/view/shell/bottom-bar/BottomBarWeb.tsx:323
-#: src/view/shell/bottom-bar/BottomBarWeb.tsx:329
+#: src/view/com/auth/SplashScreen.web.tsx:216
+#: src/view/com/auth/SplashScreen.web.tsx:227
+#: src/view/shell/bottom-bar/BottomBar.tsx:388
+#: src/view/shell/bottom-bar/BottomBar.tsx:392
+#: src/view/shell/bottom-bar/BottomBarWeb.tsx:305
+#: src/view/shell/bottom-bar/BottomBarWeb.tsx:313
 #: src/view/shell/NavSignupCard.tsx:51
 #: src/view/shell/NavSignupCard.tsx:56
 msgid "Create account"
@@ -4967,7 +4967,7 @@ msgstr ""
 msgid "Double tap to close the dialog"
 msgstr ""
 
-#: src/screens/VideoFeed/index.tsx:1293
+#: src/screens/VideoFeed/index.tsx:1453
 msgid "Double tap to like"
 msgstr ""
 
@@ -5296,7 +5296,7 @@ msgstr "Embed this Zing in your website. Simply copy the following snippet and p
 msgid "Embed Zing"
 msgstr "Embed Zing"
 
-#: src/components/Post/Embed/VideoEmbed/VideoEmbedInner/VideoEmbedInnerWeb.tsx:82
+#: src/components/Post/Embed/VideoEmbed/VideoEmbedInner/VideoEmbedInnerWeb.tsx:94
 msgid "Embedded video player"
 msgstr ""
 
@@ -5581,7 +5581,7 @@ msgstr "Expand Zing text"
 msgid "Expands list of users"
 msgstr "Expands list of users"
 
-#: src/screens/VideoFeed/index.tsx:1178
+#: src/screens/VideoFeed/index.tsx:1338
 msgid "Expands or collapses post text"
 msgstr "Expands or collapses Zing text"
 
@@ -5627,7 +5627,8 @@ msgstr ""
 #: src/Navigation.tsx:987
 #: src/screens/Atmosphere/index.tsx:50
 #: src/screens/Search/Shell.tsx:573
-#: src/view/shell/Drawer.tsx:696
+#: src/view/shell/bottom-bar/BottomBar.tsx:255
+#: src/view/shell/Drawer.tsx:709
 msgid "Explore"
 msgstr ""
 
@@ -5852,13 +5853,13 @@ msgid "Failed to lock group chat"
 msgstr "Failed to lock group chat"
 
 #: src/screens/Messages/ChatList.tsx:636
-#: src/view/shell/bottom-bar/BottomBar.tsx:451
+#: src/view/shell/bottom-bar/BottomBar.tsx:484
 msgid "Failed to mark all chats as read"
 msgstr "Failed to mark all chats as read"
 
 #: src/screens/Messages/ChatList.tsx:645
 #: src/screens/Messages/Inbox.tsx:310
-#: src/view/shell/bottom-bar/BottomBar.tsx:460
+#: src/view/shell/bottom-bar/BottomBar.tsx:493
 msgid "Failed to mark all requests as read"
 msgstr ""
 
@@ -6102,7 +6103,7 @@ msgstr ""
 msgid "Feed unavailable"
 msgstr ""
 
-#: src/view/shell/Drawer.tsx:649
+#: src/view/shell/Drawer.tsx:662
 msgid "Feedback"
 msgstr ""
 
@@ -6122,7 +6123,7 @@ msgstr ""
 #: src/screens/StarterPack/StarterPackScreen.tsx:194
 #: src/view/screens/Feeds.tsx:505
 #: src/view/screens/Profile.tsx:274
-#: src/view/shell/Drawer.tsx:830
+#: src/view/shell/Drawer.tsx:843
 msgid "Feeds"
 msgstr ""
 
@@ -6320,7 +6321,7 @@ msgstr "Focused {focusCount} times"
 #: src/screens/Notifications/components/NotificationItem/Item/profile.tsx:233
 #: src/screens/PostThread/components/ThreadItemAnchorFollowButton.tsx:170
 #: src/screens/Profile/Header/ProfileHeaderStandard.tsx:430
-#: src/screens/VideoFeed/index.tsx:1062
+#: src/screens/VideoFeed/index.tsx:1222
 msgid "Follow"
 msgstr ""
 
@@ -6334,7 +6335,7 @@ msgstr ""
 msgid "Follow {displayName}"
 msgstr "Follow {displayName}"
 
-#: src/screens/VideoFeed/index.tsx:1041
+#: src/screens/VideoFeed/index.tsx:1201
 msgid "Follow {handle}"
 msgstr ""
 
@@ -6441,7 +6442,7 @@ msgstr ""
 #: src/screens/Notifications/components/NotificationItem/Item/profile.tsx:224
 #: src/screens/PostThread/components/ThreadItemAnchorFollowButton.tsx:173
 #: src/screens/Profile/Header/ProfileHeaderStandard.tsx:426
-#: src/screens/VideoFeed/index.tsx:1060
+#: src/screens/VideoFeed/index.tsx:1220
 msgid "Following"
 msgstr ""
 
@@ -6463,7 +6464,7 @@ msgstr ""
 msgid "Following {displayName}"
 msgstr "Following {displayName}"
 
-#: src/screens/VideoFeed/index.tsx:1040
+#: src/screens/VideoFeed/index.tsx:1200
 msgid "Following {handle}"
 msgstr ""
 
@@ -6642,7 +6643,7 @@ msgstr ""
 msgid "Get early access to experimental features we’re testing."
 msgstr "Get early access to experimental features we’re testing."
 
-#: src/view/shell/Drawer.tsx:653
+#: src/view/shell/Drawer.tsx:666
 msgid "Get help"
 msgstr ""
 
@@ -6765,8 +6766,8 @@ msgstr ""
 #: src/screens/ProfileList/components/ErrorScreen.tsx:38
 #: src/screens/ProfileList/components/ErrorScreen.tsx:44
 #: src/screens/VideoFeed/components/Header.tsx:166
-#: src/screens/VideoFeed/index.tsx:1356
-#: src/screens/VideoFeed/index.tsx:1360
+#: src/screens/VideoFeed/index.tsx:1516
+#: src/screens/VideoFeed/index.tsx:1520
 #: src/view/com/auth/LoggedOut.tsx:127
 #: src/view/com/profile/ProfileFollowers.tsx:225
 #: src/view/com/profile/ProfileFollowers.tsx:226
@@ -6852,8 +6853,8 @@ msgstr ""
 #: src/components/dms/ConvoMenu.tsx:262
 #: src/screens/Messages/components/MessagesListInfoPanel.tsx:102
 #: src/screens/Messages/ConversationSettings/MemberMenu.tsx:194
-#: src/view/shell/desktop/LeftNav.tsx:428
-#: src/view/shell/desktop/LeftNav.tsx:434
+#: src/view/shell/desktop/LeftNav.tsx:429
+#: src/view/shell/desktop/LeftNav.tsx:435
 msgid "Go to profile"
 msgstr ""
 
@@ -7065,7 +7066,7 @@ msgstr "Held by QuantZing for 7 days to prevent abuse, then deleted"
 
 #: src/screens/Settings/Settings.tsx:275
 #: src/screens/Settings/Settings.tsx:278
-#: src/view/shell/Drawer.tsx:662
+#: src/view/shell/Drawer.tsx:675
 msgid "Help"
 msgstr ""
 
@@ -7095,7 +7096,7 @@ msgstr ""
 msgid "Hidden"
 msgstr ""
 
-#: src/screens/VideoFeed/index.tsx:853
+#: src/screens/VideoFeed/index.tsx:1013
 msgid "Hidden by your moderation settings."
 msgstr ""
 
@@ -7248,8 +7249,8 @@ msgstr ""
 
 #: src/Navigation.tsx:982
 #: src/Navigation.tsx:1003
-#: src/view/shell/bottom-bar/BottomBar.tsx:200
-#: src/view/shell/Drawer.tsx:722
+#: src/view/shell/bottom-bar/BottomBar.tsx:235
+#: src/view/shell/Drawer.tsx:735
 msgid "Home"
 msgstr ""
 
@@ -7664,7 +7665,7 @@ msgstr ""
 
 #: src/screens/Profile/Header/ProfileHeaderLabeler.tsx:346
 #: src/screens/Profile/Header/ProfileHeaderStandard.tsx:373
-#: src/view/shell/Drawer.tsx:153
+#: src/view/shell/Drawer.tsx:154
 msgid "Invite friends"
 msgstr "Invite friends"
 
@@ -8303,7 +8304,7 @@ msgstr ""
 #: src/view/screens/Lists.tsx:60
 #: src/view/screens/Profile.tsx:268
 #: src/view/screens/Profile.tsx:276
-#: src/view/shell/Drawer.tsx:845
+#: src/view/shell/Drawer.tsx:858
 msgid "Lists"
 msgstr ""
 
@@ -8566,8 +8567,8 @@ msgstr ""
 
 #: src/screens/Messages/ChatList.tsx:655
 #: src/screens/Messages/ChatList.tsx:659
-#: src/view/shell/bottom-bar/BottomBar.tsx:469
-#: src/view/shell/bottom-bar/BottomBar.tsx:473
+#: src/view/shell/bottom-bar/BottomBar.tsx:502
+#: src/view/shell/bottom-bar/BottomBar.tsx:506
 msgid "Mark all chats as read"
 msgstr "Mark all chats as read"
 
@@ -8577,8 +8578,8 @@ msgstr "Mark all reports as read"
 
 #: src/screens/Messages/ChatList.tsx:663
 #: src/screens/Messages/ChatList.tsx:667
-#: src/view/shell/bottom-bar/BottomBar.tsx:477
-#: src/view/shell/bottom-bar/BottomBar.tsx:481
+#: src/view/shell/bottom-bar/BottomBar.tsx:510
+#: src/view/shell/bottom-bar/BottomBar.tsx:514
 msgid "Mark all requests as read"
 msgstr "Mark all requests as read"
 
@@ -8592,12 +8593,12 @@ msgid "Marked all as read"
 msgstr ""
 
 #: src/screens/Messages/ChatList.tsx:633
-#: src/view/shell/bottom-bar/BottomBar.tsx:448
+#: src/view/shell/bottom-bar/BottomBar.tsx:481
 msgid "Marked all chats as read"
 msgstr "Marked all chats as read"
 
 #: src/screens/Messages/ChatList.tsx:642
-#: src/view/shell/bottom-bar/BottomBar.tsx:457
+#: src/view/shell/bottom-bar/BottomBar.tsx:490
 msgid "Marked all requests as read"
 msgstr "Marked all requests as read"
 
@@ -8856,6 +8857,7 @@ msgstr ""
 
 #. Share menu item that opens the system share sheet with every other way to share
 #: src/components/ShareDialog/ShareSheet.tsx:182
+#: src/view/shell/desktop/LeftNav.tsx:1012
 msgid "More"
 msgstr "More"
 
@@ -9069,7 +9071,7 @@ msgstr "Navigate to Starter Pack"
 msgid "Navigates to the next screen"
 msgstr ""
 
-#: src/view/shell/Drawer.tsx:124
+#: src/view/shell/Drawer.tsx:125
 msgid "Navigates to your profile"
 msgstr ""
 
@@ -9706,8 +9708,8 @@ msgstr ""
 #: src/screens/Settings/NotificationSettings/ActivityNotificationSettings.tsx:93
 #: src/screens/Settings/Settings.tsx:219
 #: src/screens/Settings/Settings.tsx:222
-#: src/view/shell/bottom-bar/BottomBar.tsx:283
-#: src/view/shell/Drawer.tsx:775
+#: src/view/shell/bottom-bar/BottomBar.tsx:309
+#: src/view/shell/Drawer.tsx:788
 msgid "Notifications"
 msgstr ""
 
@@ -10192,7 +10194,7 @@ msgstr "Opens the find and invite friends settings"
 msgid "Opens the GIF picker dialog"
 msgstr "Opens the GIF picker dialog"
 
-#: src/view/shell/Drawer.tsx:154
+#: src/view/shell/Drawer.tsx:155
 msgid "Opens the invite friends sheet to share your profile"
 msgstr "Opens the invite friends sheet to share your profile"
 
@@ -10853,7 +10855,7 @@ msgstr "Zing failed to upload. Please check your Internet connection and try aga
 #: src/screens/PostThread/components/ThreadItemAnchor.tsx:135
 #: src/screens/PostThread/components/ThreadItemPost.tsx:121
 #: src/screens/PostThread/components/ThreadItemTreePost.tsx:112
-#: src/screens/VideoFeed/index.tsx:593
+#: src/screens/VideoFeed/index.tsx:753
 msgid "Post has been deleted"
 msgstr "Zing has been deleted"
 
@@ -11043,8 +11045,8 @@ msgstr ""
 #: src/Navigation.tsx:398
 #: src/screens/Settings/AboutSettings.tsx:99
 #: src/screens/Settings/AboutSettings.tsx:102
-#: src/view/shell/Drawer.tsx:1154
-#: src/view/shell/Drawer.tsx:1156
+#: src/view/shell/Drawer.tsx:1170
+#: src/view/shell/Drawer.tsx:1172
 msgid "Privacy Policy"
 msgstr ""
 
@@ -11072,9 +11074,8 @@ msgstr "Production image adapter"
 msgid "profile"
 msgstr ""
 
-#: src/view/shell/bottom-bar/BottomBar.tsx:326
-#: src/view/shell/Drawer.tsx:123
-#: src/view/shell/Drawer.tsx:896
+#: src/view/shell/Drawer.tsx:124
+#: src/view/shell/Drawer.tsx:909
 msgid "Profile"
 msgstr ""
 
@@ -11175,6 +11176,10 @@ msgstr ""
 #: src/features/inviteFriends/InviteFriendsDialogInner.tsx:99
 msgid "QR code saved to your camera roll!"
 msgstr ""
+
+#: src/view/shell/bottom-bar/BottomBar.tsx:287
+msgid "Quanty"
+msgstr "Quanty"
 
 #: src/components/dialogs/ServerInput.tsx:144
 #: src/components/dialogs/ServerInput.tsx:146
@@ -11311,11 +11316,11 @@ msgstr "Read about how to use advanced search filters"
 msgid "Read blog post"
 msgstr ""
 
-#: src/screens/VideoFeed/index.tsx:1179
+#: src/screens/VideoFeed/index.tsx:1339
 msgid "Read less"
 msgstr ""
 
-#: src/screens/VideoFeed/index.tsx:1179
+#: src/screens/VideoFeed/index.tsx:1339
 msgid "Read more"
 msgstr ""
 
@@ -11396,6 +11401,7 @@ msgid "Reconnect"
 msgstr ""
 
 #: src/Navigation.tsx:631
+#: src/view/shell/bottom-bar/BottomBar.tsx:271
 msgid "Reels"
 msgstr "Reels"
 
@@ -12228,7 +12234,7 @@ msgstr ""
 
 #: src/screens/ProfileList/components/ErrorScreen.tsx:39
 #: src/screens/Settings/components/ChangeHandleDialog.tsx:577
-#: src/screens/VideoFeed/index.tsx:1357
+#: src/screens/VideoFeed/index.tsx:1517
 #: src/view/screens/NotFound.tsx:55
 msgid "Returns to previous page"
 msgstr ""
@@ -12368,7 +12374,7 @@ msgstr "Save your position in the Following feed between sessions. New Zings wai
 msgid "Saved"
 msgstr "Saved"
 
-#: src/view/shell/Drawer.tsx:871
+#: src/view/shell/Drawer.tsx:884
 msgctxt "link to bookmarks screen"
 msgid "Saved"
 msgstr ""
@@ -12454,7 +12460,6 @@ msgstr ""
 #: src/screens/Search/Shell.tsx:573
 #: src/screens/Search/Shell.tsx:636
 #: src/screens/Search/Shell.tsx:778
-#: src/view/shell/bottom-bar/BottomBar.tsx:220
 msgid "Search"
 msgstr ""
 
@@ -12848,7 +12853,7 @@ msgstr ""
 msgid "Send error report"
 msgstr "Send error report"
 
-#: src/view/shell/Drawer.tsx:642
+#: src/view/shell/Drawer.tsx:655
 msgid "Send feedback"
 msgstr ""
 
@@ -12937,7 +12942,7 @@ msgstr ""
 
 #: src/Navigation.tsx:275
 #: src/screens/Settings/Settings.tsx:111
-#: src/view/shell/Drawer.tsx:922
+#: src/view/shell/Drawer.tsx:935
 msgid "Settings"
 msgstr ""
 
@@ -13176,8 +13181,8 @@ msgstr ""
 #: src/features/liveNow/components/LiveStatusDialog.tsx:315
 #: src/features/liveNow/components/LiveStatusDialog.tsx:319
 #: src/screens/List/ListHiddenScreen.tsx:193
-#: src/screens/VideoFeed/index.tsx:856
-#: src/screens/VideoFeed/index.tsx:862
+#: src/screens/VideoFeed/index.tsx:1016
+#: src/screens/VideoFeed/index.tsx:1022
 msgid "Show anyway"
 msgstr ""
 
@@ -13339,12 +13344,12 @@ msgstr ""
 #: src/screens/Search/SearchResults.tsx:399
 #: src/view/com/auth/NativeSplashScreen.tsx:168
 #: src/view/com/auth/NativeSplashScreen.tsx:194
-#: src/view/com/auth/SplashScreen.web.tsx:284
-#: src/view/com/auth/SplashScreen.web.tsx:300
-#: src/view/shell/bottom-bar/BottomBar.tsx:364
-#: src/view/shell/bottom-bar/BottomBar.tsx:368
-#: src/view/shell/bottom-bar/BottomBarWeb.tsx:334
-#: src/view/shell/bottom-bar/BottomBarWeb.tsx:340
+#: src/view/com/auth/SplashScreen.web.tsx:288
+#: src/view/com/auth/SplashScreen.web.tsx:304
+#: src/view/shell/bottom-bar/BottomBar.tsx:397
+#: src/view/shell/bottom-bar/BottomBar.tsx:401
+#: src/view/shell/bottom-bar/BottomBarWeb.tsx:318
+#: src/view/shell/bottom-bar/BottomBarWeb.tsx:326
 #: src/view/shell/NavSignupCard.tsx:61
 #: src/view/shell/NavSignupCard.tsx:66
 msgid "Sign in"
@@ -13396,9 +13401,9 @@ msgstr "Sign in to view Zing"
 #: src/screens/SignupQueued.tsx:99
 #: src/screens/SignupQueued.tsx:102
 #: src/screens/Takendown.tsx:88
-#: src/view/shell/desktop/LeftNav.tsx:315
-#: src/view/shell/desktop/LeftNav.tsx:443
-#: src/view/shell/desktop/LeftNav.tsx:446
+#: src/view/shell/desktop/LeftNav.tsx:316
+#: src/view/shell/desktop/LeftNav.tsx:444
+#: src/view/shell/desktop/LeftNav.tsx:447
 msgid "Sign out"
 msgstr ""
 
@@ -13407,7 +13412,7 @@ msgid "Sign Out"
 msgstr ""
 
 #: src/screens/Settings/Settings.tsx:322
-#: src/view/shell/desktop/LeftNav.tsx:312
+#: src/view/shell/desktop/LeftNav.tsx:313
 msgid "Sign out?"
 msgstr ""
 
@@ -13627,8 +13632,8 @@ msgstr ""
 msgid "Sorry, we're unable to load account suggestions at this time."
 msgstr ""
 
-#: src/App.tsx:139
-#: src/App.web.tsx:122
+#: src/App.tsx:157
+#: src/App.web.tsx:140
 msgid "Sorry! Your session expired. Please sign in again."
 msgstr ""
 
@@ -13966,11 +13971,11 @@ msgstr "Suspended accounts cannot participate in chat."
 #: src/screens/Settings/Settings.tsx:135
 #: src/screens/Settings/Settings.tsx:147
 #: src/screens/Settings/Settings.tsx:643
-#: src/view/shell/desktop/LeftNav.tsx:400
+#: src/view/shell/desktop/LeftNav.tsx:401
 msgid "Switch account"
 msgstr ""
 
-#: src/view/shell/desktop/LeftNav.tsx:232
+#: src/view/shell/desktop/LeftNav.tsx:233
 msgid "Switch accounts"
 msgstr ""
 
@@ -13985,7 +13990,7 @@ msgid "Switch OTA channel"
 msgstr "Switch OTA channel"
 
 #. placeholder {0}: sanitizeHandle( profile?.handle ?? account.handle, '@', )
-#: src/view/shell/desktop/LeftNav.tsx:409
+#: src/view/shell/desktop/LeftNav.tsx:410
 msgid "Switch to {0}"
 msgstr ""
 
@@ -14151,8 +14156,8 @@ msgstr "Temporarily deactivate your account"
 #: src/Navigation.tsx:403
 #: src/screens/Settings/AboutSettings.tsx:91
 #: src/screens/Settings/AboutSettings.tsx:94
-#: src/view/shell/Drawer.tsx:1146
-#: src/view/shell/Drawer.tsx:1149
+#: src/view/shell/Drawer.tsx:1162
+#: src/view/shell/Drawer.tsx:1165
 msgid "Terms of Service"
 msgstr ""
 
@@ -14228,7 +14233,7 @@ msgstr ""
 msgid "That's all, folks!"
 msgstr ""
 
-#: src/screens/VideoFeed/index.tsx:1327
+#: src/screens/VideoFeed/index.tsx:1487
 msgid "That's everything!"
 msgstr ""
 
@@ -15402,7 +15407,7 @@ msgstr ""
 msgid "Unfollow account"
 msgstr ""
 
-#: src/screens/VideoFeed/index.tsx:1044
+#: src/screens/VideoFeed/index.tsx:1204
 msgid "Unfollows the user"
 msgstr ""
 
@@ -15941,7 +15946,7 @@ msgid "Video from {0}: {text}"
 msgstr ""
 
 #. placeholder {0}: sanitizeHandle( post.author.handle, '@', )
-#: src/screens/VideoFeed/index.tsx:1289
+#: src/screens/VideoFeed/index.tsx:1449
 msgid "Video from {0}. Tap to play or pause the video"
 msgstr ""
 
@@ -15950,11 +15955,11 @@ msgstr ""
 msgid "Video Games"
 msgstr ""
 
-#: src/screens/VideoFeed/index.tsx:1288
+#: src/screens/VideoFeed/index.tsx:1448
 msgid "Video is paused"
 msgstr ""
 
-#: src/screens/VideoFeed/index.tsx:1288
+#: src/screens/VideoFeed/index.tsx:1448
 msgid "Video is playing"
 msgstr ""
 
@@ -16008,7 +16013,7 @@ msgstr ""
 #. placeholder {0}: sanitizeDisplayName( post.author.displayName || post.author.handle, )
 #: src/screens/CustomFeed/components/CustomFeedHeader.tsx:548
 #: src/screens/Search/components/SearchProfileCard.tsx:37
-#: src/screens/VideoFeed/index.tsx:1005
+#: src/screens/VideoFeed/index.tsx:1165
 msgid "View {0}'s profile"
 msgstr ""
 
@@ -16092,8 +16097,8 @@ msgstr ""
 msgid "View debug entry"
 msgstr ""
 
-#: src/screens/VideoFeed/index.tsx:884
-#: src/screens/VideoFeed/index.tsx:902
+#: src/screens/VideoFeed/index.tsx:1044
+#: src/screens/VideoFeed/index.tsx:1062
 msgid "View details"
 msgstr ""
 
@@ -17243,7 +17248,7 @@ msgid "You will be eligible to appear in this Starter Pack again."
 msgstr "You will be eligible to appear in this Starter Pack again."
 
 #: src/screens/Settings/Settings.tsx:323
-#: src/view/shell/desktop/LeftNav.tsx:313
+#: src/view/shell/desktop/LeftNav.tsx:314
 msgid "You will be signed out of all your accounts."
 msgstr ""
 
@@ -17382,7 +17387,7 @@ msgstr ""
 msgid "You've reached your daily limit for video uploads (too many videos)"
 msgstr ""
 
-#: src/screens/VideoFeed/index.tsx:1336
+#: src/screens/VideoFeed/index.tsx:1496
 msgid "You've run out of videos to watch. Maybe it's a good time to take a break?"
 msgstr ""
 
