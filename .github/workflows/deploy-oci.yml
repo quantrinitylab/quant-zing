@@ -89,13 +89,14 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/quantzing_oci
           chmod 600 ~/.ssh/quantzing_oci
           scp -i ~/.ssh/quantzing_oci -o StrictHostKeyChecking=no /tmp/quantzing-release.tar.gz "$SSH_USER@$VM_IP:/tmp/quantzing-release.tar.gz"
-          ssh -i ~/.ssh/quantzing_oci -o StrictHostKeyChecking=no "$SSH_USER@$VM_IP" '
+          ssh -i ~/.ssh/quantzing_oci -o StrictHostKeyChecking=no "$SSH_USER@$VM_IP" "
             set -euo pipefail
-            mkdir -p /opt/quantzing
-            tar -xzf /tmp/quantzing-release.tar.gz -C /opt/quantzing
+            sudo mkdir -p /opt/quantzing
+            sudo tar -xzf /tmp/quantzing-release.tar.gz -C /opt/quantzing --no-same-owner
+            sudo chown -R $SSH_USER:$SSH_USER /opt/quantzing
             rm -f /tmp/quantzing-release.tar.gz
             chmod +x /opt/quantzing/deploy/backup-quantzing.sh /opt/quantzing/deploy/monitor-quantzing.sh /opt/quantzing/deploy/setup-oci-hardening.sh
             sudo systemctl restart quantzing
             sleep 2
             curl -fsS http://127.0.0.1:3008/health
-          '
+          "
