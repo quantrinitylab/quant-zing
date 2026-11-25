@@ -48,7 +48,7 @@ import {
   MessagePlus_Stroke2_Corner0_Rounded as MessagePlusIcon,
   MessagePlus_Stroke2_Corner0_Rounded as NewChatIcon,
 } from '#/components/icons/Message'
-import {MagnifyingGlass2_Stroke2_Corner0_Rounded as MagnifyingGlassIcon} from '#/components/icons/MagnifyingGlass'
+import {MagnifyingGlass_Stroke2_Corner0_Rounded as MagnifyingGlassIcon} from '#/components/icons/MagnifyingGlass'
 import {SettingsGear2_Stroke2_Corner0_Rounded as SettingsIcon} from '#/components/icons/SettingsGear2'
 import * as Layout from '#/components/Layout'
 import {Link} from '#/components/Link'

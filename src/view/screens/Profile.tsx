@@ -56,7 +56,7 @@ import {Message_Stroke1_Corner0_Rounded_Filled as MessageIcon} from '#/component
 import {VideoClip_Stroke1_Corner0_Rounded as VideoIcon} from '#/components/icons/VideoClip'
 import * as Layout from '#/components/Layout'
 import {ScreenHider} from '#/components/moderation/ScreenHider'
-import {Page_Stroke2_Corner0_Rounded as PageIcon} from '#/components/icons/Page'
+import {PageText_Stroke2_Corner0_Rounded as PageIcon} from '#/components/icons/Page'
 import {Text} from '#/components/Typography'
 import {fetchArticles, type QuantZingArticleRecord} from '#/lib/quantos/client'
 import {type app} from '#/lexicons'
@@ -174,7 +174,7 @@ function ProfileArticlesSection({
             </Text>
           )}
           <Text style={[a.text_xs, t.atoms.text_contrast_low]}>
-            {art.readingTimeMinutes ? `${art.readingTimeMinutes} min read · ` : ''}
+            {art.readTimeMinutes ? `${art.readTimeMinutes} min read · ` : ''}
             {new Date(art.createdAt).toLocaleDateString()}
           </Text>
         </View>

@@ -30,7 +30,7 @@ import {
   BookmarkDelete_Stroke2_Corner0_Rounded_Large as BookmarkDeleteLarge,
 } from '#/components/icons/Bookmark'
 import {CircleQuestion_Stroke2_Corner2_Rounded as QuestionIcon} from '#/components/icons/CircleQuestion'
-import {MagnifyingGlass2_Stroke2_Corner0_Rounded as MagnifyingGlassIcon} from '#/components/icons/MagnifyingGlass'
+import {MagnifyingGlass_Stroke2_Corner0_Rounded as MagnifyingGlassIcon} from '#/components/icons/MagnifyingGlass'
 import * as Layout from '#/components/Layout'
 import {ListFooter} from '#/components/Lists'
 import {PostFeedSkeleton} from '#/components/PostFeedSkeleton'
@@ -61,7 +61,10 @@ export function BookmarksScreen({}: Props) {
 
   const handleClearAll = useCallback(async () => {
     const allUris =
-      data?.pages.flatMap(p => p.bookmarks).map(b => b.item.uri) || []
+      data?.pages
+        .flatMap(p => p.bookmarks)
+        .map(b => (b.item as any)?.uri)
+        .filter((u): u is string => typeof u === 'string' && Boolean(u)) || []
     for (const uri of allUris) {
       try {
         await toggleBookmark({uri, action: 'delete'})

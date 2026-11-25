@@ -1086,7 +1086,7 @@ export function ZingSpacesScreen() {
                         ),
                       ]}>
                       {participant.avatar ? (
-                        <UserAvatar size={62} avatar={participant.avatar} />
+                        <UserAvatar type="user" size={62} avatar={participant.avatar} />
                       ) : (
                         <View
                           style={[
@@ -1975,7 +1975,7 @@ export function ZingSpacesScreen() {
                               },
                             ]}>
                             {p.avatar ? (
-                              <UserAvatar size={24} avatar={p.avatar} />
+                              <UserAvatar type="user" size={24} avatar={p.avatar} />
                             ) : (
                               <View
                                 style={[
@@ -2039,7 +2039,7 @@ export function ZingSpacesScreen() {
                         {flex: 1, minWidth: 0},
                       ]}>
                       {space.hostAvatar ? (
-                        <UserAvatar size={22} avatar={space.hostAvatar} />
+                        <UserAvatar type="user" size={22} avatar={space.hostAvatar} />
                       ) : (
                         <View
                           style={[

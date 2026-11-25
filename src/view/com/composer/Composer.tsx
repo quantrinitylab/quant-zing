@@ -2070,7 +2070,7 @@ function ComposerPollCard({
   dispatch,
 }: {
   poll: PollMedia
-  dispatch: (action: ComposerAction) => void
+  dispatch: (action: PostAction) => void
 }) {
   const t = useTheme()
   const {t: l} = useLingui()

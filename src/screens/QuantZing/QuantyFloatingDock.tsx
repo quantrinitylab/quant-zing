@@ -291,7 +291,13 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
             {
               prompt: text,
               mode: inferredMode,
-              postContext: activePostContext || undefined,
+              postContext: activePostContext
+                ? {
+                    uri: activePostContext.uri,
+                    text: activePostContext.text || '',
+                    authorHandle: activePostContext.authorHandle,
+                  }
+                : undefined,
               history: historySnapshot,
               threadId: ensuredThreadId || undefined,
               allowAutoReadTools: true,

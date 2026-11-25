@@ -972,14 +972,14 @@ export function QuantyScreen() {
         rec.onend = () => setIsListening(false)
         rec.start()
         recognitionRef.current = rec
-        Toast.show('Listening... Speak your prompt', 'info')
+        Toast.show('Listening... Speak your prompt')
       } catch {
         setIsListening(false)
-        Toast.show('Voice mode ready — speak or type your prompt', 'info')
+        Toast.show('Voice mode ready — speak or type your prompt')
         inputRef.current?.focus()
       }
     } else {
-      Toast.show('Voice prompt mode active — type or speak your query', 'info')
+      Toast.show('Voice prompt mode active — type or speak your query')
       inputRef.current?.focus()
     }
   }, [isListening])
@@ -2440,7 +2440,7 @@ export function QuantyScreen() {
                               ...prev,
                               [msg.id]: prev[msg.id] === 'up' ? undefined : 'up',
                             } as any))
-                            Toast.show('Feedback recorded', 'info')
+                            Toast.show('Feedback recorded')
                           }}
                           style={[
                             a.align_center,
@@ -2475,7 +2475,7 @@ export function QuantyScreen() {
                               ...prev,
                               [msg.id]: prev[msg.id] === 'down' ? undefined : 'down',
                             } as any))
-                            Toast.show('Feedback recorded', 'info')
+                            Toast.show('Feedback recorded')
                           }}
                           style={[
                             a.align_center,
