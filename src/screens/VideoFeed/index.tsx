@@ -23,8 +23,8 @@ import {useEvent, useEventListener} from 'expo'
 import {Image, type ImageStyle} from 'expo-image'
 import {LinearGradient} from 'expo-linear-gradient'
 import {createVideoPlayer, type VideoPlayer, VideoView} from 'expo-video'
-import {AtUri} from '@atproto/syntax'
-import {type ModerationDecision} from '@bsky/sdk/moderation'
+import {AtUri, type AtUriString} from '@atproto/syntax'
+import {moderatePost, type ModerationDecision} from '@bsky/sdk/moderation'
 import {RichText as RichTextAPI} from '@bsky/sdk/richtext'
 import {Trans, useLingui} from '@lingui/react/macro'
 import {
@@ -76,7 +76,9 @@ import {
   usePostFeedQuery,
 } from '#/state/queries/post-feed'
 import {useProfileFollowMutationQueue} from '#/state/queries/profile'
-import {useRequireAuth, useSession} from '#/state/session'
+import {getQuantZingApiOrigin} from '#/lib/quantos/client'
+import {useModerationOpts} from '#/state/preferences/moderation-opts'
+import {useAppviewClient, useRequireAuth, useSession} from '#/state/session'
 import {useSetLightStatusBar} from '#/state/shell/light-status-bar'
 import {List} from '#/view/com/util/List'
 import {UserAvatar} from '#/view/com/util/UserAvatar'
@@ -90,6 +92,9 @@ import {ArrowLeft_Stroke2_Corner0_Rounded as ArrowLeftIcon} from '#/components/i
 import {Check_Stroke2_Corner0_Rounded as CheckIcon} from '#/components/icons/Check'
 import {EyeSlash_Stroke2_Corner0_Rounded as Eye} from '#/components/icons/EyeSlash'
 import {Leaf_Stroke2_Corner0_Rounded as LeafIcon} from '#/components/icons/Leaf'
+import {Mute_Stroke2_Corner0_Rounded as MuteIcon} from '#/components/icons/Mute'
+import {PlusLarge_Stroke2_Corner0_Rounded as PlusIcon} from '#/components/icons/Plus'
+import {SpeakerVolumeFull_Stroke2_Corner0_Rounded as VolumeIcon} from '#/components/icons/SpeakerVolumeFull'
 import {VideoClip_Stroke2_Corner0_Rounded as VideoClipIcon} from '#/components/icons/VideoClip'
 import {KeepAwake} from '#/components/KeepAwake'
 import {Loader} from '#/components/Loader'
@@ -102,7 +107,6 @@ import {PostControls} from '#/components/PostControls'
 import {RichText} from '#/components/RichText'
 import {Text} from '#/components/Typography'
 import {useAnalytics} from '#/analytics'
-import {IS_ANDROID} from '#/env'
 import {
   FeedFeedbackProvider,
   FeedItemProvider,
@@ -215,7 +219,7 @@ export function VideoFeed({}: NativeStackScreenProps<
 }
 
 const viewabilityConfig = {
-  itemVisiblePercentThreshold: 100,
+  itemVisiblePercentThreshold: 80,
   minimumViewTime: 0,
 } satisfies ViewabilityConfig
 
@@ -232,13 +236,21 @@ type VideoItem = {
 }
 
 function Feed() {
+  const {top} = useSafeAreaInsets()
   const {params} = useRoute<RouteProp<CommonNavigatorParams, 'VideoFeed'>>()
   const safeParams = useMemo(() => resolveSafeParams(params), [params])
   const isFocused = useIsFocused()
   const {hasSession} = useSession()
+  const client = useAppviewClient()
+  const moderationOpts = useModerationOpts()
   const requireAuth = useRequireAuth()
   const {openComposer} = useOpenComposer()
-  const {height} = useSafeAreaFrame()
+  const {height: safeFrameHeight} = useSafeAreaFrame()
+  const [containerHeight, setContainerHeight] = useState(0)
+  const height = containerHeight > 0 ? containerHeight : safeFrameHeight
+  const [muted, setMuted] = useState(false)
+  const [fallbackInitialPost, setFallbackInitialPost] =
+    useState<app.bsky.feed.defs.PostView | null>(null)
 
   const feedDesc = useMemo(() => {
     switch (safeParams.type) {
@@ -298,8 +310,10 @@ function Feed() {
     })
   }, [openComposer, refetch, requireAuth])
 
-  const videos = useMemo(() => {
-    let vids =
+  const initialPostUri = safeParams.initialPostUri
+
+  const baseVideos = useMemo(() => {
+    const vids =
       data?.pages.flatMap(page => {
         const items: {
           _reactKey: string
@@ -329,14 +343,71 @@ function Feed() {
         }
         return items
       }) ?? []
-    const startingVideoIndex = vids?.findIndex(video => {
-      return video.post.uri === safeParams.initialPostUri
+    return vids
+  }, [data])
+
+  // Fetch initialPostUri via getPosts if it is not on page 1 of the video feed
+  useEffect(() => {
+    if (!initialPostUri || isLoading) return
+    if (baseVideos.some(v => v.post.uri === initialPostUri)) {
+      setFallbackInitialPost(null)
+      return
+    }
+    let cancelled = false
+    client
+      .call(app.bsky.feed.getPosts, {uris: [initialPostUri as AtUriString]})
+      .then(res => {
+        if (cancelled) return
+        const found = res.posts?.[0]
+        if (found && extractVideoEmbed(found.embed)) {
+          setFallbackInitialPost(found)
+        }
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [baseVideos, client, initialPostUri, isLoading])
+
+  const videos = useMemo(() => {
+    let vids = [...baseVideos]
+    if (
+      fallbackInitialPost &&
+      !vids.some(v => v.post.uri === fallbackInitialPost.uri)
+    ) {
+      const videoEmbed = extractVideoEmbed(fallbackInitialPost.embed)
+      if (videoEmbed) {
+        const decision = moderatePost(
+          fallbackInitialPost,
+          moderationOpts || {
+            userDid: undefined,
+            prefs: {
+              adultContentEnabled: false,
+              labels: {},
+              labelers: [],
+              mutedWords: [],
+              hiddenPosts: [],
+            },
+          },
+        )
+        vids.unshift({
+          _reactKey: `initial:${fallbackInitialPost.uri}`,
+          moderation: decision,
+          post: fallbackInitialPost,
+          video: videoEmbed,
+          feedContext: undefined,
+          reqId: undefined,
+        })
+      }
+    }
+    const startingVideoIndex = vids.findIndex(video => {
+      return video.post.uri === initialPostUri
     })
-    if (vids && startingVideoIndex && startingVideoIndex > -1) {
+    if (startingVideoIndex > 0) {
       vids = vids.slice(startingVideoIndex)
     }
     return vids
-  }, [data, safeParams.initialPostUri])
+  }, [baseVideos, fallbackInitialPost, initialPostUri, moderationOpts])
 
   const [currentSources, setCurrentSources] = useState<
     [CurrentSource, CurrentSource, CurrentSource]
@@ -347,6 +418,8 @@ function Feed() {
   >(null)
 
   const [currentIndex, setCurrentIndex] = useState(0)
+  const currentIndexRef = useRef(0)
+  currentIndexRef.current = currentIndex
 
   const scrollGesture = useNativeGesture()
 
@@ -361,6 +434,7 @@ function Feed() {
           player={player}
           post={post}
           embed={video}
+          itemHeight={height}
           active={
             isFocused &&
             index === currentIndex &&
@@ -374,7 +448,7 @@ function Feed() {
         />
       )
     },
-    [players, currentIndex, isFocused, currentSources, scrollGesture],
+    [players, currentIndex, isFocused, currentSources, scrollGesture, height],
   )
 
   const updateVideoState = useCallback(
@@ -467,6 +541,23 @@ function Feed() {
     },
     [videos, currentSources, players],
   )
+
+  // Fix mount/load freeze race: initialize players as soon as videos arrive while focused
+  useEffect(() => {
+    if (isFocused && videos.length > 0 && !players) {
+      updateVideoState(currentIndexRef.current)
+    }
+  }, [isFocused, videos.length, players, updateVideoState])
+
+  // Sync mute state across all 3 pooled players
+  useEffect(() => {
+    if (!players) return
+    for (const p of players) {
+      try {
+        p.muted = muted
+      } catch {}
+    }
+  }, [muted, players])
 
   const updateVideoStateInitially = useNonReactiveCallback(() => {
     updateVideoState(currentIndex)
@@ -615,38 +706,103 @@ function Feed() {
 
   return (
     <FeedFeedbackProvider value={feedFeedback}>
-      <GestureDetector gesture={scrollGesture}>
-        <List
-          disableTabletLayout
-          data={videos}
-          renderItem={renderItem}
-          keyExtractor={keyExtractor}
-          initialNumToRender={3}
-          maxToRenderPerBatch={3}
-          windowSize={6}
-          pagingEnabled={true}
-          ListFooterComponent={
-            <ListFooter
-              hasNextPage={hasNextPage}
-              isFetchingNextPage={isFetchingNextPage}
-              error={cleanError(error)}
-              onRetry={fetchNextPage}
-              height={height}
-              showEndMessage
-              renderEndMessage={renderEndMessage}
-              style={[a.justify_center, a.border_0]}
-            />
+      <View
+        style={[a.flex_1, a.relative]}
+        onLayout={e => {
+          const h = Math.round(e.nativeEvent.layout.height)
+          if (h > 0 && Math.abs(h - containerHeight) > 1) {
+            setContainerHeight(h)
           }
-          onEndReached={() => {
-            if (hasNextPage && !isFetchingNextPage) {
-              void fetchNextPage()
+        }}>
+        <GestureDetector gesture={scrollGesture}>
+          <List
+            disableTabletLayout
+            data={videos}
+            renderItem={renderItem}
+            keyExtractor={keyExtractor}
+            initialNumToRender={3}
+            maxToRenderPerBatch={3}
+            windowSize={6}
+            pagingEnabled={true}
+            ListFooterComponent={
+              <ListFooter
+                hasNextPage={hasNextPage}
+                isFetchingNextPage={isFetchingNextPage}
+                error={cleanError(error)}
+                onRetry={fetchNextPage}
+                height={height}
+                showEndMessage
+                renderEndMessage={renderEndMessage}
+                style={[a.justify_center, a.border_0]}
+              />
             }
-          }}
-          showsVerticalScrollIndicator={false}
-          onViewableItemsChanged={onViewableItemsChanged}
-          viewabilityConfig={viewabilityConfig}
-        />
-      </GestureDetector>
+            onEndReached={() => {
+              if (hasNextPage && !isFetchingNextPage) {
+                void fetchNextPage()
+              }
+            }}
+            showsVerticalScrollIndicator={false}
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
+          />
+        </GestureDetector>
+        <View
+          style={[
+            a.absolute,
+            a.z_50,
+            a.flex_row,
+            a.align_center,
+            a.gap_xs,
+            {top: top + 10, right: 14},
+          ]}>
+          <Pressable
+            testID="nativeReelsMuteBtn"
+            accessibilityRole="button"
+            accessibilityLabel={muted ? 'Unmute Reel' : 'Mute Reel'}
+            onPress={() => setMuted(prev => !prev)}
+            style={({pressed}) => [
+              a.align_center,
+              a.justify_center,
+              a.rounded_full,
+              {
+                width: 38,
+                height: 38,
+                backgroundColor: 'rgba(15, 20, 25, 0.72)',
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.22)',
+                opacity: pressed ? 0.75 : 1,
+              },
+            ]}>
+            {muted ? (
+              <MuteIcon width={18} fill="#FFFFFF" />
+            ) : (
+              <VolumeIcon width={18} fill="#FFFFFF" />
+            )}
+          </Pressable>
+          <Pressable
+            testID="nativeReelsTopUploadBtn"
+            accessibilityRole="button"
+            accessibilityLabel="Upload a Reel"
+            onPress={onUploadReel}
+            style={({pressed}) => [
+              a.flex_row,
+              a.align_center,
+              a.gap_2xs,
+              a.rounded_full,
+              {
+                height: 38,
+                paddingHorizontal: 14,
+                backgroundColor: 'rgba(29, 155, 240, 0.92)',
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}>
+            <PlusIcon width={14} fill="#FFFFFF" />
+            <Text style={[a.text_xs, a.font_bold, {color: '#FFFFFF'}]}>
+              Post Reel
+            </Text>
+          </Pressable>
+        </View>
+      </View>
     </FeedFeedbackProvider>
   )
 }
@@ -659,6 +815,7 @@ let VideoItem = ({
   player,
   post,
   embed,
+  itemHeight,
   active,
   adjacent,
   scrollGesture,
@@ -669,6 +826,7 @@ let VideoItem = ({
   player?: VideoPlayer
   post: app.bsky.feed.defs.PostView
   embed: app.bsky.embed.video.View
+  itemHeight?: number
   active: boolean
   adjacent: boolean
   scrollGesture: NativeGesture
@@ -678,7 +836,8 @@ let VideoItem = ({
 }): React.ReactNode => {
   const ax = useAnalytics()
   const postShadow = usePostShadow(post)
-  const {width, height} = useSafeAreaFrame()
+  const {width, height: frameHeight} = useSafeAreaFrame()
+  const height = itemHeight && itemHeight > 0 ? itemHeight : frameHeight
   const {sendInteraction, feedDescriptor} = useFeedFeedbackContext()
   const hasTrackedView = useRef(false)
   const hasTrackedVideoImpression = useRef(false)
@@ -701,7 +860,7 @@ let VideoItem = ({
         reqId,
       })
 
-      // Track post:view event
+      // Track post:view event + record unique Reel view on sovereign QuantZing backend
       if (!hasTrackedView.current) {
         hasTrackedView.current = true
         ax.metric('post:view', {
@@ -711,6 +870,11 @@ let VideoItem = ({
           logContext: 'ImmersiveVideo',
           feedDescriptor,
         })
+        void fetch(`${getQuantZingApiOrigin()}/api/quantzing/views/record`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({uris: [post.uri]}),
+        }).catch(() => {})
       }
     }
   }, [
@@ -808,7 +972,6 @@ function VideoItemInner({
   active: boolean
 }) {
   const {bottom} = useSafeAreaInsets()
-  const [isReady, setIsReady] = useState(!IS_ANDROID)
   const reportDialogMetadata =
     ReportDialogMetadataContext.useReportDialogMetadataContext()
   const ax = useAnalytics()
@@ -851,9 +1014,6 @@ function VideoItemInner({
 
   useEventListener(player, 'timeUpdate', evt => {
     durationTracker.observeProgress(evt.currentTime)
-    if (IS_ANDROID && !isReady && evt.currentTime >= 0.05) {
-      setIsReady(true)
-    }
     /*
      * Players are pooled and reassigned as the user swipes. Only trust the item
      * that's actually on screen.
@@ -902,7 +1062,6 @@ function VideoItemInner({
           right: 0,
           bottom: bottom + VIDEO_PLAYER_BOTTOM_INSET,
         },
-        !isReady && {opacity: 0},
       ]}
       player={player}
       nativeControls={false}

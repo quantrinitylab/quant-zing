@@ -14,9 +14,11 @@ import {
   BackHandler,
   Keyboard,
   type LayoutChangeEvent,
+  Pressable,
   ScrollView,
   type StyleProp,
   StyleSheet,
+  TextInput as RNTextInput,
   View,
   type ViewStyle,
 } from 'react-native'
@@ -171,6 +173,7 @@ import {
   createComposerState,
   type EmbedDraft,
   MAX_GALLERY_IMAGES,
+  type PollMedia,
   type PostAction,
   type PostDraft,
   type ThreadDraft,
@@ -2108,7 +2111,7 @@ function ComposerPollCard({
       <View style={[a.gap_xs]}>
         {poll.options.map((opt, idx) => (
           <View key={idx} style={[a.flex_row, a.align_center, a.gap_xs]}>
-            <TextInput
+            <RNTextInput
               value={opt}
               onChangeText={val =>
                 dispatch({

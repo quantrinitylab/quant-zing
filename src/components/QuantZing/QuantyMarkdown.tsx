@@ -19,8 +19,18 @@ export interface QuantyMarkdownProps {
 }
 
 function openExternalSafely(url: string) {
-  if (!/^https?:\/\//i.test(url)) return
-  void Linking.openURL(url).catch(() => {})
+  try {
+    const parsed = new URL(url.trim())
+    if (parsed.username || parsed.password) return
+    const host = parsed.hostname.toLowerCase()
+    const isLocal = host === 'localhost' || host === '127.0.0.1'
+    if (parsed.protocol !== 'https:' && !(isLocal && parsed.protocol === 'http:')) {
+      return
+    }
+    void Linking.openURL(parsed.toString()).catch(() => {})
+  } catch {
+    // Reject malformed URLs
+  }
 }
 
 function renderInlineSegments({
@@ -51,7 +61,7 @@ function renderInlineSegments({
   const baseTextStyle = compact ? a.text_xs : a.text_sm
   const nodes: React.ReactNode[] = []
   const scanner =
-    /\*\*([^*]+)\*\*|`([^`]+)`|\[([^\]]+)\]\((https?:\/\/[^)]+)\)|(https?:\/\/[^\s)]+)|\[(\d+)\]|_([^_]+)_|\*([^*]+)\*/g
+    /\*\*([^*]+)\*\*|`([^`]+)`|\[([^\]\[\r\n]+)\]\((https?:\/\/[^\s)<>]+)\)|(https?:\/\/[^\s)<>]+)|\[(\d+)\]|_([^_]+)_|\*([^*]+)\*/g
 
   let lastIndex = 0
   let match: RegExpExecArray | null
@@ -225,7 +235,7 @@ export function QuantyMarkdown({
   const colors = useMemo(() => getQuantyThemeColors(t.name), [t.name])
 
   const blocks = useMemo(() => {
-    const raw = String(content || '')
+    const raw = String(content || '').slice(0, 64_000)
     const parts = raw.split(/(```[\s\S]*?```)/g)
     const out: Array<
       | {kind: 'code'; code: string}

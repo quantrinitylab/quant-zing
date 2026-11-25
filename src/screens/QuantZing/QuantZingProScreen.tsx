@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
-import {ActivityIndicator, Linking, Pressable, View} from 'react-native'
+import {ActivityIndicator, AppState, Linking, Pressable, View} from 'react-native'
 
 import {
   cancelProSubscription,
@@ -7,6 +7,7 @@ import {
   createProCheckout,
   fetchProPlans,
   fetchProSubscription,
+  getQuantZingApiOrigin,
   getQuantZingColors,
   type ProCheckoutResponse,
   type ProPlan,
@@ -87,6 +88,30 @@ const DEFAULT_PLANS: ProPlan[] = [
   },
 ]
 
+const ALLOWED_CHECKOUT_HOSTS = new Set([
+  'checkout.stripe.com',
+  'checkout.razorpay.com',
+  'api.razorpay.com',
+  'quantzing.quantrinity.in',
+  'pay.quantrinity.in',
+])
+
+function isSafeCheckoutUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(raw)
+    if (parsed.username || parsed.password) return false
+    const apiHost = new URL(getQuantZingApiOrigin()).hostname.toLowerCase()
+    const host = parsed.hostname.toLowerCase()
+    const isLocalDev = host === 'localhost' || host === '127.0.0.1'
+    if (parsed.protocol !== 'https:' && !(isLocalDev && parsed.protocol === 'http:')) {
+      return false
+    }
+    return host === apiHost || ALLOWED_CHECKOUT_HOSTS.has(host)
+  } catch {
+    return false
+  }
+}
+
 function formatDateShort(iso?: string): string {
   if (!iso) return ''
   try {
@@ -154,6 +179,16 @@ export function QuantZingProScreen() {
     void loadPlansAndSubscription()
   }, [loadPlansAndSubscription])
 
+  // Native AppState active listener: auto-refresh status on returning from external checkout
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', nextState => {
+      if (nextState === 'active' && hasSession && accessJwt) {
+        void loadPlansAndSubscription()
+      }
+    })
+    return () => sub.remove()
+  }, [accessJwt, hasSession, loadPlansAndSubscription])
+
   // Auto-handle ?checkout=complete&plan=...&orderId=... return URL on mount
   useEffect(() => {
     if (handledReturnParamsRef.current) return
@@ -166,12 +201,12 @@ export function QuantZingProScreen() {
       const planParam = params.get('plan') || undefined
       const orderIdParam = params.get('orderId') || undefined
 
-      if (checkoutFlag === 'complete' || orderIdParam) {
+      if (checkoutFlag === 'complete' && Boolean(orderIdParam)) {
         handledReturnParamsRef.current = true
         setIsConfirming(true)
         confirmProCheckout(
           {
-            orderId: orderIdParam || subscription?.orderId || `ord_${Date.now()}`,
+            orderId: orderIdParam!,
             planId: planParam,
           },
           accessJwt,
@@ -222,8 +257,14 @@ export function QuantZingProScreen() {
               type: 'success',
             })
           } else if (res.checkoutUrl) {
-            Toast.show('Redirecting to checkout session...', {type: 'info'})
-            void Linking.openURL(res.checkoutUrl)
+            if (!isSafeCheckoutUrl(res.checkoutUrl)) {
+              Toast.show('Blocked untrusted checkout redirect URL', {
+                type: 'warning',
+              })
+            } else {
+              Toast.show('Redirecting to checkout session...', {type: 'info'})
+              void Linking.openURL(res.checkoutUrl)
+            }
           } else {
             Toast.show(res.message || 'Order created — confirm to activate', {
               type: 'info',

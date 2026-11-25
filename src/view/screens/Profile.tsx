@@ -1,5 +1,10 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
-import {StyleSheet, useWindowDimensions} from 'react-native'
+import {
+  ActivityIndicator,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from 'react-native'
 import {SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context'
 import {ScrollForwarderView} from '@bsky.app/react-native-scroll-forwarder'
 import {moderateProfile, type ModerationOpts} from '@bsky/sdk/moderation'
@@ -52,8 +57,8 @@ import {VideoClip_Stroke1_Corner0_Rounded as VideoIcon} from '#/components/icons
 import * as Layout from '#/components/Layout'
 import {ScreenHider} from '#/components/moderation/ScreenHider'
 import {Page_Stroke2_Corner0_Rounded as PageIcon} from '#/components/icons/Page'
+import {Text} from '#/components/Typography'
 import {fetchArticles, type QuantZingArticleRecord} from '#/lib/quantos/client'
-import {ProfileStarterPacks} from '#/components/StarterPack/ProfileStarterPacks'
 import {type app} from '#/lexicons'
 import {navigate} from '#/Navigation'
 

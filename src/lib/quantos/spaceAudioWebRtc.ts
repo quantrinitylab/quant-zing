@@ -315,7 +315,48 @@ const LEVEL_SAMPLE_INTERVAL_MS = 100
 const LEVEL_NOISE_FLOOR = 0.03
 const LEVEL_CHANGE_THRESHOLD = 0.04
 const MAX_PENDING_CANDIDATES = 200
+const MAX_PEERS = 64
 const ICE_RESTART_COOLDOWN_MS = 5000
+
+function isValidAudioSdp(
+  signalType: 'offer' | 'answer',
+  sdp: unknown,
+): sdp is {type: 'offer' | 'answer'; sdp: string} {
+  if (!sdp || typeof sdp !== 'object') return false
+  const s = sdp as Record<string, unknown>
+  if (s.type !== signalType || typeof s.sdp !== 'string') return false
+  if (s.sdp.length === 0 || s.sdp.length > 32_768) return false
+  // Audio-only Space: reject video/application media lines
+  if (/^m=(?!audio\b)/im.test(s.sdp)) return false
+  return /^v=0\r?\n/m.test(s.sdp)
+}
+
+function sanitizeIceCandidate(raw: unknown): MinimalIceCandidateInit | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const c = raw as Record<string, unknown>
+  if (typeof c.candidate !== 'string' || c.candidate.length > 1024) return null
+  const out: MinimalIceCandidateInit = {candidate: c.candidate}
+  if (typeof c.sdpMid === 'string' && c.sdpMid.length <= 64) {
+    out.sdpMid = c.sdpMid
+  } else if (c.sdpMid === null) {
+    out.sdpMid = null
+  }
+  if (
+    typeof c.sdpMLineIndex === 'number' &&
+    Number.isInteger(c.sdpMLineIndex) &&
+    c.sdpMLineIndex >= 0 &&
+    c.sdpMLineIndex <= 16
+  ) {
+    out.sdpMLineIndex = c.sdpMLineIndex
+  }
+  if (
+    typeof c.usernameFragment === 'string' &&
+    c.usernameFragment.length <= 256
+  ) {
+    out.usernameFragment = c.usernameFragment
+  }
+  return out
+}
 
 function getGlobalScope(): WebRtcGlobalScope {
   return globalThis as unknown as WebRtcGlobalScope
@@ -437,6 +478,7 @@ export class ZingSpaceAudioMesh {
 
   private localStream: MinimalMediaStream | null = null
   private localAnalyser: AnalyserBinding | null = null
+  private allowedAudioDids: Set<string> | null = null
   private micAcquirePromise: Promise<boolean> | null = null
 
   private audioContext: MinimalAudioContext | null = null
@@ -750,6 +792,14 @@ export class ZingSpaceAudioMesh {
     const deferTransceiver =
       envelope.signalType === 'offer' ||
       envelope.signalType === 'ice-candidate'
+    // Do not allocate new RTCPeerConnection on stray answers or ice-candidates
+    if (
+      (envelope.signalType === 'answer' ||
+        envelope.signalType === 'ice-candidate') &&
+      !this.peers.has(peerInfo.clientId)
+    ) {
+      return Promise.resolve()
+    }
     const peer = this.ensurePeerConnection(peerInfo, deferTransceiver)
     if (!peer) {
       return Promise.resolve()
@@ -762,6 +812,30 @@ export class ZingSpaceAudioMesh {
       })
 
     return peer.signalQueue
+  }
+
+  /**
+   * Enforces server-authoritative speaker/mute allowlist for remote playback.
+   */
+  public setAllowedAudioDids(dids: Iterable<string>): void {
+    if (this.destroyed) return
+    const next = new Set<string>()
+    for (const d of dids) {
+      if (typeof d === 'string' && d) next.add(d)
+    }
+    this.allowedAudioDids = next
+    const entries = Array.from(this.peers.values())
+    for (let i = 0; i < entries.length; i += 1) {
+      const entry = entries[i]
+      if (entry.audioEl && !entry.closed) {
+        entry.audioEl.muted = !this.isDidAllowedToPlay(entry.did)
+      }
+    }
+  }
+
+  private isDidAllowedToPlay(did: string): boolean {
+    if (!this.allowedAudioDids) return true
+    return Boolean(did) && this.allowedAudioDids.has(did)
   }
 
   /**
@@ -1102,11 +1176,21 @@ export class ZingSpaceAudioMesh {
   ): PeerEntry | null {
     const existing = this.peers.get(peerInfo.clientId)
     if (existing) {
-      existing.did = peerInfo.did || existing.did
+      // Never allow a colliding clientId signal to overwrite an established DID
+      if (existing.did && peerInfo.did && existing.did !== peerInfo.did) {
+        return null
+      }
+      if (!existing.did && peerInfo.did) {
+        existing.did = peerInfo.did
+      }
       if (peerInfo.handle) {
         existing.handle = peerInfo.handle
       }
       return existing
+    }
+
+    if (this.peers.size >= MAX_PEERS) {
+      return null
     }
 
     const g = getGlobalScope()
@@ -1273,7 +1357,7 @@ export class ZingSpaceAudioMesh {
       envelope.signalType === 'answer'
     ) {
       const sdp = envelope.sdp
-      if (!sdp || !sdp.sdp || (sdp.type !== 'offer' && sdp.type !== 'answer')) {
+      if (!isValidAudioSdp(envelope.signalType, sdp)) {
         return
       }
 
@@ -1349,11 +1433,10 @@ export class ZingSpaceAudioMesh {
     }
 
     if (envelope.signalType === 'ice-candidate') {
-      const candidate = envelope.candidate
-      if (!candidate || typeof candidate !== 'object') {
+      const candidateInit = sanitizeIceCandidate(envelope.candidate)
+      if (!candidateInit) {
         return
       }
-      const candidateInit = candidate as MinimalIceCandidateInit
       if (!pc.remoteDescription) {
         if (peer.pendingCandidates.length < MAX_PENDING_CANDIDATES) {
           peer.pendingCandidates.push(candidateInit)
@@ -1597,6 +1680,7 @@ export class ZingSpaceAudioMesh {
     }
 
     audioEl.srcObject = stream
+    audioEl.muted = !this.isDidAllowedToPlay(peer.did)
 
     try {
       const playPromise = audioEl.play()

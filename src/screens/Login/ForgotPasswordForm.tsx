@@ -9,7 +9,6 @@ import {logger} from '#/logger'
 import {atoms as a, useTheme, web} from '#/alf'
 import {Admonition} from '#/components/Admonition'
 import {Button, ButtonIcon, ButtonText} from '#/components/Button'
-import {HostingProvider} from '#/components/forms/HostingProvider'
 import * as TextField from '#/components/forms/TextField'
 import {At_Stroke2_Corner0_Rounded as At} from '#/components/icons/At'
 import {Loader} from '#/components/Loader'
@@ -79,16 +78,6 @@ export const ForgotPasswordForm = ({
     <FormContainer
       testID="forgotPasswordForm"
       titleText={<Trans>Reset password</Trans>}>
-      <View>
-        <TextField.LabelText>
-          <Trans>Hosting provider</Trans>
-        </TextField.LabelText>
-        <HostingProvider
-          serviceUrl={serviceUrl}
-          onSelectServiceUrl={setServiceUrl}
-          onOpenDialog={onPressSelectService}
-        />
-      </View>
       <View>
         <TextField.LabelText>
           <Trans>Email address</Trans>

@@ -127,9 +127,24 @@ function NativeStackNavigator({
     !hasSession &&
     !guestBrowseAllowed &&
     activeRoute.name === 'Home'
+
+  const isPublicLegalOrHelpRoute = [
+    'Terms',
+    'TermsOfService',
+    'Privacy',
+    'PrivacyPolicy',
+    'CommunityGuidelines',
+    'CopyrightPolicy',
+    'Download',
+    'Support',
+    'Help',
+  ].includes(activeRoute.name)
+
   if (
     !hasSession &&
-    (activeRouteRequiresAuth || IS_NATIVE || showWebLandingGate)
+    (activeRouteRequiresAuth ||
+      (IS_NATIVE && !isPublicLegalOrHelpRoute) ||
+      showWebLandingGate)
   ) {
     return <LoggedOut />
   }

@@ -267,7 +267,8 @@ export function stripEmojisAndSymbols(text: string): string {
   if (!raw.includes('```')) {
     return stripEmojiCharsOnly(raw)
       .replace(/[ \t]{2,}/g, ' ')
-      .replace(/ *\n */g, '\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n[ \t]+/g, '\n')
       .trim()
   }
   const parts = raw.split(/(```[\s\S]*?```)/g)
@@ -279,7 +280,8 @@ export function stripEmojisAndSymbols(text: string): string {
       }
       return cleaned
         .replace(/[ \t]{2,}/g, ' ')
-        .replace(/ *\n */g, '\n')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n[ \t]+/g, '\n')
     })
     .join('')
     .trim()
@@ -2262,6 +2264,20 @@ export async function askQuanty(
 // Sovereign PDS REST API Clients (100% Real Persistence per CONTRACT.md)
 // ============================================================================
 
+function assertSafePathSegment(value: string, label: string): string {
+  const trimmed = String(value || '').trim()
+  if (
+    !trimmed ||
+    trimmed === '.' ||
+    trimmed === '..' ||
+    /[\\/\x00-\x1f]/.test(trimmed) ||
+    /%2f|%5c/i.test(trimmed)
+  ) {
+    throw new Error(`Invalid ${label}`)
+  }
+  return trimmed
+}
+
 async function quantzingApiFetch<T>(
   path: string,
   options: {
@@ -2271,12 +2287,18 @@ async function quantzingApiFetch<T>(
     timeoutMs?: number
   } = {},
 ): Promise<T> {
+  if (!path.startsWith('/') || path.startsWith('//')) {
+    throw new Error('Invalid API path')
+  }
   const origin = getQuantZingApiOrigin()
   const headers: Record<string, string> = {
     accept: 'application/json',
   }
   if (options.accessJwt) {
-    headers.authorization = `Bearer ${options.accessJwt}`
+    const cleanJwt = options.accessJwt.trim()
+    if (cleanJwt && !/[\r\n\s]/.test(cleanJwt)) {
+      headers.authorization = `Bearer ${cleanJwt}`
+    }
   }
   if (options.body !== undefined) {
     headers['content-type'] = 'application/json'
@@ -2722,12 +2744,13 @@ export function getSpaceEventsUrl(
   slug: string,
   opts?: {clientId?: string; accessJwt?: string},
 ): string {
+  const safeSlug = assertSafePathSegment(slug, 'space slug')
   const origin = getQuantZingApiOrigin()
   const qs = new URLSearchParams()
   if (opts?.clientId) qs.set('clientId', opts.clientId)
   if (opts?.accessJwt) qs.set('token', opts.accessJwt)
   const suffix = qs.toString() ? `?${qs.toString()}` : ''
-  return `${origin}/api/quantzing/spaces/${encodeURIComponent(slug)}/events${suffix}`
+  return `${origin}/api/quantzing/spaces/${encodeURIComponent(safeSlug)}/events${suffix}`
 }
 
 export async function setSpaceMute(
@@ -2736,8 +2759,9 @@ export async function setSpaceMute(
   accessJwt: string,
   targetDid?: string,
 ): Promise<QuantZingSpace> {
+  const safeSlug = assertSafePathSegment(slug, 'space slug')
   const data = await quantzingApiFetch<{ok: boolean; space: QuantZingSpace}>(
-    `/api/quantzing/spaces/${encodeURIComponent(slug)}/mute`,
+    `/api/quantzing/spaces/${encodeURIComponent(safeSlug)}/mute`,
     {
       method: 'POST',
       accessJwt,
@@ -2752,8 +2776,9 @@ export async function sendSpaceSignal(
   payload: Record<string, unknown>,
   accessJwt: string,
 ): Promise<{ok: boolean; messageId?: string}> {
+  const safeSlug = assertSafePathSegment(slug, 'space slug')
   return await quantzingApiFetch<{ok: boolean; messageId?: string}>(
-    `/api/quantzing/spaces/${encodeURIComponent(slug)}/signal`,
+    `/api/quantzing/spaces/${encodeURIComponent(safeSlug)}/signal`,
     {
       method: 'POST',
       accessJwt,
@@ -2768,12 +2793,13 @@ export async function pollSpaceSignals(
   afterSeq: number,
   accessJwt?: string,
 ): Promise<{ok: boolean; signals: Array<Record<string, unknown>>; nextSeq: number}> {
+  const safeSlug = assertSafePathSegment(slug, 'space slug')
   const qs = new URLSearchParams({clientId, afterSeq: String(afterSeq)})
   return await quantzingApiFetch<{
     ok: boolean
     signals: Array<Record<string, unknown>>
     nextSeq: number
-  }>(`/api/quantzing/spaces/${encodeURIComponent(slug)}/signal?${qs.toString()}`, {
+  }>(`/api/quantzing/spaces/${encodeURIComponent(safeSlug)}/signal?${qs.toString()}`, {
     method: 'GET',
     accessJwt,
   })

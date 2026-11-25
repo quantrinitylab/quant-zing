@@ -74,18 +74,29 @@ export function DownloadScreen() {
     }
   }, [])
 
-  const resolveDownloadHref = useCallback((relativeOrFull: string): string => {
-    if (/^https?:\/\//i.test(relativeOrFull)) return relativeOrFull
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      return relativeOrFull
+  const resolveDownloadHref = useCallback((relativeOrFull: string): string | null => {
+    const trimmed = String(relativeOrFull || '').trim()
+    if (!trimmed || trimmed.startsWith('//')) return null
+    try {
+      const apiOrigin = getQuantZingApiOrigin()
+      const parsed = new URL(trimmed, apiOrigin)
+      const expected = new URL(apiOrigin)
+      if (parsed.origin !== expected.origin) return null
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null
+      return parsed.toString()
+    } catch {
+      return null
     }
-    return `${getQuantZingApiOrigin()}${relativeOrFull.startsWith('/') ? '' : '/'}${relativeOrFull}`
   }, [])
 
   const onDownloadApk = useCallback(() => {
     const apkPath =
       release?.android.downloadUrl || '/download/quantzing-android.apk'
     const href = resolveDownloadHref(apkPath)
+    if (!href) {
+      setInstallFeedback('Blocked unsafe download URL.')
+      return
+    }
 
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       window.location.href = href
@@ -101,6 +112,10 @@ export function DownloadScreen() {
     const profilePath =
       release?.ios.mobileconfigUrl || '/download/quantzing-ios.mobileconfig'
     const href = resolveDownloadHref(profilePath)
+    if (!href) {
+      setInstallFeedback('Blocked unsafe profile URL.')
+      return
+    }
 
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       window.location.href = href

@@ -134,7 +134,7 @@ export function Signup({onPressBack}: {onPressBack: () => void}) {
 
   // On Android, warmup the Play Integrity API on the signup screen so it is ready by the time we get to the gate screen.
   useEffect(() => {
-    if (!IS_ANDROID) {
+    if (!IS_ANDROID || GCP_PROJECT_ID <= 0) {
       return
     }
     ReactNativeDeviceAttest.warmupIntegrity(GCP_PROJECT_ID).catch(err =>

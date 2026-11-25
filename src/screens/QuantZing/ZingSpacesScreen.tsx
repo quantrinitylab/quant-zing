@@ -136,7 +136,9 @@ export function ZingSpacesScreen() {
   const [elapsedSec, setElapsedSec] = useState(0)
 
   const clientIdRef = useRef<string>(
-    `cl_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`,
+    typeof globalThis.crypto?.randomUUID === 'function'
+      ? `cl_${globalThis.crypto.randomUUID()}`
+      : `cl_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`,
   )
   const meshRef = useRef<ZingSpaceAudioMesh | null>(null)
   const [audioState, setAudioState] = useState<SpaceAudioState>({
@@ -214,14 +216,35 @@ export function ZingSpacesScreen() {
   const canViewerSpeak = Boolean(
     isViewerHost || viewerParticipant?.role === 'speaker',
   )
+  const isViewerServerMuted = Boolean(viewerParticipant?.muted)
   const viewerHandRaised = Boolean(viewerParticipant?.handRaised)
+  const canViewerSpeakRef = useRef(canViewerSpeak)
+  canViewerSpeakRef.current = canViewerSpeak
 
-  // Sync canSpeak permission to WebRTC audio mesh
+  // Sync canSpeak permission to WebRTC audio mesh without recreating the mesh
   useEffect(() => {
     if (meshRef.current) {
       meshRef.current.setCanSpeak(canViewerSpeak)
     }
   }, [canViewerSpeak])
+
+  // Enforce host-muted state locally on speaker microphone
+  useEffect(() => {
+    if (meshRef.current && isViewerServerMuted) {
+      void meshRef.current.setMuted(true)
+    }
+  }, [isViewerServerMuted])
+
+  // Enforce server-authoritative remote audio playback allowlist (only unmuted hosts/speakers)
+  useEffect(() => {
+    if (!meshRef.current || !activeSpace) return
+    const allowed = activeSpace.participants
+      .filter(
+        p => (p.role === 'host' || p.role === 'speaker') && !p.muted,
+      )
+      .map(p => p.did)
+    meshRef.current.setAllowedAudioDids(allowed)
+  }, [activeSpace])
 
   // Real server startedAt elapsed timer
   useEffect(() => {
@@ -256,7 +279,7 @@ export function ZingSpacesScreen() {
       slug: activeSpaceSlug,
       myDid: viewerDid || `guest_${clientIdRef.current}`,
       myClientId: clientIdRef.current,
-      canSpeak: canViewerSpeak,
+      canSpeak: canViewerSpeakRef.current,
       callbacks: {
         sendSignal: async payload => {
           if (!accessJwt) return
@@ -355,10 +378,11 @@ export function ZingSpacesScreen() {
       }, 2000)
     }
 
+    let cancelled = false
     const pollInterval = setInterval(() => {
       fetchZingSpace(activeSpaceSlug, accessJwt)
         .then(fresh => {
-          if (fresh) {
+          if (!cancelled && fresh) {
             upsertSpaceInState(fresh)
           }
         })
@@ -366,6 +390,7 @@ export function ZingSpacesScreen() {
     }, 5000)
 
     return () => {
+      cancelled = true
       if (eventSource) {
         try {
           eventSource.close()
@@ -380,20 +405,25 @@ export function ZingSpacesScreen() {
         meshRef.current = null
       }
     }
-  }, [accessJwt, activeSpaceSlug, canViewerSpeak, upsertSpaceInState, viewerDid])
+  }, [accessJwt, activeSpaceSlug, upsertSpaceInState, viewerDid])
 
   const handleToggleMic = useCallback(async () => {
     if (!meshRef.current || !activeSpace) return
+    if (isViewerServerMuted && !isViewerHost) {
+      Toast.show('You have been muted by the Space host', {type: 'warning'})
+      await meshRef.current.setMuted(true)
+      return
+    }
     const nextMuted = !audioState.muted
     await meshRef.current.setMuted(nextMuted)
     if (accessJwt) {
       void setSpaceMute(activeSpace.slug, nextMuted, accessJwt).catch(() => {})
     }
-  }, [accessJwt, activeSpace, audioState.muted])
+  }, [accessJwt, activeSpace, audioState.muted, isViewerHost, isViewerServerMuted])
 
   const handleResumeAudio = useCallback(async () => {
     if (meshRef.current) {
-      await meshRef.current.resumeAudioContextBestEffort()
+      await meshRef.current.unlockAudio()
     }
   }, [])
 

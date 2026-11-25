@@ -133,6 +133,7 @@ export type CommonNavigatorParams = {
         postUri?: string
         postText?: string
         authorHandle?: string
+        triggerId?: number
       }
     | undefined
   Articles: undefined

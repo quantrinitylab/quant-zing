@@ -20,7 +20,7 @@ import {
 } from '#/state/queries/profile'
 import {useRequireAuth, useSession} from '#/state/session'
 import {ProfileMenu} from '#/view/com/profile/ProfileMenu'
-import {atoms as a} from '#/alf'
+import {atoms as a, useTheme} from '#/alf'
 import {SubscribeProfileButton} from '#/components/activity-notifications/SubscribeProfileButton'
 import {Button, ButtonIcon, ButtonText} from '#/components/Button'
 import {DebugFieldDisplay} from '#/components/DebugFieldDisplay'
@@ -35,6 +35,7 @@ import {
 import * as Prompt from '#/components/Prompt'
 import {RichText} from '#/components/RichText'
 import * as Toast from '#/components/Toast'
+import {Text} from '#/components/Typography'
 import {useAnalytics} from '#/analytics'
 import {IS_IOS, IS_NATIVE} from '#/env'
 import {InviteFriendsDialog} from '#/features/inviteFriends'
@@ -66,6 +67,7 @@ let ProfileHeaderStandard = ({
 }: Props): React.ReactNode => {
   const profile =
     useProfileShadow<app.bsky.actor.defs.ProfileViewDetailed>(profileUnshadowed)
+  const t = useTheme()
   const {currentAccount} = useSession()
   const {_} = useLingui()
   const moderation = useMemo(

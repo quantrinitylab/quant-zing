@@ -1,14 +1,16 @@
-import {useRef} from 'react'
+import {useRef, useState} from 'react'
 import {View} from 'react-native'
 import {Image} from 'expo-image'
 import {type ImagePickerAsset} from 'expo-image-picker'
 import {BlueskyVideoView} from '@bsky.app/video'
+import {Trans} from '@lingui/react/macro'
 
 import {type CompressedVideo} from '#/lib/media/video/types'
 import {useAutoplayDisabled} from '#/state/preferences'
 import {ExternalEmbedRemoveBtn} from '#/view/com/composer/ExternalEmbedRemoveBtn'
 import {atoms as a} from '#/alf'
 import {ConstrainedImage} from '#/components/images/AutoSizedImage'
+import {Text} from '#/components/Typography'
 import {PlayButtonIcon} from '#/components/video/PlayButtonIcon'
 import {VideoTranscodeBackdrop} from './VideoTranscodeBackdrop'
 
@@ -25,6 +27,7 @@ export function VideoPreview({
 }) {
   const playerRef = useRef<BlueskyVideoView>(null)
   const autoplayDisabled = useAutoplayDisabled()
+  const [previewFailed, setPreviewFailed] = useState(false)
 
   let aspectRatio: number | undefined
   if (asset.width && asset.height) {
@@ -60,12 +63,28 @@ export function VideoPreview({
                   cachePolicy="none"
                   contentFit="contain"
                 />
+              ) : previewFailed ? (
+                <View style={[a.flex_1, a.justify_center, a.align_center, a.px_lg]}>
+                  <Text
+                    style={[
+                      a.text_sm,
+                      a.leading_snug,
+                      a.text_center,
+                      {color: 'white'},
+                    ]}>
+                    <Trans>
+                      This video can’t be previewed on your device. It will still
+                      be uploaded.
+                    </Trans>
+                  </Text>
+                </View>
               ) : (
                 <BlueskyVideoView
                   url={video.uri}
                   autoplay={!autoplayDisabled}
                   beginMuted={true}
                   forceTakeover={true}
+                  onError={() => setPreviewFailed(true)}
                   ref={playerRef}
                 />
               )}

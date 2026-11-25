@@ -94,7 +94,7 @@ export function Content({children}: {children?: React.ReactNode}) {
 export function Logo() {
   const t = useTheme()
 
-  return <Logomark fill={t.palette.primary_500} style={[a.mx_auto]} />
+  return <Logomark fill={t.atoms.text.color} style={[a.mx_auto]} />
 }
 
 export function BackButton({onPress, style, ...props}: Partial<ButtonProps>) {

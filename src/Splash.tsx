@@ -215,7 +215,7 @@ export function Splash(props: React.PropsWithChildren<Props>) {
       .catch(() => setReduceMotion(false))
   }, [])
 
-  const logoBg = isDarkMode ? '#000000' : '#0F1419'
+  const logoBg = isDarkMode ? '#FFFFFF' : '#0F1419'
 
   return (
     <View style={{flex: 1}} onLayout={onLayout}>
