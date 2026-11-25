@@ -102,7 +102,7 @@ export function useSearchPostsV2Query({
     },
     initialPageParam: undefined,
     getNextPageParam: lastPage => lastPage.cursor,
-    enabled: enabled ?? !!moderationOpts,
+    enabled: enabled !== undefined ? enabled : true,
     select: useCallback(
       (data: InfiniteData<app.bsky.feed.searchPostsV2.$OutputBody>) => {
         const {moderationOpts, isSearchingSpecificUser} = selectArgs
@@ -112,7 +112,7 @@ export function useSearchPostsV2Query({
          * moderation. Note that if we add any more filtering logic below, we
          * may need to adjust this.
          */
-        if (isSearchingSpecificUser) {
+        if (isSearchingSpecificUser || !moderationOpts) {
           return data
         }
 
