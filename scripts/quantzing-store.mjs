@@ -8,8 +8,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const QUANTZING_DOMAIN = '.quantzing.com'
 const QUANTZING_ALT_DOMAIN = '.quantzing.in'
-const VIEW_FLUSH_INTERVAL_MS = 2500
+const VIEW_FLUSH_INTERVAL_MS = 2000
 const MAX_RECENT_VIEW_CACHE = 50_000
+const VIEW_BATCH_FLUSH_THRESHOLD = 500
 const MAX_AUDIT_LOG_ROWS = 10_000
 
 const storeCache = new Map()
@@ -759,10 +760,11 @@ export class QuantZingStore {
       } catch {}
     }
 
-    // In-memory batched view queue (ZERO disk writes on GET requests!)
+    // In-memory batched view queue (coalesced write-behind buffer, zero disk writes on GET)
     this.pendingViews = new Map() // uri -> Set<viewerKey>
     this.pendingViewOverlay = new Map() // uri -> number (unflushed unique views)
-    this.recentViewKeys = new Set() // `${uri}\0${viewerKey}` bounded cache
+    this.recentViewKeys = new Map() // `${uri}\0${viewerKey}` -> timestamp (bounded LRU/TTL)
+    this._pendingViewsTotalCount = 0
     this.lastRevokedPruneMs = 0
 
     // Prepare hot-path statements
@@ -2243,16 +2245,20 @@ export class QuantZingStore {
     if (!viewerKey || !Array.isArray(postUris) || postUris.length === 0) {
       return false
     }
+    const now = Date.now()
     let queuedAny = false
     for (const rawUri of postUris) {
       const canonical = this.canonicalizeUri(rawUri)
       if (!canonical || !canonical.includes('/app.bsky.feed.post/')) continue
       const dedupeKey = `${canonical}\0${viewerKey}`
-      if (this.recentViewKeys.has(dedupeKey)) continue
+      const lastSeen = this.recentViewKeys.get(dedupeKey)
+      if (lastSeen && now - lastSeen < 10 * 60 * 1000) continue
+
       if (this.recentViewKeys.size >= MAX_RECENT_VIEW_CACHE) {
-        this.recentViewKeys.clear()
+        const oldestKey = this.recentViewKeys.keys().next().value
+        this.recentViewKeys.delete(oldestKey)
       }
-      this.recentViewKeys.add(dedupeKey)
+      this.recentViewKeys.set(dedupeKey, now)
 
       let set = this.pendingViews.get(canonical)
       if (!set) {
@@ -2265,10 +2271,21 @@ export class QuantZingStore {
           canonical,
           (this.pendingViewOverlay.get(canonical) || 0) + 1,
         )
+        this._pendingViewsTotalCount = (this._pendingViewsTotalCount || 0) + 1
         queuedAny = true
       }
     }
+
+    // Coalesced write-behind auto-flush when reaching batch threshold (500 views)
+    if (this._pendingViewsTotalCount >= VIEW_BATCH_FLUSH_THRESHOLD) {
+      this.flushPendingViews()
+    }
+
     return queuedAny
+  }
+
+  recordViews(postUris, viewerKey) {
+    return this.enqueuePostViews(postUris, viewerKey)
   }
 
   flushPendingViews() {
@@ -2276,24 +2293,29 @@ export class QuantZingStore {
     const batch = this.pendingViews
     this.pendingViews = new Map()
     this.pendingViewOverlay = new Map()
+    this._pendingViewsTotalCount = 0
     const now = new Date().toISOString()
     let totalInserted = 0
 
-    this.inTransaction(() => {
-      for (const [uri, viewerKeys] of batch.entries()) {
-        let added = 0
-        for (const vk of viewerKeys) {
-          const res = this._stmts.insertViewDedup.run(uri, vk, now)
-          if (Number(res.changes || 0) > 0) {
-            added++
+    try {
+      this.inTransaction(() => {
+        for (const [uri, viewerKeys] of batch.entries()) {
+          let added = 0
+          for (const vk of viewerKeys) {
+            const res = this._stmts.insertViewDedup.run(uri, vk, now)
+            if (Number(res.changes || 0) > 0) {
+              added++
+            }
+          }
+          if (added > 0) {
+            this._stmts.bumpViewCount.run(uri, added, added)
+            totalInserted += added
           }
         }
-        if (added > 0) {
-          this._stmts.bumpViewCount.run(uri, added, added)
-          totalInserted += added
-        }
-      }
-    })
+      })
+    } catch (err) {
+      console.error('[QuantZingStore] Error flushing pending views batch:', err)
+    }
     return totalInserted
   }
 

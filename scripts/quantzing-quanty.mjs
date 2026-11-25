@@ -1652,7 +1652,7 @@ function evaluateSafeMath(rawPrompt) {
   const cleaned = raw
     .replace(/^(?:(?:please|quanty|bhai|yaar)[,\s]+)*/i, '')
     .replace(
-      /^(?:what(?:'s|\s+is)\s+|how\s+much\s+is\s+|calculate\s+|compute\s+|evaluate\s+|find(?:\s+the\s+value\s+of)?\s+|solve(?:\s+for\s+[a-z])?\s*[:\-]?\s*|math\s*[:\-]?\s*)+/i,
+      /^(?:what(?:'s|\s+is)\s*|how\s+much\s+is\s*|calculate\s*[:\-]?\s*|calc\s*[:\-]?\s*|compute\s*[:\-]?\s*|evaluate\s*[:\-]?\s*|find(?:\s+the\s+value\s+of)?\s*|solve(?:\s+for\s+[a-z])?\s*[:\-]?\s*|math\s*[:\-]?\s*)+/i,
       '',
     )
     .replace(/\s*=\s*\?\s*$/, '')
@@ -3751,6 +3751,259 @@ function createThreadPersistence(deps) {
 }
 
 // ---------------------------------------------------------------------------
+// Cloudflare Workers AI Inference Engine (cached with 5s TTL from platform-settings)
+// ---------------------------------------------------------------------------
+
+let platformSettingsCache = null
+let platformSettingsCacheTime = 0
+let platformSettingsLastMtime = 0
+const PLATFORM_SETTINGS_CACHE_TTL_MS = 5000
+
+export function clearPlatformSettingsCache() {
+  platformSettingsCache = null
+  platformSettingsCacheTime = 0
+  platformSettingsLastMtime = 0
+}
+
+export function getPlatformSettings(customDataDir = null) {
+  const now = Date.now()
+  const dir =
+    customDataDir ||
+    process.env.QUANTZING_DATA_DIR ||
+    process.env.DATA_DIR ||
+    path.resolve(__quantyDirname, '..', '.quantzing-data')
+  const settingsPath = path.join(dir, 'quantzing-platform-settings.json')
+
+  if (
+    platformSettingsCache &&
+    now - platformSettingsCacheTime < PLATFORM_SETTINGS_CACHE_TTL_MS
+  ) {
+    return platformSettingsCache
+  }
+
+  try {
+    if (fs.existsSync(settingsPath)) {
+      const stats = fs.statSync(settingsPath)
+      if (
+        platformSettingsCache &&
+        stats.mtimeMs === platformSettingsLastMtime &&
+        now - platformSettingsCacheTime < PLATFORM_SETTINGS_CACHE_TTL_MS
+      ) {
+        return platformSettingsCache
+      }
+      const raw = fs.readFileSync(settingsPath, 'utf8')
+      platformSettingsCache = JSON.parse(raw)
+      platformSettingsCacheTime = now
+      platformSettingsLastMtime = stats.mtimeMs
+      return platformSettingsCache
+    }
+  } catch {
+    // Fail open if file doesn't exist or is invalid JSON
+  }
+  platformSettingsCache = null
+  platformSettingsCacheTime = now
+  platformSettingsLastMtime = 0
+  return null
+}
+
+export function getCloudflareWorkersAiConfig(customDataDir = null) {
+  loadOptionalQuantyEnvOnce()
+  const settings = getPlatformSettings(customDataDir)
+  const ai =
+    (settings &&
+      typeof settings === 'object' &&
+      (settings.ai || settings.cloudflare)) ||
+    {}
+
+  const accountId = String(
+    ai.cloudflareAccountId ||
+      ai.cloudflare_account_id ||
+      ai.cfAccountId ||
+      ai.cf_account_id ||
+      ai.accountId ||
+      ai.account_id ||
+      process.env.CLOUDFLARE_ACCOUNT_ID ||
+      process.env.CF_ACCOUNT_ID ||
+      '',
+  ).trim()
+
+  const apiToken = String(
+    ai.cloudflareApiToken ||
+      ai.cloudflare_api_token ||
+      ai.cfApiToken ||
+      ai.cf_api_token ||
+      ai.apiToken ||
+      ai.api_token ||
+      ai.token ||
+      process.env.CLOUDFLARE_API_TOKEN ||
+      process.env.CF_API_TOKEN ||
+      '',
+  ).trim()
+
+  const cfPrimaryModel = String(
+    ai.quantyCfModel ||
+      ai.quanty_cf_model ||
+      ai.cfModel ||
+      ai.cf_model ||
+      ai.model ||
+      process.env.QUANTY_CF_MODEL ||
+      '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+  ).trim()
+
+  const cfFastModel = String(
+    ai.quantyCfFastModel ||
+      ai.quanty_cf_fast_model ||
+      ai.cfFastModel ||
+      ai.cf_fast_model ||
+      ai.fastModel ||
+      ai.fast_model ||
+      process.env.QUANTY_CF_FAST_MODEL ||
+      '@cf/meta/llama-3.1-8b-instruct-fast',
+  ).trim()
+
+  return {
+    accountId,
+    apiToken,
+    cfPrimaryModel: cfPrimaryModel || '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+    cfFastModel: cfFastModel || '@cf/meta/llama-3.1-8b-instruct-fast',
+  }
+}
+
+export async function callCloudflareWorkersAi({
+  prompt,
+  mode = 'ask',
+  history = [],
+  groundingBlock = '',
+  systemPromptAddon = '',
+  systemPrompt = '',
+  allowToolProposals = true,
+  maxTokens,
+  temperature,
+  timeoutMs = 10000,
+  dataDir = null,
+} = {}) {
+  const config = getCloudflareWorkersAiConfig(dataDir)
+  if (!config.accountId || !config.apiToken) {
+    return {
+      ok: false,
+      origin: 'cloudflare-workers-ai',
+      error: 'missing_credentials',
+    }
+  }
+
+  const isPrimary = mode === 'think' || mode === 'deepsearch'
+  const model = isPrimary ? config.cfPrimaryModel : config.cfFastModel
+
+  const baseSystem =
+    systemPrompt ||
+    [
+      'You are Quanty, the sharp, witty, and genuinely helpful AI assistant built into QuantZing.',
+      'Write naturally, clearly, and directly like a world-class conversational AI. Use concise markdown when helpful, stay factual, and never use emojis.',
+      'Never use robotic boilerplate or mention Bluesky or other third-party social networks.',
+      allowToolProposals
+        ? 'You never execute account write actions on your own. If the user asks to publish a Zing, reply, send a DM, publish an article, create a poll, host a Space, create a list, follow/unfollow, bookmark, update bio, or mute/block, explain the draft briefly and append a fenced ```quanty-actions JSON array [{"toolName":"...","arguments":{...}}].'
+        : 'Keep your reply concise, sharp, directly grounded in context, and strictly under 260 characters.',
+      systemPromptAddon ? String(systemPromptAddon).trim() : '',
+    ]
+      .filter(Boolean)
+      .join('\n')
+
+  const recentHistory = (Array.isArray(history) ? history.slice(-8) : [])
+    .filter(m => m && (m.role === 'user' || m.role === 'assistant') && m.content)
+    .map(m => ({role: m.role, content: String(m.content).slice(0, 1600)}))
+
+  const userContent = groundingBlock
+    ? `LIVE CONTEXT:\n${groundingBlock}\n\n${prompt}`
+    : prompt
+
+  const messages = [
+    {role: 'system', content: baseSystem},
+    ...recentHistory,
+    {role: 'user', content: userContent},
+  ]
+
+  const resolvedMaxTokens =
+    typeof maxTokens === 'number'
+      ? maxTokens
+      : mode === 'deepsearch' || mode === 'think'
+        ? 2800
+        : 2048
+
+  const resolvedTemperature =
+    typeof temperature === 'number'
+      ? temperature
+      : mode === 'drafter'
+        ? 0.8
+        : 0.6
+
+  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/ai/run/${model}`
+  const signal =
+    typeof AbortSignal?.timeout === 'function'
+      ? AbortSignal.timeout(timeoutMs)
+      : (() => {
+          const controller = new AbortController()
+          setTimeout(() => controller.abort(), timeoutMs)
+          return controller.signal
+        })()
+
+  const started = Date.now()
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.apiToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        messages,
+        max_tokens: resolvedMaxTokens,
+        temperature: resolvedTemperature,
+      }),
+      signal,
+    })
+
+    const thoughtMs = Date.now() - started
+    const data = await res.json().catch(() => null)
+    const rawContent =
+      data?.result?.response ||
+      data?.response ||
+      data?.result?.choices?.[0]?.message?.content ||
+      data?.choices?.[0]?.message?.content ||
+      data?.result?.content ||
+      data?.content ||
+      ''
+    const content = stripEmojis(rawContent).trim()
+
+    if (res.ok && content) {
+      return {
+        ok: true,
+        content,
+        origin: 'cloudflare-workers-ai',
+        model,
+        thoughtMs,
+      }
+    }
+
+    return {
+      ok: false,
+      origin: 'cloudflare-workers-ai',
+      status: res.status,
+      thoughtMs,
+      error: data?.errors?.[0]?.message || `http_${res.status}`,
+    }
+  } catch (err) {
+    const thoughtMs = Date.now() - started
+    return {
+      ok: false,
+      origin: 'cloudflare-workers-ai',
+      thoughtMs,
+      error: err instanceof Error ? err.message : 'network_error',
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main Factory: createQuantyBridge(deps)
 // ---------------------------------------------------------------------------
 
@@ -5655,19 +5908,59 @@ export function createQuantyBridge(deps = {}) {
   }
 
   // -------------------------------------------------------------------------
-  // Multi-Provider LLM Reasoning Cascade (QuantAI -> QuantRouter -> Gemini -> Groq -> Anthropic -> DeepSeek -> OpenRouter -> OpenAI -> Ollama)
+  // Multi-Provider LLM Reasoning Cascade (Cloudflare Workers AI -> QuantAI -> QuantRouter -> Gemini -> Groq -> OpenRouter -> OpenAI -> Ollama)
   // -------------------------------------------------------------------------
 
   async function callQuantOsReasoning({
     prompt,
-    mode,
+    mode = 'ask',
     viewerDid,
     history,
     groundingBlock,
     allowToolProposals = true,
     timeoutMs = AI_CALL_TIMEOUT_MS,
+    systemPromptAddon = '',
   }) {
     loadOptionalQuantyEnvOnce()
+
+    const recentHistory = (Array.isArray(history) ? history.slice(-8) : [])
+      .filter(m => m && (m.role === 'user' || m.role === 'assistant') && m.content)
+      .map(m => ({role: m.role, content: String(m.content).slice(0, 1600)}))
+
+    const maxTokens = allowToolProposals
+      ? mode === 'deepsearch' || mode === 'think'
+        ? 2800
+        : 2048
+      : 512
+    const cloudTimeoutMs = allowToolProposals ? Math.max(timeoutMs, 10_000) : timeoutMs
+
+    // Tier 0: Cloudflare Workers AI (Serverless Edge Inference)
+    try {
+      const cfRes = await callCloudflareWorkersAi({
+        prompt,
+        mode,
+        history: recentHistory,
+        groundingBlock,
+        systemPromptAddon,
+        allowToolProposals,
+        maxTokens,
+        timeoutMs: cloudTimeoutMs,
+      })
+      if (cfRes.ok && cfRes.content) {
+        return {
+          ok: true,
+          origin: 'cloudflare-workers-ai',
+          content: cfRes.content,
+          model: cfRes.model,
+          thoughtMs: cfRes.thoughtMs,
+          provider: 'cloudflare-workers-ai',
+          latencyMs: cfRes.thoughtMs,
+        }
+      }
+    } catch {
+      // Gracefully fall through to existing Quant-AI / OmniRoute / etc.
+    }
+
     const urls = getQuantOsUrls()
     const model = getValidQuantOsModel(mode)
     const ownerId = viewerDid || 'quantzing-guest'
@@ -5680,27 +5973,17 @@ export function createQuantyBridge(deps = {}) {
       allowToolProposals
         ? 'You never execute account write actions on your own. If the user asks to publish a Zing, reply, send a DM, publish an article, create a poll, host a Space, create a list, follow/unfollow, bookmark, update bio, or mute/block, explain the draft briefly and append a fenced ```quanty-actions JSON array [{"toolName":"...","arguments":{...}}].'
         : 'Keep your reply concise, sharp, directly grounded in context, and strictly under 260 characters.',
+      systemPromptAddon ? String(systemPromptAddon).trim() : '',
       groundingBlock ? `\nLIVE CONTEXT:\n${groundingBlock}` : '',
     ]
       .filter(Boolean)
       .join('\n')
-
-    const recentHistory = (Array.isArray(history) ? history.slice(-8) : [])
-      .filter(m => m && (m.role === 'user' || m.role === 'assistant') && m.content)
-      .map(m => ({role: m.role, content: String(m.content).slice(0, 1600)}))
 
     const chatMessages = [
       {role: 'system', content: systemPrompt},
       ...recentHistory,
       {role: 'user', content: prompt},
     ]
-
-    const maxTokens = allowToolProposals
-      ? mode === 'deepsearch'
-        ? 2800
-        : 2048
-      : 512
-    const cloudTimeoutMs = allowToolProposals ? Math.max(timeoutMs, 10_000) : timeoutMs
 
     // Tier 1: quant-ai (/v1/agent/reason)
     if (quantos.ai.online) {
@@ -5745,6 +6028,7 @@ export function createQuantyBridge(deps = {}) {
             aiRes.headers?.['x-quant-billing-mode'] ||
             undefined,
           latencyMs: aiRes.latencyMs,
+          thoughtMs: aiRes.latencyMs,
         }
       }
     }
@@ -5788,6 +6072,7 @@ export function createQuantyBridge(deps = {}) {
             routerRes.data?.billingMode ||
             undefined,
           latencyMs: routerRes.latencyMs,
+          thoughtMs: routerRes.latencyMs,
         }
       }
     }
@@ -5834,6 +6119,7 @@ export function createQuantyBridge(deps = {}) {
           model: geminiModel,
           provider: 'google-gemini',
           latencyMs: geminiRes.latencyMs,
+          thoughtMs: geminiRes.latencyMs,
         }
       }
     }
@@ -5873,6 +6159,7 @@ export function createQuantyBridge(deps = {}) {
           model: groqRes.data?.model || groqModel,
           provider: 'groq',
           latencyMs: groqRes.latencyMs,
+          thoughtMs: groqRes.latencyMs,
         }
       }
     }
@@ -5926,6 +6213,7 @@ export function createQuantyBridge(deps = {}) {
           model: oaiRes.data?.model || targetModel,
           provider: isOpenRouter ? 'openrouter' : 'openai',
           latencyMs: oaiRes.latencyMs,
+          thoughtMs: oaiRes.latencyMs,
         }
       }
     }
@@ -5960,6 +6248,7 @@ export function createQuantyBridge(deps = {}) {
           model: ollamaRes.data?.model || ollamaModel,
           provider: 'ollama',
           latencyMs: ollamaRes.latencyMs,
+          thoughtMs: ollamaRes.latencyMs,
         }
       }
     }
@@ -6940,7 +7229,7 @@ export function createQuantyBridge(deps = {}) {
     const started = Date.now()
     const body = await parseBody(req)
     const prompt = stripEmojis(body.prompt || '').trim()
-    const mode = ['ask', 'deepsearch', 'drafter', 'pulse', 'control'].includes(
+    const mode = ['ask', 'fast', 'think', 'deepsearch', 'drafter', 'pulse', 'control'].includes(
       body.mode,
     )
       ? body.mode
@@ -6965,6 +7254,49 @@ export function createQuantyBridge(deps = {}) {
     const auth = resolveAuth(req)
     const viewerDid = auth?.did || resolveOptionalViewerDid(req)
     const intent = parseIntent(prompt, mode, postContext, history)
+
+    // Fast-path deterministic safe math in <2ms
+    if (intent.conversational?.kind === 'math' && intent.conversational.mathResult) {
+      const latencyMs = Date.now() - started
+      const thoughtMs = Math.max(1, latencyMs)
+      const resMath = intent.conversational.mathResult
+      const mathAnswer = resMath.markdown || resMath.summaryLine
+      const responsePayload = {
+        ok: true,
+        answer: mathAnswer,
+        origin: 'quanty-math',
+        latencyMs,
+        thoughtMs,
+        citations: [],
+        toolTraces: [],
+        proposedActions: [],
+        quantosMeta: {},
+      }
+      if (auth && threadId) {
+        const existing = threads.getThread(auth.did, threadId)
+        if (existing) {
+          threads.appendMessage(auth.did, threadId, {
+            role: 'user',
+            content: prompt,
+            mode,
+          })
+          threads.appendMessage(auth.did, threadId, {
+            role: 'assistant',
+            content: mathAnswer,
+            mode,
+            origin: 'quanty-math',
+            latencyMs,
+            thoughtMs,
+            citations: [],
+            toolTraces: [],
+            proposedActions: [],
+          })
+          responsePayload.threadId = threadId
+        }
+      }
+      replyJson(res, 200, responsePayload)
+      return
+    }
 
     const toolTraces = []
     const toolOutputs = []
@@ -7188,6 +7520,7 @@ export function createQuantyBridge(deps = {}) {
       conversational?.kind === 'followup_shorten' ||
       conversational?.kind === 'followup_rewrite'
     )
+    let llmThoughtMs = null
     const shouldCallLlm = !answer && !isDeterministicInstant && !(intent.isExplicitSlash && proposedActions.length > 0)
     if (shouldCallLlm) {
       const llm = await callQuantOsReasoning({
@@ -7205,6 +7538,7 @@ export function createQuantyBridge(deps = {}) {
         provider = llm.provider
         billingMode = llm.billingMode
         model = llm.model
+        llmThoughtMs = llm.thoughtMs
         for (const extraProp of extracted.actions.slice(0, 3)) {
           const alreadyProposed = proposedActions.some(
             p => p.toolName === (TOOL_ALIASES[extraProp.toolName] || extraProp.toolName),
@@ -7261,8 +7595,14 @@ export function createQuantyBridge(deps = {}) {
       }
     }
 
-    const quantos = await probeQuantOsHealth(viewerDid)
+    const quantos = (isDeterministicInstant || conversational?.kind === 'math') && !healthCache.value
+      ? { pay: {} }
+      : await probeQuantOsHealth(viewerDid)
     const latencyMs = Date.now() - started
+    const thoughtMs =
+      typeof llmThoughtMs === 'number' && Number.isFinite(llmThoughtMs)
+        ? llmThoughtMs
+        : Math.max(1, latencyMs)
 
     const responsePayload = {
       ok: true,
@@ -7272,12 +7612,13 @@ export function createQuantyBridge(deps = {}) {
       ...(billingMode ? {billingMode} : {}),
       ...(model ? {model} : {}),
       latencyMs,
+      thoughtMs,
       citations: citations.slice(0, 8),
       ...(suggestedZingDraft ? {suggestedZingDraft} : {}),
       toolTraces,
       proposedActions,
       quantosMeta: {
-        ...(typeof quantos.pay.balanceCredits === 'number'
+        ...(typeof quantos?.pay?.balanceCredits === 'number'
           ? {creditsBalance: quantos.pay.balanceCredits}
           : {}),
       },
@@ -7300,6 +7641,7 @@ export function createQuantyBridge(deps = {}) {
           provider,
           model,
           latencyMs,
+          thoughtMs,
           citations: responsePayload.citations,
           toolTraces,
           proposedActions,
@@ -7854,5 +8196,6 @@ export function createQuantyBridge(deps = {}) {
     executeTool,
     buildManifestPayload,
     tools: QUANTY_TOOLS,
+    callQuantOsReasoning,
   }
 }

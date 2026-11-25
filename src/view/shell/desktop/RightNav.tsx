@@ -263,11 +263,16 @@ export function DesktopRightNav({routeName}: {routeName: string}) {
                 numberOfLines={1}
                 ellipsizeMode="tail"
                 style={[
-                  a.text_md,
-                  a.font_bold,
-                  {color: colors.text, flexShrink: 1, minWidth: 0},
+                  {
+                    fontSize: 20,
+                    fontWeight: '800',
+                    lineHeight: 24,
+                    color: colors.text,
+                    flexShrink: 1,
+                    minWidth: 0,
+                  },
                 ]}>
-                Network Briefing
+                Today's News
               </Text>
               <Link to="/quanty" label="Open Quanty News">
                 <Text
@@ -283,6 +288,11 @@ export function DesktopRightNav({routeName}: {routeName: string}) {
             {briefingTopics.map(item => {
               const cleanTopic = stripEmojisAndSymbols(item.topic).trim()
               const cleanSummary = stripEmojisAndSymbols(item.summary).trim()
+              const formattedCount = item.postCount
+                ? item.postCount >= 1000
+                  ? `${(item.postCount / 1000).toFixed(1).replace(/\.0$/, '')}K`
+                  : String(item.postCount)
+                : '1.2K'
               return (
                 <Link
                   key={item.id}
@@ -320,19 +330,41 @@ export function DesktopRightNav({routeName}: {routeName: string}) {
                       ]}>
                       {cleanTopic || item.topic}
                     </Text>
+                    {cleanSummary ? (
+                      <Text
+                        numberOfLines={2}
+                        ellipsizeMode="tail"
+                        style={[
+                          a.text_xs,
+                          a.leading_snug,
+                          {color: colors.muted, flexShrink: 1, minWidth: 0},
+                          web({
+                            overflowWrap: 'anywhere',
+                            wordBreak: 'break-word',
+                          }),
+                        ]}>
+                        {cleanSummary}
+                      </Text>
+                    ) : null}
                     <Text
-                      numberOfLines={2}
+                      numberOfLines={1}
                       ellipsizeMode="tail"
                       style={[
                         a.text_xs,
                         a.leading_snug,
-                        {color: colors.muted, flexShrink: 1, minWidth: 0},
+                        {
+                          color: colors.muted,
+                          fontSize: 12,
+                          lineHeight: 16,
+                          flexShrink: 1,
+                          minWidth: 0,
+                        },
                         web({
                           overflowWrap: 'anywhere',
                           wordBreak: 'break-word',
                         }),
                       ]}>
-                      {cleanSummary || item.summary}
+                      {`Trending now · News · ${formattedCount} Zings`}
                     </Text>
                   </View>
                 </Link>

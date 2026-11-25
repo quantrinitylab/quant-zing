@@ -20,6 +20,7 @@ import {
   useBreakpoints,
   useTheme,
   utils,
+  web,
   type ViewStyleProp,
 } from '#/alf'
 import {ButtonIcon} from '#/components/Button'
@@ -55,6 +56,13 @@ export function HomeHeaderLayoutMobile({
     ? [a.w_full, a.self_center, {maxWidth: Layout.CENTER_COLUMN_WIDTH}]
     : {left: 0, right: 0}
 
+  const frostedGlassBg =
+    t.name === 'dim'
+      ? 'rgba(21, 32, 43, 0.75)'
+      : t.scheme === 'dark'
+        ? 'rgba(0, 0, 0, 0.72)'
+        : 'rgba(255, 255, 255, 0.85)'
+
   return (
     <>
       {/*
@@ -73,9 +81,14 @@ export function HomeHeaderLayoutMobile({
           widthStyle,
           IS_NATIVE && {paddingTop: insets.top},
           headerMinimalShellTransform,
+          web({
+            backgroundColor: frostedGlassBg,
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+          }),
         ]}
         onLayout={onLayout}>
-        <Layout.Header.Outer noBottomBorder>
+        <Layout.Header.Outer noBottomBorder sticky={false}>
           <Layout.Header.Slot>
             <Layout.Header.MenuButton />
           </Layout.Header.Slot>

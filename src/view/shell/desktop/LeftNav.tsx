@@ -579,8 +579,8 @@ function NavItem({
         a.outline_inset_1,
         a.transition_color,
         minimal
-          ? {padding: 11}
-          : {paddingVertical: 11, paddingHorizontal: 14, alignSelf: 'flex-start'},
+          ? {padding: 10}
+          : {paddingVertical: 8, paddingHorizontal: 14, alignSelf: 'flex-start'},
       ]}
       hoverStyle={t.atoms.bg_contrast_25}
       // @ts-expect-error the function signature differs on web -prf
@@ -800,8 +800,6 @@ function ComposeBtn({minimal}: {minimal: boolean}) {
 
 const MORE_ROUTE_NAMES = [
   'Lists',
-  'Articles',
-  'ZingSpaces',
   'CreatorStudio',
   'QuantZingPro',
   'Settings',
@@ -894,24 +892,6 @@ function MoreMenuItems({
             <Menu.ItemText>Lists</Menu.ItemText>
           </Menu.Item>
         )}
-        <Menu.Item
-          testID="leftNavMoreArticles"
-          label="Articles"
-          onPress={e => navigateFromMenu(e, '/articles', 'articles')}
-          // @ts-expect-error href is web-only -prf
-          href="/articles">
-          <Menu.ItemIcon icon={NewspaperIcon} />
-          <Menu.ItemText>Articles</Menu.ItemText>
-        </Menu.Item>
-        <Menu.Item
-          testID="leftNavMoreSpaces"
-          label="ZingSpaces"
-          onPress={e => navigateFromMenu(e, '/spaces', 'spaces')}
-          // @ts-expect-error href is web-only -prf
-          href="/spaces">
-          <Menu.ItemIcon icon={StreamingLiveIcon} />
-          <Menu.ItemText>ZingSpaces</Menu.ItemText>
-        </Menu.Item>
         <Menu.Item
           testID="leftNavMoreStudio"
           label="Creator Studio"
@@ -1028,9 +1008,9 @@ function MoreNavMenu({
                   ? t.atoms.bg_contrast_25
                   : a.transition_delay_50ms,
                 minimal
-                  ? {padding: 11}
+                  ? {padding: 10}
                   : {
-                      paddingVertical: 11,
+                      paddingVertical: 8,
                       paddingHorizontal: 14,
                       alignSelf: 'flex-start',
                     },
@@ -1154,7 +1134,7 @@ export function DesktopLeftNav({
         a.justify_between,
         leftNavMinimal && a.align_center,
       ]}>
-      <View style={[a.w_full, leftNavMinimal && a.align_center, {gap: 2}]}>
+      <View style={[a.w_full, leftNavMinimal && a.align_center, {gap: 1}]}>
         <BrandLogoHeader minimal={leftNavMinimal} onNavigateTab={onNavigateTab} />
         <NavItem
           label="Home"
@@ -1224,6 +1204,32 @@ export function DesktopLeftNav({
               hasNew={!aa.flags.chatDisabled && numUnreadMessages.hasNew}
               icons={{inactive: MessageIcon, active: MessageFilledIcon}}
             />
+          </>
+        )}
+        <NavItem
+          label="Spaces"
+          href="/spaces"
+          navItem="spaces"
+          onNavigateTab={onNavigateTab}
+          minimal={leftNavMinimal}
+          icons={{
+            inactive: StreamingLiveIcon,
+            active: StreamingLiveIcon,
+          }}
+        />
+        <NavItem
+          label="Articles"
+          href="/articles"
+          navItem="articles"
+          onNavigateTab={onNavigateTab}
+          minimal={leftNavMinimal}
+          icons={{
+            inactive: NewspaperIcon,
+            active: NewspaperIcon,
+          }}
+        />
+        {hasSession && (
+          <>
             <NavItem
               label="Bookmarks"
               href="/saved"
@@ -1262,7 +1268,7 @@ export function DesktopLeftNav({
         ) : null}
       </View>
       {hasSession ? (
-        <View style={[a.w_full, a.pt_md, leftNavMinimal && a.align_center]}>
+        <View style={[a.w_full, a.pt_xs, leftNavMinimal && a.align_center]}>
           <ProfileCard minimal={leftNavMinimal} />
         </View>
       ) : null}

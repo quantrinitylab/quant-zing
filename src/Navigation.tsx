@@ -184,8 +184,8 @@ const Tab = createBottomTabNavigator<BottomTabNavigatorParams>()
  * These "common screens" are reused across stacks.
  */
 function commonScreens(Stack: typeof Flat, unreadCountLabel?: string) {
-  const title = (page: MessageDescriptor) =>
-    bskyTitle(i18n._(page), unreadCountLabel)
+  const title = (page: MessageDescriptor | string) =>
+    bskyTitle(typeof page === 'string' ? page : i18n._(page), unreadCountLabel)
 
   return (
     <>
@@ -630,7 +630,7 @@ function commonScreens(Stack: typeof Flat, unreadCountLabel?: string) {
         name="VideoFeed"
         getComponent={() => VideoFeed}
         options={{
-          title: title(msg`Reels`),
+          title: title('Reels'),
         }}
       />
       <Stack.Screen

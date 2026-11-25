@@ -1,5 +1,6 @@
 import {memo, useMemo, useState} from 'react'
-import {type StyleProp, View, type ViewStyle} from 'react-native'
+import {Pressable, type StyleProp, View, type ViewStyle} from 'react-native'
+import Svg, {Path} from 'react-native-svg'
 import {type RichText as RichTextAPI} from '@bsky/sdk/richtext'
 import {plural} from '@lingui/core/macro'
 import {useLingui} from '@lingui/react/macro'
@@ -20,7 +21,6 @@ import {
   useProgressGuideControls,
 } from '#/state/shell/progress-guide'
 import {atoms as a, useBreakpoints, useTheme} from '#/alf'
-import {Eye_Stroke2_Corner0_Rounded as EyeIcon} from '#/components/icons/Eye'
 import {Reply_Stroke2_Corner0_Rounded as Bubble} from '#/components/icons/Reply'
 import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
 import {useFormatPostStatCount} from '#/components/PostControls/util'
@@ -314,42 +314,12 @@ let PostControls = ({
             />
           </PostControlButton>
         </View>
-        <View style={[a.flex_1, a.align_start]}>
-          <View
-            accessible
-            accessibilityLabel={
-              viewCount > 0
-                ? `${formatPostStatCount(viewCount)} ${viewCount === 1 ? 'view' : 'views'}`
-                : 'Views'
-            }
-            style={[
-              a.flex_row,
-              a.align_center,
-              gtPhone ? a.gap_xs : {gap: 2},
-              {paddingVertical: 5, paddingHorizontal: gtPhone ? 5 : 2},
-            ]}>
-            <EyeIcon
-              aria-hidden={true}
-              width={big ? 20 : 17}
-              style={{color: t.palette.contrast_500}}
-            />
-            {viewCount > 0 && (
-              <Text
-                testID="viewCount"
-                style={[
-                  a.user_select_none,
-                  big ? a.text_md : a.text_sm,
-                  {
-                    color: t.palette.contrast_500,
-                    includeFontPadding: false,
-                    textAlignVertical: 'center',
-                  },
-                ]}>
-                {formatPostStatCount(viewCount)}
-              </Text>
-            )}
-          </View>
-        </View>
+        <PostViewsCounter
+          viewCount={viewCount}
+          big={big}
+          gtPhone={gtPhone}
+          t={t}
+        />
       </View>
       <View style={[a.flex_row, a.justify_end, secondaryControlSpacingStyles]}>
         <PostControlButton
@@ -625,4 +595,86 @@ function extractRichZingContext(
   }
 
   return lines.join('\n').slice(0, 1400)
+}
+
+function AnalyticsChartIcon({
+  size = 18,
+  fill = 'currentColor',
+}: {
+  size?: number
+  fill?: string
+}) {
+  return (
+    <Svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      aria-hidden={true}
+      style={{color: fill}}>
+      <Path
+        d="M8.75 21V3h2v18h-2zM18 21V8.5h2V21h-2zM4 21l.004-10h2L6 21H4z"
+        fill={fill}
+      />
+    </Svg>
+  )
+}
+
+function PostViewsCounter({
+  viewCount,
+  big,
+  gtPhone,
+  t,
+}: {
+  viewCount: number
+  big?: boolean
+  gtPhone: boolean
+  t: ReturnType<typeof useTheme>
+}) {
+  const [hovered, setHovered] = useState(false)
+  const formatPostStatCount = useFormatPostStatCount()
+  const activeColor = '#1D9BF0'
+  const currentColor = hovered ? activeColor : t.palette.contrast_500
+
+  return (
+    <View style={[a.flex_1, a.align_start]}>
+      <Pressable
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel={
+          viewCount > 0
+            ? `${formatPostStatCount(viewCount)} ${viewCount === 1 ? 'view' : 'views'}`
+            : 'Views'
+        }
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        style={[
+          a.flex_row,
+          a.align_center,
+          a.rounded_full,
+          gtPhone ? a.gap_xs : {gap: 2},
+          {
+            paddingVertical: 5,
+            paddingHorizontal: gtPhone ? 6 : 4,
+            backgroundColor: hovered ? 'rgba(29, 155, 240, 0.1)' : 'transparent',
+          },
+        ]}>
+        <AnalyticsChartIcon size={big ? 20 : 17} fill={currentColor} />
+        {viewCount > 0 && (
+          <Text
+            testID="viewCount"
+            style={[
+              a.user_select_none,
+              big ? a.text_md : a.text_sm,
+              {
+                color: currentColor,
+                includeFontPadding: false,
+                textAlignVertical: 'center',
+              },
+            ]}>
+            {formatPostStatCount(viewCount)}
+          </Text>
+        )}
+      </Pressable>
+    </View>
+  )
 }

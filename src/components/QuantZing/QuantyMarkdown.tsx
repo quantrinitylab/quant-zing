@@ -143,13 +143,19 @@ function renderInlineSegments({
             {
               color: textColor,
               backgroundColor: surfaceColor,
+              borderWidth: 1,
               borderColor,
               fontFamily: Platform.select({ios: 'Menlo', default: 'monospace'}),
-              paddingHorizontal: 4,
+              paddingHorizontal: 5,
+              paddingVertical: 1,
               borderRadius: 4,
             },
+            web({
+              whiteSpace: 'nowrap',
+              wordBreak: 'break-word',
+            }),
           ]}>
-          {` ${match[2]} `}
+          {match[2]}
         </Text>,
       )
     } else if (match[3] && match[4]) {

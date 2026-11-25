@@ -1,4 +1,4 @@
-import {memo, useMemo, useState} from 'react'
+import {memo, useCallback, useMemo, useState} from 'react'
 import {View} from 'react-native'
 import {
   moderateProfile,
@@ -9,8 +9,11 @@ import {type RichText as RichTextAPI} from '@bsky/sdk/richtext'
 import {msg} from '@lingui/core/macro'
 import {useLingui} from '@lingui/react'
 import {Trans} from '@lingui/react/macro'
+import {useNavigation} from '@react-navigation/native'
 
 import {useHaptics} from '#/lib/haptics'
+import {requestOpenQuantyDock} from '#/lib/quantos/quantyBridge'
+import {type NavigationProp} from '#/lib/routes/types'
 import {sanitizeDisplayName} from '#/lib/strings/display-names'
 import {logger} from '#/logger'
 import {type Shadow, useProfileShadow} from '#/state/cache/profile-shadow'
@@ -20,7 +23,7 @@ import {
 } from '#/state/queries/profile'
 import {useRequireAuth, useSession} from '#/state/session'
 import {ProfileMenu} from '#/view/com/profile/ProfileMenu'
-import {atoms as a, useTheme} from '#/alf'
+import {atoms as a, useBreakpoints, useTheme} from '#/alf'
 import {SubscribeProfileButton} from '#/components/activity-notifications/SubscribeProfileButton'
 import {Button, ButtonIcon, ButtonText} from '#/components/Button'
 import {DebugFieldDisplay} from '#/components/DebugFieldDisplay'
@@ -28,6 +31,7 @@ import {useDialogControl} from '#/components/Dialog'
 import {MessageProfileButton} from '#/components/dms/MessageProfileButton'
 import {ArrowShareRight_Stroke2_Corner2_Rounded as ArrowShareRight} from '#/components/icons/ArrowShareRight'
 import {PlusLarge_Stroke2_Corner0_Rounded as Plus} from '#/components/icons/Plus'
+import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
 import {
   KnownFollowers,
   shouldShowKnownFollowers,
@@ -37,7 +41,7 @@ import {RichText} from '#/components/RichText'
 import * as Toast from '#/components/Toast'
 import {Text} from '#/components/Typography'
 import {useAnalytics} from '#/analytics'
-import {IS_IOS, IS_NATIVE} from '#/env'
+import {IS_IOS, IS_NATIVE, IS_WEB} from '#/env'
 import {InviteFriendsDialog} from '#/features/inviteFriends'
 import {useActorStatus} from '#/features/liveNow'
 import {ProfileHeaderLinks} from '#/features/profileLinks'
@@ -259,6 +263,24 @@ export function HeaderStandardButtons({
   const unblockPromptControl = Prompt.usePromptControl()
 
   const isMe = currentAccount?.did === profile.did
+  const navigation = useNavigation<NavigationProp>()
+  const {gtMobile} = useBreakpoints()
+
+  const onPressAskQuanty = useCallback(() => {
+    haptics.tap()
+    const prompt = `Summarize @${profile.handle}'s profile, recent Zings, and key topics`
+    if (IS_WEB && gtMobile) {
+      requestOpenQuantyDock({
+        prompt,
+      })
+    } else {
+      navigation.navigate('Quanty', {
+        authorHandle: profile.handle,
+        prompt,
+        triggerId: Date.now(),
+      })
+    }
+  }, [haptics, profile.handle, gtMobile, navigation])
 
   const onPressFollow = () => {
     haptics.confirm()
@@ -443,6 +465,19 @@ export function HeaderStandardButtons({
           )}
         </>
       ) : null}
+      {!profile.viewer?.blocking && !profile.viewer?.blockedBy && (
+        <Button
+          testID="profileHeaderAskQuantyBtn"
+          size="small"
+          color="secondary"
+          variant="solid"
+          shape="round"
+          label={`Ask Quanty about @${profile.handle}`}
+          style={[a.justify_center]}
+          onPress={onPressAskQuanty}>
+          <ButtonIcon icon={QuantySparkleIcon} size="md" />
+        </Button>
+      )}
       <ProfileMenu profile={profile} />
 
       <Prompt.Basic
@@ -459,4 +494,8 @@ export function HeaderStandardButtons({
       />
     </>
   )
+}
+
+function QuantySparkleIcon(props: any) {
+  return <SparkleIcon {...props} style={[{color: '#1D9BF0'}, props.style, {color: '#1D9BF0'}]} />
 }

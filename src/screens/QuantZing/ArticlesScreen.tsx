@@ -122,6 +122,44 @@ function parseTagsInput(raw: string): string[] {
   ).slice(0, 6)
 }
 
+export function sanitizeCoverUrl(url?: string): string | undefined {
+  if (!url || typeof url !== 'string') return undefined
+  const trimmed = url.trim()
+  if (!trimmed) return undefined
+
+  if (trimmed.startsWith('//')) return undefined
+  if (trimmed.startsWith('/blob/') || trimmed.startsWith('/images/')) {
+    return trimmed
+  }
+  if (trimmed.startsWith('/')) {
+    return undefined
+  }
+
+  try {
+    const parsed = new URL(trimmed)
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return undefined
+    }
+    if (parsed.username || parsed.password) {
+      return undefined
+    }
+    if (parsed.protocol === 'http:') {
+      const host = parsed.hostname.toLowerCase()
+      const isLocalhost =
+        host === 'localhost' ||
+        host === '127.0.0.1' ||
+        host === '0.0.0.0' ||
+        host === '[::1]'
+      if (!isLocalhost) {
+        return undefined
+      }
+    }
+    return trimmed
+  } catch {
+    return undefined
+  }
+}
+
 export function ArticlesScreen() {
   const t = useTheme()
   const colors = useMemo(() => getQuantZingColors(t.name), [t.name])
@@ -318,6 +356,15 @@ export function ArticlesScreen() {
           return
         }
 
+        const sanitizedCover = sanitizeCoverUrl(coverUrl)
+        if (coverUrl.trim() && !sanitizedCover) {
+          Toast.show(
+            'Cover image must be a valid https:// URL or safe /blob/ path',
+            {type: 'warning'},
+          )
+          return
+        }
+
         setIsSaving(true)
         try {
           const tags = parseTagsInput(tagsInput)
@@ -328,7 +375,7 @@ export function ArticlesScreen() {
               subtitle: subtitle.trim(),
               body: cleanBody,
               tags,
-              coverUrl: coverUrl.trim() || undefined,
+              coverUrl: sanitizedCover,
               status,
               shareToFeed: status === 'published' ? shareToFeed : false,
             },
@@ -401,7 +448,7 @@ export function ArticlesScreen() {
         setTitle(article.title)
         setSubtitle(article.subtitle || '')
         setTagsInput((article.tags || []).join(', '))
-        setCoverUrl(article.coverUrl || '')
+        setCoverUrl(sanitizeCoverUrl(article.coverUrl) || '')
         setBody(article.body)
         setReadingArticle(null)
         setActiveTab('write')
@@ -626,9 +673,9 @@ export function ArticlesScreen() {
                     borderColor: colors.border,
                   },
                 ]}>
-                {coverUrl.trim().length > 0 ? (
+                {sanitizeCoverUrl(coverUrl) ? (
                   <Image
-                    source={{uri: coverUrl.trim()}}
+                    source={{uri: sanitizeCoverUrl(coverUrl)!}}
                     style={{width: '100%', height: '100%'}}
                     resizeMode="cover"
                   />
@@ -1041,9 +1088,9 @@ export function ArticlesScreen() {
                   backgroundColor: '#0A192F',
                 },
               ]}>
-              {readingArticle.coverUrl ? (
+              {sanitizeCoverUrl(readingArticle.coverUrl) ? (
                 <Image
-                  source={{uri: readingArticle.coverUrl}}
+                  source={{uri: sanitizeCoverUrl(readingArticle.coverUrl)!}}
                   style={{width: '100%', height: '100%'}}
                   resizeMode="cover"
                 />
@@ -1426,9 +1473,9 @@ export function ArticlesScreen() {
                         borderColor: colors.border,
                       },
                     ]}>
-                    {article.coverUrl ? (
+                    {sanitizeCoverUrl(article.coverUrl) ? (
                       <Image
-                        source={{uri: article.coverUrl}}
+                        source={{uri: sanitizeCoverUrl(article.coverUrl)!}}
                         style={{width: '100%', height: 140}}
                         resizeMode="cover"
                       />

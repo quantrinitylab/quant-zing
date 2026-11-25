@@ -19,8 +19,11 @@ const LOCAL_DEFAULT_GEOLOCATION: Geolocation = {
 
 const GEOLOCATION_FETCH_TIMEOUT_MS = 600
 const GEOLOCATION_RESOLVE_MAX_WAIT_MS = 650
+const GEO_CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
 
 let sessionFallbackGeolocation: Geolocation | undefined
+let cachedGeoResult: {data: Geolocation; timestamp: number} | undefined
+let inFlightGeoFetch: Promise<Geolocation | undefined> | undefined
 
 function isLocalWebOrigin(): boolean {
   if (typeof window === 'undefined') return false
@@ -52,23 +55,40 @@ async function fetchGeolocationServiceData(
 ): Promise<Geolocation | undefined> {
   if (debug.enabled) return debug.resolve(debug.geolocation)
   if (isLocalWebOrigin()) return LOCAL_DEFAULT_GEOLOCATION
+
+  const now = Date.now()
+  if (cachedGeoResult && now - cachedGeoResult.timestamp < GEO_CACHE_TTL_MS) {
+    return cachedGeoResult.data
+  }
+  if (inFlightGeoFetch) {
+    return inFlightGeoFetch
+  }
+
   const controller =
     typeof AbortController !== 'undefined' ? new AbortController() : undefined
   const timer = setTimeout(() => {
     controller?.abort()
   }, GEOLOCATION_FETCH_TIMEOUT_MS)
-  try {
-    const res = await fetch(
-      url,
-      controller ? {signal: controller.signal} : undefined,
-    )
-    if (!res.ok) {
-      throw new Error(`fetchGeolocationServiceData failed ${res.status}`)
+
+  inFlightGeoFetch = (async () => {
+    try {
+      const res = await fetch(
+        url,
+        controller ? {signal: controller.signal} : undefined,
+      )
+      if (!res.ok) {
+        throw new Error(`fetchGeolocationServiceData failed ${res.status}`)
+      }
+      const data = (await res.json()) as Geolocation
+      cachedGeoResult = {data, timestamp: Date.now()}
+      return data
+    } finally {
+      clearTimeout(timer)
+      inFlightGeoFetch = undefined
     }
-    return (await res.json()) as Geolocation
-  } finally {
-    clearTimeout(timer)
-  }
+  })()
+
+  return inFlightGeoFetch
 }
 
 /**

@@ -39,7 +39,8 @@ import {
 } from '#/view/com/util/MainScrollProvider'
 import {PageList} from '#/screens/Notifications/components/PageList'
 import * as Pager from '#/screens/Notifications/components/PagerView'
-import {TabPills} from '#/screens/Notifications/components/TabPills'
+import {PressableWithHover} from '#/view/com/util/PressableWithHover'
+import {Text} from '#/components/Typography'
 import {
   type RefreshReason,
   useReturnToScreen,
@@ -103,48 +104,15 @@ function NotificationsScreenInner() {
   const tabs: {key: GroupedNotificationsFeed; label: string}[] = [
     {
       key: 'all',
-      label: l({
-        message: 'All',
-        context: 'notifications tab',
-        comment:
-          'Tab label in Notifications that shows every notification. Space is tight, so keep it as short as possible.',
-      }),
+      label: 'All',
     },
     {
       key: 'people-i-follow',
-      label: l({
-        message: 'People I follow',
-        context: 'notifications tab',
-        comment:
-          'Tab label in Notifications that shows only notifications from accounts you follow. Space is tight, so keep it as short as possible, ideally one or two words.',
-      }),
+      label: 'Verified',
     },
     {
       key: 'conversations',
-      label: l({
-        message: 'Replies',
-        context: 'notifications tab',
-        comment:
-          'Tab label in Notifications that shows replies, quotes and mentions. Space is tight, so keep it as short as possible.',
-      }),
-    },
-    {
-      key: 'followers',
-      label: l({
-        message: 'Follows',
-        context: 'notifications tab',
-        comment:
-          'Tab label in Notifications that shows people who followed you. Space is tight, so keep it as short as possible.',
-      }),
-    },
-    {
-      key: 'activity',
-      label: l({
-        message: 'Post alerts',
-        context: 'notifications tab',
-        comment:
-          'Tab label in Notifications that shows new posts from accounts you get activity notifications for. Space is tight, so keep it as short as possible.',
-      }),
+      label: 'Mentions',
     },
   ]
   const {seenAt, onFirstLoad, refresh} = useSessionSeenAt()
@@ -366,14 +334,11 @@ function NotificationsScreenInner() {
         {!hasNoNotifications && (
           <Pager.TabBar>
             {({selectedPage, selectPage, dragProgress}) => (
-              <TabPills
+              <XNotificationsTabBar
                 tabs={tabs}
-                selectedTab={tabs[selectedPage].key}
+                selectedPage={selectedPage}
                 dragProgress={dragProgress}
-                onSelectTab={tab => {
-                  const page = tabs.findIndex(
-                    candidate => candidate.key === tab,
-                  )
+                onSelectTab={page => {
                   // Re-pressing the current tab scrolls it to the top
                   if (page === selectedPage) {
                     emitSoftReset()
@@ -382,7 +347,6 @@ function NotificationsScreenInner() {
                   }
                   selectPage(page)
                 }}
-                contentContainerStyle={IS_WEB ? a.pb_sm : a.py_sm}
               />
             )}
           </Pager.TabBar>
@@ -515,6 +479,131 @@ function useSessionSeenAt() {
   }
 
   return {seenAt, onFirstLoad, refresh}
+}
+
+function XNotificationsTabBar({
+  tabs,
+  selectedPage,
+  dragProgress,
+  onSelectTab,
+}: {
+  tabs: {key: GroupedNotificationsFeed; label: string}[]
+  selectedPage: number
+  dragProgress: SharedValue<number>
+  onSelectTab: (index: number) => void
+}) {
+  const t = useTheme()
+  const [containerWidth, setContainerWidth] = useState(0)
+
+  const indicatorStyle = useAnimatedStyle(() => {
+    if (containerWidth === 0) {
+      return {opacity: 0}
+    }
+    const tabWidth = containerWidth / tabs.length
+    const translateX = interpolate(
+      dragProgress.get(),
+      [0, 1, 2],
+      [0, tabWidth, tabWidth * 2],
+      'clamp',
+    )
+    return {
+      opacity: 1,
+      transform: [{translateX}],
+      width: tabWidth,
+    }
+  })
+
+  return (
+    <View
+      style={[
+        a.w_full,
+        a.flex_row,
+        a.border_b,
+        t.atoms.border_contrast_low,
+        t.atoms.bg,
+        {position: 'relative'},
+      ]}
+      onLayout={e => {
+        const w = e.nativeEvent.layout.width
+        if (w > 0) setContainerWidth(w)
+      }}>
+      {tabs.map((tab, index) => {
+        const isActive = selectedPage === index
+        return (
+          <PressableWithHover
+            key={tab.key}
+            testID={`notifications-tab-${tab.key}`}
+            accessibilityRole="tab"
+            accessibilityState={{selected: isActive}}
+            onPress={() => onSelectTab(index)}
+            style={[
+              a.flex_1,
+              a.align_center,
+              a.justify_center,
+              {height: 48},
+            ]}
+            hoverStyle={t.atoms.bg_contrast_25}>
+            <Text
+              style={[
+                a.text_md,
+                isActive ? a.font_bold : a.font_medium,
+                isActive ? t.atoms.text : t.atoms.text_contrast_medium,
+              ]}>
+              {tab.label}
+            </Text>
+          </PressableWithHover>
+        )
+      })}
+      {containerWidth === 0 ? (
+        <View
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: `${(selectedPage / tabs.length) * 100}%`,
+            width: `${(1 / tabs.length) * 100}%`,
+            height: 4,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+          <View
+            style={{
+              height: 4,
+              width: '50%',
+              minWidth: 48,
+              maxWidth: 80,
+              borderRadius: 9999,
+              backgroundColor: '#1D9BF0',
+            }}
+          />
+        </View>
+      ) : (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            {
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              height: 4,
+              alignItems: 'center',
+              justifyContent: 'center',
+            },
+            indicatorStyle,
+          ]}>
+          <View
+            style={{
+              height: 4,
+              width: '50%',
+              minWidth: 48,
+              maxWidth: 80,
+              borderRadius: 9999,
+              backgroundColor: '#1D9BF0',
+            }}
+          />
+        </Animated.View>
+      )}
+    </View>
+  )
 }
 
 function NotificationsHeader({

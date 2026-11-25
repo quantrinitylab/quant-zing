@@ -1,6 +1,6 @@
 import {useCallback, useMemo, useState} from 'react'
 import {type ListRenderItemInfo, View} from 'react-native'
-import {Trans, useLingui} from '@lingui/react/macro'
+import {useLingui} from '@lingui/react/macro'
 import {type NativeStackScreenProps} from '@react-navigation/native-stack'
 
 import {HITSLOP_10} from '#/lib/constants'
@@ -12,21 +12,15 @@ import {cleanError} from '#/lib/strings/errors'
 import {sanitizeHandle} from '#/lib/strings/handles'
 import {enforceLen} from '#/lib/strings/helpers'
 import {useSearchPostsV2Query} from '#/state/queries/search-posts-v2'
-import {useSession} from '#/state/session'
-import {useLoggedOutViewControls} from '#/state/shell/logged-out'
-import {useCloseAllActiveElements} from '#/state/util'
 import {Pager} from '#/view/com/pager/Pager'
 import {TabBar} from '#/view/com/pager/TabBar'
 import {Post} from '#/view/com/post/Post'
 import {List} from '#/view/com/util/List'
-import {atoms as a, useTheme, web} from '#/alf'
+import {atoms as a, web} from '#/alf'
 import {Button, ButtonIcon} from '#/components/Button'
 import {ArrowOutOfBoxModified_Stroke2_Corner2_Rounded as Share} from '#/components/icons/ArrowOutOfBox'
 import * as Layout from '#/components/Layout'
-import {InlineLinkText} from '#/components/Link'
 import {ListFooter, ListMaybePlaceholder} from '#/components/Lists'
-import {SearchError} from '#/components/SearchError'
-import {Text} from '#/components/Typography'
 import {type app} from '#/lexicons'
 
 const renderItem = ({
@@ -167,8 +161,6 @@ function HashtagScreenTab({
   const {t: l} = useLingui()
   const initialNumToRender = useInitialNumToRender()
   const [isPTR, setIsPTR] = useState(false)
-  const t = useTheme()
-  const {hasSession} = useSession()
   const trackPostView = usePostViewTracking('Hashtag')
 
   const isCashtag = fullTag.startsWith('$')
@@ -212,45 +204,6 @@ function HashtagScreenTab({
     void fetchNextPage()
   }, [isFetchingNextPage, hasNextPage, error, fetchNextPage])
 
-  const closeAllActiveElements = useCloseAllActiveElements()
-  const {requestSwitchToAccount} = useLoggedOutViewControls()
-
-  const showSignIn = () => {
-    closeAllActiveElements()
-    requestSwitchToAccount({requestedAccount: 'none'})
-  }
-
-  const showCreateAccount = () => {
-    closeAllActiveElements()
-    requestSwitchToAccount({requestedAccount: 'new'})
-  }
-
-  if (!hasSession) {
-    return (
-      <SearchError title={l`Search is currently unavailable when logged out`}>
-        <Text style={[a.text_md, a.text_center, a.leading_snug]}>
-          <Trans>
-            <InlineLinkText label={l`Sign in`} to={'#'} onPress={showSignIn}>
-              Sign in
-            </InlineLinkText>
-            <Text style={t.atoms.text_contrast_medium}> or </Text>
-            <InlineLinkText
-              label={l`Create an account`}
-              to={'#'}
-              onPress={showCreateAccount}>
-              create an account
-            </InlineLinkText>
-            <Text> </Text>
-            <Text style={t.atoms.text_contrast_medium}>
-              to search for news, sports, politics, and everything else
-              happening on QuantZing.
-            </Text>
-          </Trans>
-        </Text>
-      </SearchError>
-    )
-  }
-
   return (
     <>
       {posts.length < 1 ? (
@@ -259,7 +212,7 @@ function HashtagScreenTab({
           isError={isError}
           onRetry={refetch}
           emptyType="results"
-          emptyMessage={l`We couldn't find any results for that tag.`}
+          emptyMessage="We couldn't find any results for that tag."
         />
       ) : (
         <List

@@ -85,11 +85,15 @@ function findQuantZingIconPng() {
 function pipeFileStreamSafe(req, res, filePath, headers, compress = false) {
   const readStream = fs.createReadStream(filePath)
   readStream.on('error', () => {
+    const msg = 'Internal stream error'
     if (!res.headersSent) {
-      res.writeHead(500, {'content-type': 'text/plain; charset=utf-8'})
+      res.writeHead(500, {
+        'content-type': 'text/plain; charset=utf-8',
+        'content-length': Buffer.byteLength(msg),
+      })
     }
     if (!res.writableEnded) {
-      res.end('Internal stream error')
+      res.end(msg)
     }
   })
 
@@ -127,8 +131,12 @@ function serveStaticAsset(req, res, filePath, baseHeaders, ext) {
   try {
     rawStat = fs.statSync(filePath)
   } catch {
-    res.writeHead(404, {'content-type': 'text/plain; charset=utf-8'})
-    res.end('Not found')
+    const msg = 'Not found'
+    res.writeHead(404, {
+      'content-type': 'text/plain; charset=utf-8',
+      'content-length': Buffer.byteLength(msg),
+    })
+    res.end(msg)
     return
   }
 
@@ -287,6 +295,8 @@ function isRestrictedOpsPath(pathname) {
   return (
     pathname === '/ops' ||
     pathname.startsWith('/ops/') ||
+    pathname === '/api/settings' ||
+    pathname.startsWith('/api/settings/') ||
     pathname === '/api/quantzing/admin' ||
     pathname.startsWith('/api/quantzing/admin/') ||
     pathname === '/api/quantzing/ops' ||
@@ -371,6 +381,133 @@ function matchProxyRoute(urlPath) {
   return null
 }
 
+const HOP_BY_HOP_HEADERS = new Set([
+  'connection',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+  'proxy-connection',
+])
+
+function stripHopByHopHeaders(headers) {
+  if (!headers || typeof headers !== 'object') return {}
+  const clean = {}
+  for (const [key, value] of Object.entries(headers)) {
+    if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase())) {
+      clean[key] = value
+    }
+  }
+  return clean
+}
+
+function drainRequestBody(req, maxBytes = 65536) {
+  return new Promise(resolve => {
+    if (req.complete) {
+      resolve()
+      return
+    }
+    let received = 0
+    let done = false
+
+    const finish = () => {
+      if (!done) {
+        done = true
+        cleanup()
+        resolve()
+      }
+    }
+
+    const timer = setTimeout(finish, 5000)
+    if (timer.unref) timer.unref()
+
+    const onData = chunk => {
+      received += chunk.length
+      if (received >= maxBytes) {
+        req.removeListener('data', onData)
+        req.resume()
+        finish()
+      }
+    }
+
+    function cleanup() {
+      clearTimeout(timer)
+      req.removeListener('data', onData)
+      req.removeListener('end', finish)
+      req.removeListener('close', finish)
+      req.removeListener('error', finish)
+    }
+
+    req.on('data', onData)
+    req.on('end', finish)
+    req.on('close', finish)
+    req.on('error', finish)
+    req.resume()
+  })
+}
+
+const EVENTS_CORS_HEADERS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'GET,POST,OPTIONS',
+  'access-control-allow-headers':
+    'content-type,authorization,x-atproto-device-id,x-quant-owner-id,x-request-id',
+  'access-control-max-age': '86400',
+  'cache-control': 'no-store',
+}
+
+export async function handleAdminRequest(req, res) {
+  const rawUrl = req.url || '/'
+  const queryIdx = rawUrl.indexOf('?')
+  const rawPath = queryIdx === -1 ? rawUrl : rawUrl.slice(0, queryIdx)
+  const search = queryIdx === -1 ? '' : rawUrl.slice(queryIdx)
+
+  if (req.method === 'OPTIONS') {
+    req.resume()
+  }
+
+  // Forward all /ops/api/* paths cleanly to sovereign admin/ops handlers
+  let sub = rawPath
+  if (sub.startsWith('/ops/api')) {
+    sub = sub.slice('/ops/api'.length) || '/'
+  } else if (sub.startsWith('/api/settings')) {
+    sub = `/settings${sub.slice('/api/settings'.length)}`
+  } else if (sub.startsWith('/api/ops')) {
+    sub = `/ops${sub.slice('/api/ops'.length)}`
+  }
+
+  let targetPath
+  if (sub.startsWith('/ops/')) {
+    targetPath = `/api/quantzing${sub}`
+  } else if (sub.startsWith('/admin/')) {
+    targetPath = `/api/quantzing${sub}`
+  } else {
+    targetPath = `/api/quantzing/admin${sub.startsWith('/') ? sub : `/${sub}`}`
+  }
+
+  req.url = `${targetPath}${search}`
+  try {
+    const handled = await handleQuantZingPds(req, res)
+    if (!handled && !res.headersSent) {
+      const payload = JSON.stringify({
+        error: 'NotFound',
+        message: `Unknown Ops Admin API endpoint: ${req.method || 'GET'} ${rawPath}`,
+      })
+      res.writeHead(404, {
+        'content-type': 'application/json; charset=utf-8',
+        'content-length': Buffer.byteLength(payload),
+        'cache-control': 'no-store',
+      })
+      res.end(payload)
+    }
+    return handled
+  } finally {
+    req.url = rawUrl
+  }
+}
+
 function proxyRequest(req, res, route) {
   const rawUrl = req.url || route.prefix
   const queryIdx = rawUrl.indexOf('?')
@@ -381,21 +518,22 @@ function proxyRequest(req, res, route) {
     (strippedPath.startsWith('/') ? strippedPath : `/${strippedPath}`) + search
 
   if (req.method === 'OPTIONS') {
+    req.resume()
     res.writeHead(204, {
       'access-control-allow-origin': req.headers.origin || '*',
       'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
       'access-control-allow-headers':
         req.headers['access-control-request-headers'] ||
         'content-type,authorization,x-quant-owner-id,x-request-id',
+      'access-control-max-age': '86400',
       'cache-control': 'no-store',
     })
     res.end()
     return
   }
 
-  const forwardedHeaders = {...req.headers}
+  const forwardedHeaders = stripHopByHopHeaders(req.headers)
   delete forwardedHeaders.host
-  delete forwardedHeaders.connection
   forwardedHeaders['x-forwarded-host'] = String(
     req.headers.host || `${host}:${port}`,
   )
@@ -411,12 +549,17 @@ function proxyRequest(req, res, route) {
       timeout: PROXY_TIMEOUT_MS,
     },
     proxyRes => {
-      const responseHeaders = {...proxyRes.headers}
+      const responseHeaders = stripHopByHopHeaders(proxyRes.headers)
       responseHeaders['cache-control'] =
         responseHeaders['cache-control'] || 'no-store'
       responseHeaders['x-quantzing-proxy'] = route.service
+      const statusCode = proxyRes.statusCode || 502
+      if (statusCode === 204) {
+        delete responseHeaders['content-length']
+        delete responseHeaders['transfer-encoding']
+      }
       if (!res.headersSent) {
-        res.writeHead(proxyRes.statusCode || 502, responseHeaders)
+        res.writeHead(statusCode, responseHeaders)
       }
       proxyRes.on('error', () => {
         if (!res.writableEnded) res.end()
@@ -503,22 +646,26 @@ function serveOpsPortal(req, res, subPathname) {
 
   if (!filePath) {
     if (extRequested && extRequested !== '.html') {
+      const msg = 'Not found'
       res.writeHead(404, {
         ...OPS_SECURITY_HEADERS,
         'content-type': 'text/plain; charset=utf-8',
+        'content-length': Buffer.byteLength(msg),
       })
-      res.end('Not found')
+      res.end(msg)
       return
     }
     filePath = path.join(opsPortalDir, 'index.html')
   }
 
   if (!fs.existsSync(filePath)) {
+    const msg = 'QuantZing Ops Portal is not built/installed at ops-portal/.'
     res.writeHead(503, {
       ...OPS_SECURITY_HEADERS,
       'content-type': 'text/plain; charset=utf-8',
+      'content-length': Buffer.byteLength(msg),
     })
-    res.end('QuantZing Ops Portal is not built/installed at ops-portal/.')
+    res.end(msg)
     return
   }
 
@@ -540,31 +687,34 @@ try {
   console.error('[QuantZing] Failed to bootstrap SQLite WAL store:', err)
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const urlPath = req.url || '/'
   const pathname = urlPath.split('?')[0]
 
   if (pathname === '/health' || pathname === '/_health') {
-    res.writeHead(200, {'content-type': 'application/json; charset=utf-8'})
-    res.end(
-      JSON.stringify({
-        ok: true,
-        service: 'quant-zing',
-        version: getPackageVersion(),
-        engine: 'atproto-sovereign-pure',
-        storage: 'sqlite-wal',
-        pds: true,
-        blueskyUpstream: false,
-        port,
-        distReady: fs.existsSync(path.join(distDir, 'index.html')),
-        opsPortalReady: fs.existsSync(path.join(opsPortalDir, 'index.html')),
-        proxyRoutes: PROXY_ROUTES.map(r => ({
-          prefix: r.prefix,
-          service: r.service,
-          upstream: `http://${r.targetHost}:${r.targetPort}`,
-        })),
-      }),
-    )
+    const payload = JSON.stringify({
+      ok: true,
+      service: 'quant-zing',
+      version: getPackageVersion(),
+      engine: 'atproto-sovereign-pure',
+      storage: 'sqlite-wal',
+      pds: true,
+      blueskyUpstream: false,
+      port,
+      distReady: fs.existsSync(path.join(distDir, 'index.html')),
+      opsPortalReady: fs.existsSync(path.join(opsPortalDir, 'index.html')),
+      proxyRoutes: PROXY_ROUTES.map(r => ({
+        prefix: r.prefix,
+        service: r.service,
+        upstream: `http://${r.targetHost}:${r.targetPort}`,
+      })),
+    })
+    res.writeHead(200, {
+      'content-type': 'application/json; charset=utf-8',
+      'content-length': Buffer.byteLength(payload),
+      'cache-control': 'no-store',
+    })
+    res.end(payload)
     return
   }
 
@@ -745,6 +895,42 @@ const server = http.createServer((req, res) => {
     return
   }
 
+  // Handle telemetry & beacon events: POST /api/quantzing/events/t, /api/quantzing/events/gb, etc.
+  // Cleanly drains request body (capped at 64 KB) and returns 200 {"ok":true} with exact Content-Length
+  // and zero hop-by-hop headers to prevent HTTP/2 RST_STREAM / net::ERR_HTTP2_PROTOCOL_ERROR.
+  const isEventsEndpoint =
+    pathname === '/api/quantzing/events/t' ||
+    pathname === '/api/quantzing/events' ||
+    pathname.startsWith('/api/quantzing/events/')
+
+  if (isEventsEndpoint) {
+    if (req.method === 'OPTIONS') {
+      req.resume()
+      res.writeHead(204, {
+        ...EVENTS_CORS_HEADERS,
+        'access-control-allow-origin': req.headers.origin || '*',
+      })
+      res.end()
+      return
+    }
+
+    await drainRequestBody(req, 65536)
+
+    const payload =
+      pathname === '/api/quantzing/events/t'
+        ? JSON.stringify({ok: true})
+        : JSON.stringify({ok: true, status: 200, features: {}})
+
+    res.writeHead(200, {
+      ...EVENTS_CORS_HEADERS,
+      'access-control-allow-origin': req.headers.origin || '*',
+      'content-type': 'application/json; charset=utf-8',
+      'content-length': Buffer.byteLength(payload),
+    })
+    res.end(payload)
+    return
+  }
+
   const hostname = getRequestHostname(req)
   const isOpsHost = isOpsRequestHost(req)
   const rootOpsHost = isOpsHost && isDedicatedOpsHost(hostname)
@@ -761,20 +947,53 @@ const server = http.createServer((req, res) => {
     return
   }
 
+  // Forward all /ops/api/* (and root-ops /api/settings/*) paths cleanly to handleAdminRequest
+  // without hardcoding a narrow path list
+  if (
+    pathname === '/ops/api' ||
+    pathname.startsWith('/ops/api/') ||
+    (rootOpsHost &&
+      (pathname === '/api/settings' || pathname.startsWith('/api/settings/')))
+  ) {
+    try {
+      await handleAdminRequest(req, res)
+    } catch (err) {
+      console.error('[QuantZing Server] Unhandled Ops Admin API error:', err)
+      if (!res.headersSent) {
+        const payload = JSON.stringify({
+          error: 'InternalServerError',
+          message: 'Unhandled Ops Admin API error',
+        })
+        res.writeHead(500, {
+          'content-type': 'application/json; charset=utf-8',
+          'content-length': Buffer.byteLength(payload),
+          'cache-control': 'no-store',
+        })
+        res.end(payload)
+      } else if (!res.writableEnded) {
+        res.end()
+      }
+    }
+    return
+  }
+
   // Sovereign QuantZing ATProto PDS + Public AppView + Quanty MCP (/xrpc/*, /blob/*, /api/quantzing/*, /mcp*)
   if (isQuantZingPdsRoute(urlPath)) {
     handleQuantZingPds(req, res).catch(err => {
       console.error('[QuantZing Server] Unhandled PDS error:', err)
       if (!res.headersSent) {
-        res.writeHead(500, {'content-type': 'application/json; charset=utf-8'})
-      }
-      if (!res.writableEnded) {
-        res.end(
-          JSON.stringify({
-            error: 'InternalServerError',
-            message: 'Unhandled QuantZing PDS error',
-          }),
-        )
+        const payload = JSON.stringify({
+          error: 'InternalServerError',
+          message: 'Unhandled QuantZing PDS error',
+        })
+        res.writeHead(500, {
+          'content-type': 'application/json; charset=utf-8',
+          'content-length': Buffer.byteLength(payload),
+          'cache-control': 'no-store',
+        })
+        res.end(payload)
+      } else if (!res.writableEnded) {
+        res.end()
       }
     })
     return
@@ -831,16 +1050,24 @@ const server = http.createServer((req, res) => {
 
   if (!filePath) {
     if (isAssetRequest) {
-      res.writeHead(404, {'content-type': 'text/plain; charset=utf-8'})
-      res.end('Not found')
+      const msg = 'Not found'
+      res.writeHead(404, {
+        'content-type': 'text/plain; charset=utf-8',
+        'content-length': Buffer.byteLength(msg),
+      })
+      res.end(msg)
       return
     }
     filePath = path.join(distDir, 'index.html')
   }
 
   if (!fs.existsSync(filePath)) {
-    res.writeHead(503, {'content-type': 'text/plain; charset=utf-8'})
-    res.end('QuantZing dist/ not built yet. Run pnpm build-web first.')
+    const msg = 'QuantZing dist/ not built yet. Run pnpm build-web first.'
+    res.writeHead(503, {
+      'content-type': 'text/plain; charset=utf-8',
+      'content-length': Buffer.byteLength(msg),
+    })
+    res.end(msg)
     return
   }
 

@@ -16,6 +16,9 @@ const ROLE_META = {
   moderator: {label: 'L1 MODERATOR', pillClass: 'pill-accent'},
   verification_ops: {label: 'VERIFICATION OPS', pillClass: 'pill-success'},
   support_agent: {label: 'SUPPORT AGENT', pillClass: 'pill-muted'},
+  ai_ops: {label: 'AI & QUANTY OPS', pillClass: 'pill-accent'},
+  anti_bot_ops: {label: 'ANTI-BOT OPS', pillClass: 'pill-danger'},
+  growth_ops: {label: 'TRENDS & REELS OPS', pillClass: 'pill-violet'},
   user: {label: 'USER', pillClass: 'pill-muted'},
 }
 
@@ -24,6 +27,9 @@ const ASSIGNABLE_STAFF_ROLES = [
   {value: 'l2_trust_safety', label: 'L2 Trust & Safety (Takedowns & Enforcements)'},
   {value: 'verification_ops', label: 'Verification Ops (Blue Checkmarks)'},
   {value: 'support_agent', label: 'Support Agent (Read-Only + Reason-Logged PII)'},
+  {value: 'ai_ops', label: 'AI Ops (Cloudflare Workers AI & Quanty)'},
+  {value: 'anti_bot_ops', label: 'Anti-Bot Ops (Shield & Rate Limiting)'},
+  {value: 'growth_ops', label: 'Trends & Reels Ops (Gravity & Curation)'},
   {value: 'super_admin', label: 'Super Admin (Full Control & Four-Eyes Review)'},
 ]
 
@@ -88,6 +94,30 @@ const NAV_ITEMS = [
     badgeTone: 'violet',
   },
   {
+    id: 'ai',
+    label: 'AI & Quanty',
+    subtitle: 'Cloudflare Workers AI model routing, Quanty neuron budget & grounding',
+    perm: 'ai.read',
+    testId: 'opsNavAi',
+    icon: 'sparkles',
+  },
+  {
+    id: 'antibot',
+    label: 'Anti-Bot & Shield',
+    subtitle: 'Rate limit thresholds, IP/domain blocklists & auto-throttle',
+    perm: 'antibot.read',
+    testId: 'opsNavAntibot',
+    icon: 'shield',
+  },
+  {
+    id: 'trends',
+    label: 'Trends & Reels',
+    subtitle: 'Pinned & muted sovereign trends, Reels gravity & video diversity',
+    perm: 'trends.read',
+    testId: 'opsNavTrends',
+    icon: 'trending',
+  },
+  {
     id: 'staff',
     label: 'Staff & Invites',
     subtitle: 'Employee onboarding invites, productivity & instant offboarding kill switch',
@@ -134,6 +164,10 @@ function iconSvg(name, size = 16) {
       return `<svg ${attrs}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`
     case 'shieldCheck':
       return `<svg ${attrs}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>`
+    case 'sparkles':
+      return `<svg ${attrs}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>`
+    case 'trending':
+      return `<svg ${attrs}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>`
     case 'key':
       return `<svg ${attrs}><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>`
     case 'list':
@@ -381,6 +415,18 @@ const state = {
     role: 'l1_moderator',
     expiresHours: '48',
   },
+  // AI & Quanty Settings
+  aiSettings: null,
+  aiLoading: false,
+  aiSaving: false,
+  // Anti-Bot & Shield Settings
+  antibotSettings: null,
+  antibotLoading: false,
+  antibotSaving: false,
+  // Trends & Reels Settings
+  trendsSettings: null,
+  trendsLoading: false,
+  trendsSaving: false,
   // Audit
   audit: [],
   auditQuery: '',
@@ -729,6 +775,9 @@ async function handleSignOut() {
   state.posts = []
   state.appeals = []
   state.approvals = []
+  state.aiSettings = null
+  state.antibotSettings = null
+  state.trendsSettings = null
   state.staff = []
   state.invites = []
   state.audit = []
@@ -759,6 +808,12 @@ async function loadActiveTabData() {
       return loadAppeals()
     case 'approvals':
       return loadApprovals()
+    case 'ai':
+      return loadAiSettings()
+    case 'antibot':
+      return loadAntibotSettings()
+    case 'trends':
+      return loadTrendsSettings()
     case 'staff':
       return loadStaff()
     case 'audit':
@@ -899,6 +954,51 @@ async function loadApprovals() {
     showToast(err.message || 'Failed to load approvals queue', 'error')
   } finally {
     state.approvalsLoading = false
+    renderActivePanel()
+  }
+}
+
+async function loadAiSettings() {
+  if (!hasPerm('ai.read')) return
+  state.aiLoading = true
+  renderActivePanel()
+  try {
+    const {data} = await apiRequest('/ops/api/settings/ai')
+    state.aiSettings = data.settings || data
+  } catch (err) {
+    showToast(err.message || 'Failed to load AI settings', 'error')
+  } finally {
+    state.aiLoading = false
+    renderActivePanel()
+  }
+}
+
+async function loadAntibotSettings() {
+  if (!hasPerm('antibot.read')) return
+  state.antibotLoading = true
+  renderActivePanel()
+  try {
+    const {data} = await apiRequest('/ops/api/settings/antibot')
+    state.antibotSettings = data.settings || data
+  } catch (err) {
+    showToast(err.message || 'Failed to load Anti-Bot settings', 'error')
+  } finally {
+    state.antibotLoading = false
+    renderActivePanel()
+  }
+}
+
+async function loadTrendsSettings() {
+  if (!hasPerm('trends.read')) return
+  state.trendsLoading = true
+  renderActivePanel()
+  try {
+    const {data} = await apiRequest('/ops/api/settings/trends')
+    state.trendsSettings = data.settings || data
+  } catch (err) {
+    showToast(err.message || 'Failed to load Trends & Reels settings', 'error')
+  } finally {
+    state.trendsLoading = false
     renderActivePanel()
   }
 }
@@ -1321,6 +1421,12 @@ function renderCurrentPanelHtml() {
       return renderAppealsPanel()
     case 'approvals':
       return renderApprovalsPanel()
+    case 'ai':
+      return renderAiPanel()
+    case 'antibot':
+      return renderAntibotPanel()
+    case 'trends':
+      return renderTrendsPanel()
     case 'staff':
       return renderStaffPanel()
     case 'audit':
@@ -2396,6 +2502,581 @@ function renderApprovalsPanel() {
 }
 
 // ---------------------------------------------------------------------------
+// Panel: AI & Quanty Control (Cloudflare Workers AI)
+// ---------------------------------------------------------------------------
+
+function renderAiPanel() {
+  const canManage = hasPerm('ai.manage')
+  const ai = state.aiSettings || {}
+  const primaryModel = ai.cfPrimaryModel || '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
+  const fastModel = ai.cfFastModel || '@cf/meta/llama-3.1-8b-instruct-fast'
+  const provider = ai.provider || 'cloudflare-workers-ai'
+
+  if (state.aiLoading && !state.aiSettings) {
+    return `<div class="empty-state"><span>Loading AI &amp; Quanty settings...</span></div>`
+  }
+
+  const primaryOptions = [
+    {value: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', label: '@cf/meta/llama-3.3-70b-instruct-fp8-fast (Recommended)'},
+    {value: '@cf/meta/llama-3.1-70b-instruct', label: '@cf/meta/llama-3.1-70b-instruct'},
+    {value: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', label: '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b (Reasoning)'},
+    {value: '@cf/mistral/mistral-7b-instruct-v0.2', label: '@cf/mistral/mistral-7b-instruct-v0.2'},
+  ]
+
+  const fastOptions = [
+    {value: '@cf/meta/llama-3.1-8b-instruct-fast', label: '@cf/meta/llama-3.1-8b-instruct-fast (Recommended)'},
+    {value: '@cf/meta/llama-3.2-3b-instruct', label: '@cf/meta/llama-3.2-3b-instruct'},
+    {value: '@cf/meta/llama-3.2-1b-instruct', label: '@cf/meta/llama-3.2-1b-instruct (Ultra Fast)'},
+  ]
+
+  return `
+    <div data-testid="opsAiPanel">
+      <div class="info-banner accent" style="margin-bottom: 18px;">
+        ${iconSvg('sparkles', 16)}
+        <span>
+          <strong>Cloudflare Workers AI &amp; Quanty Control:</strong> Configure serverless AI model inference pipelines, API credentials, daily token quotas, and system personality.
+        </span>
+      </div>
+
+      <form id="ai-settings-form" class="ops-form" novalidate>
+        <section class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">${iconSvg('sparkles', 16)}<span>Inference Provider &amp; Cloudflare Credentials</span></h2>
+              <p class="card-subtitle">Serverless inference engine routing and Cloudflare Zero Trust authentication</p>
+            </div>
+          </div>
+
+          <div class="settings-grid-2">
+            <div class="ops-field">
+              <label class="ops-label" for="ai-provider">Inference Provider</label>
+              <select id="ai-provider" class="ops-select" name="provider" data-testid="aiProviderSelect" ${!canManage ? 'disabled' : ''}>
+                ${[
+                  {id: 'cloudflare-workers-ai', label: 'Cloudflare Workers AI (Serverless Fast & Sovereign)'},
+                  {id: 'omniroute', label: 'OmniRoute Multi-Model Gateway'},
+                  {id: 'hybrid', label: 'Hybrid (Workers AI primary + OmniRoute fallback)'},
+                  {id: 'deterministic', label: 'Deterministic Standalone (Zero-Cloud Mock)'},
+                ]
+                  .map(
+                    p => `<option value="${p.id}" ${provider === p.id ? 'selected' : ''}>${esc(p.label)}</option>`,
+                  )
+                  .join('')}
+              </select>
+            </div>
+
+            <div class="ops-field">
+              <label class="ops-label" for="ai-cf-account-id">Cloudflare Account ID</label>
+              <input
+                id="ai-cf-account-id"
+                class="ops-input mono"
+                type="text"
+                name="cfAccountId"
+                placeholder="e.g. 7c9d5e3f1a2b4c6e8d0f..."
+                value="${esc(ai.cfAccountId || '')}"
+                data-testid="aiAccountIdInput"
+                ${!canManage ? 'readonly' : ''}
+              />
+            </div>
+          </div>
+
+          <div class="ops-field" style="margin-top: 14px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px;">
+              <label class="ops-label" for="ai-cf-token">Cloudflare API Token</label>
+              ${
+                ai.hasCfApiToken
+                  ? `<span class="pill pill-success">${iconSvg('check', 11)}<span>CONFIGURED (ENDS IN ...${esc(ai.cfApiTokenLast4 || '')})</span></span>`
+                  : `<span class="pill pill-muted">NOT CONFIGURED</span>`
+              }
+            </div>
+            <input
+              id="ai-cf-token"
+              class="ops-input mono"
+              type="password"
+              name="cfApiToken"
+              placeholder="${ai.hasCfApiToken ? 'Enter new token to update, or leave blank to keep existing' : 'Enter Cloudflare API token (Workers AI read/write permission)'}"
+              data-testid="aiApiTokenInput"
+              autocomplete="off"
+              ${!canManage ? 'readonly' : ''}
+            />
+            <span class="field-hint">Token is securely persisted in quantzing-platform-settings.json and never logged or exposed via GET.</span>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">${iconSvg('sliders', 16)}<span>Model Picker &amp; Generation Hyperparameters</span></h2>
+              <p class="card-subtitle">Primary reasoning model, fast response model, temperature, and tokens</p>
+            </div>
+          </div>
+
+          <div class="settings-grid-2">
+            <div class="ops-field">
+              <label class="ops-label" for="ai-primary-model">Primary Model (Complex Reasoning)</label>
+              <select id="ai-primary-model" class="ops-select mono" name="cfPrimaryModel" data-testid="aiPrimaryModelInput" ${!canManage ? 'disabled' : ''}>
+                ${primaryOptions
+                  .map(
+                    o => `<option value="${o.value}" ${primaryModel === o.value ? 'selected' : ''}>${esc(o.label)}</option>`,
+                  )
+                  .join('')}
+              </select>
+            </div>
+
+            <div class="ops-field">
+              <label class="ops-label" for="ai-fast-model">Fast Model (Chat / Triage / Low-Latency)</label>
+              <select id="ai-fast-model" class="ops-select mono" name="cfFastModel" data-testid="aiFastModelInput" ${!canManage ? 'disabled' : ''}>
+                ${fastOptions
+                  .map(
+                    o => `<option value="${o.value}" ${fastModel === o.value ? 'selected' : ''}>${esc(o.label)}</option>`,
+                  )
+                  .join('')}
+              </select>
+            </div>
+          </div>
+
+          <div class="settings-grid-3" style="margin-top: 14px;">
+            <div class="ops-field">
+              <label class="ops-label" for="ai-daily-budget">Daily Neuron Budget</label>
+              <input
+                id="ai-daily-budget"
+                class="ops-input tabular"
+                type="number"
+                name="dailyNeuronBudget"
+                min="0"
+                step="1000"
+                value="${esc(ai.dailyNeuronBudget ?? 100000)}"
+                data-testid="aiDailyBudgetInput"
+                ${!canManage ? 'readonly' : ''}
+              />
+              <span class="field-hint">Cloudflare Workers AI daily execution ceiling</span>
+            </div>
+
+            <div class="ops-field">
+              <label class="ops-label" for="ai-temp">Temperature (0.0 - 2.0)</label>
+              <input
+                id="ai-temp"
+                class="ops-input tabular"
+                type="number"
+                name="temperature"
+                min="0"
+                max="2"
+                step="0.05"
+                value="${esc(ai.temperature ?? 0.7)}"
+                data-testid="aiTemperatureInput"
+                ${!canManage ? 'readonly' : ''}
+              />
+              <span class="field-hint">Lower = focused &amp; deterministic; Higher = creative</span>
+            </div>
+
+            <div class="ops-field">
+              <label class="ops-label" for="ai-max-tokens">Max Tokens per Response</label>
+              <input
+                id="ai-max-tokens"
+                class="ops-input tabular"
+                type="number"
+                name="maxTokens"
+                min="1"
+                max="131072"
+                step="128"
+                value="${esc(ai.maxTokens ?? 2048)}"
+                data-testid="aiMaxTokensInput"
+                ${!canManage ? 'readonly' : ''}
+              />
+              <span class="field-hint">Context window completion budget</span>
+            </div>
+          </div>
+
+          <div class="ops-field" style="margin-top: 14px;">
+            <label class="toggle-control">
+              <input
+                type="checkbox"
+                name="enableWebGrounding"
+                ${ai.enableWebGrounding ? 'checked' : ''}
+                data-testid="aiWebGroundingToggle"
+                ${!canManage ? 'disabled' : ''}
+              />
+              <span class="toggle-text">
+                <strong>Enable Web Grounding &amp; Real-Time Search</strong>
+                <span class="field-hint" style="display: block;">Allow Quanty to fetch verified search context to answer current-event questions.</span>
+              </span>
+            </label>
+          </div>
+
+          <div class="ops-field" style="margin-top: 14px;">
+            <label class="ops-label" for="ai-system-prompt">System Prompt Persona Addon</label>
+            <textarea
+              id="ai-system-prompt"
+              class="ops-textarea"
+              name="systemPromptAddon"
+              placeholder="Custom instructions or guardrails injected into Quanty assistant system prompt..."
+              data-testid="aiSystemPromptInput"
+              rows="3"
+              ${!canManage ? 'readonly' : ''}
+            >${esc(ai.systemPromptAddon || '')}</textarea>
+          </div>
+        </section>
+
+        ${
+          canManage
+            ? `
+            <div class="toolbar-group" style="justify-content: flex-end;">
+              <button
+                type="submit"
+                class="btn btn-primary btn-lg"
+                data-testid="aiSaveBtn"
+              >
+                ${iconSvg('check', 16)}
+                <span>Save AI Configuration</span>
+              </button>
+            </div>
+          `
+            : `<div class="cell-sub" style="text-align: right;">Requires ai.manage permission to edit.</div>`
+        }
+      </form>
+    </div>
+  `
+}
+
+// ---------------------------------------------------------------------------
+// Panel: Anti-Bot & Shield Control
+// ---------------------------------------------------------------------------
+
+function renderAntibotPanel() {
+  const canManage = hasPerm('antibot.manage')
+  const ab = state.antibotSettings || {}
+
+  if (state.antibotLoading && !state.antibotSettings) {
+    return `<div class="empty-state"><span>Loading Anti-Bot &amp; Shield settings...</span></div>`
+  }
+
+  const blockedIpsText = Array.isArray(ab.blockedIps) ? ab.blockedIps.join('\n') : ''
+  const blockedDomainsText = Array.isArray(ab.blockedDomains) ? ab.blockedDomains.join('\n') : ''
+
+  return `
+    <div data-testid="opsAntibotPanel">
+      <div class="info-banner accent" style="margin-bottom: 18px;">
+        ${iconSvg('shield', 16)}
+        <span>
+          <strong>Anti-Bot &amp; Platform Integrity Shield:</strong> Calibrate rate-limiting thresholds, automated shadow throttling, link safety verification, and network perimeter blocklists.
+        </span>
+      </div>
+
+      <form id="antibot-settings-form" class="ops-form" novalidate>
+        <section class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">${iconSvg('clock', 16)}<span>Rate Limiting &amp; Velocity Thresholds</span></h2>
+              <p class="card-subtitle">Maximum permitted actions per sliding window before 429 throttling</p>
+            </div>
+          </div>
+
+          <div class="settings-grid-2">
+            <div class="ops-field">
+              <label class="ops-label" for="ab-max-posts">Max Posts / Minute (per User)</label>
+              <input
+                id="ab-max-posts"
+                class="ops-input tabular"
+                type="number"
+                name="maxPostsPerMinute"
+                min="1"
+                max="600"
+                value="${esc(ab.maxPostsPerMinute ?? 30)}"
+                data-testid="antibotMaxPostsInput"
+                ${!canManage ? 'readonly' : ''}
+              />
+              <span class="field-hint">Default 30/min prevents post-flooding scripts</span>
+            </div>
+
+            <div class="ops-field">
+              <label class="ops-label" for="ab-max-likes">Max Likes / Minute (per User)</label>
+              <input
+                id="ab-max-likes"
+                class="ops-input tabular"
+                type="number"
+                name="maxLikesPerMinute"
+                min="1"
+                max="1000"
+                value="${esc(ab.maxLikesPerMinute ?? 120)}"
+                data-testid="antibotMaxLikesInput"
+                ${!canManage ? 'readonly' : ''}
+              />
+              <span class="field-hint">Default 120/min guards against like-farming bots</span>
+            </div>
+          </div>
+
+          <div class="settings-grid-2" style="margin-top: 14px;">
+            <div class="ops-field">
+              <label class="ops-label" for="ab-max-views">Max Views / Minute (per IP)</label>
+              <input
+                id="ab-max-views"
+                class="ops-input tabular"
+                type="number"
+                name="maxViewsPerMinutePerIp"
+                min="1"
+                max="5000"
+                value="${esc(ab.maxViewsPerMinutePerIp ?? 600)}"
+                data-testid="antibotMaxViewsInput"
+                ${!canManage ? 'readonly' : ''}
+              />
+              <span class="field-hint">Shields PDS AppView endpoints from aggressive scraping</span>
+            </div>
+
+            <div class="ops-field">
+              <label class="ops-label" for="ab-max-signups">Max Signups / Hour (per IP)</label>
+              <input
+                id="ab-max-signups"
+                class="ops-input tabular"
+                type="number"
+                name="maxSignupsPerHourPerIp"
+                min="1"
+                max="100"
+                value="${esc(ab.maxSignupsPerHourPerIp ?? 10)}"
+                data-testid="antibotMaxSignupsInput"
+                ${!canManage ? 'readonly' : ''}
+              />
+              <span class="field-hint">Prevents automated account generation farms</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">${iconSvg('shieldCheck', 16)}<span>Autonomous Defense &amp; Link Integrity</span></h2>
+              <p class="card-subtitle">Automated mitigation rules applied at network ingestion</p>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 14px;">
+            <label class="toggle-control">
+              <input
+                type="checkbox"
+                name="autoShadowThrottle"
+                ${ab.autoShadowThrottle !== false ? 'checked' : ''}
+                data-testid="antibotShadowThrottleToggle"
+                ${!canManage ? 'disabled' : ''}
+              />
+              <span class="toggle-text">
+                <strong>Autonomous Shadow Throttle</strong>
+                <span class="field-hint" style="display: block;">Silently throttle velocity of repetitive bot patterns without returning explicit errors.</span>
+              </span>
+            </label>
+
+            <label class="toggle-control">
+              <input
+                type="checkbox"
+                name="requireEmailVerifyForLinks"
+                ${ab.requireEmailVerifyForLinks !== false ? 'checked' : ''}
+                data-testid="antibotEmailVerifyToggle"
+                ${!canManage ? 'disabled' : ''}
+              />
+              <span class="toggle-text">
+                <strong>Require Email Verification for Outbound Links</strong>
+                <span class="field-hint" style="display: block;">Accounts must have verified email addresses before posting hyperlinks to mitigate phishing.</span>
+              </span>
+            </label>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">${iconSvg('ban', 16)}<span>Network Perimeter Blocklists</span></h2>
+              <p class="card-subtitle">Hard perimeter drops for malicious IP addresses and spam domains</p>
+            </div>
+          </div>
+
+          <div class="settings-grid-2">
+            <div class="ops-field">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label class="ops-label" for="ab-blocked-ips">Blocked IP Addresses (${Array.isArray(ab.blockedIps) ? ab.blockedIps.length : 0})</label>
+              </div>
+              <textarea
+                id="ab-blocked-ips"
+                class="ops-textarea mono"
+                name="blockedIps"
+                placeholder="198.51.100.1&#10;203.0.113.42&#10;One IP per line"
+                data-testid="antibotBlockedIpsInput"
+                rows="4"
+                ${!canManage ? 'readonly' : ''}
+              >${esc(blockedIpsText)}</textarea>
+              <span class="field-hint">IPs permanently rejected at perimeter with HTTP 403</span>
+            </div>
+
+            <div class="ops-field">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label class="ops-label" for="ab-blocked-domains">Blocked Link Domains (${Array.isArray(ab.blockedDomains) ? ab.blockedDomains.length : 0})</label>
+              </div>
+              <textarea
+                id="ab-blocked-domains"
+                class="ops-textarea mono"
+                name="blockedDomains"
+                placeholder="phish-site.com&#10;spammers.net&#10;One domain per line"
+                data-testid="antibotBlockedDomainsInput"
+                rows="4"
+                ${!canManage ? 'readonly' : ''}
+              >${esc(blockedDomainsText)}</textarea>
+              <span class="field-hint">Domains automatically stripped or rejected in Zings</span>
+            </div>
+          </div>
+        </section>
+
+        ${
+          canManage
+            ? `
+            <div class="toolbar-group" style="justify-content: flex-end;">
+              <button
+                type="submit"
+                class="btn btn-primary btn-lg"
+                data-testid="antibotSaveBtn"
+              >
+                ${iconSvg('check', 16)}
+                <span>Save Anti-Bot &amp; Shield Settings</span>
+              </button>
+            </div>
+          `
+            : `<div class="cell-sub" style="text-align: right;">Requires antibot.manage permission to edit.</div>`
+        }
+      </form>
+    </div>
+  `
+}
+
+// ---------------------------------------------------------------------------
+// Panel: Trends & Reels Curation
+// ---------------------------------------------------------------------------
+
+function renderTrendsPanel() {
+  const canManage = hasPerm('trends.manage')
+  const tr = state.trendsSettings || {}
+
+  if (state.trendsLoading && !state.trendsSettings) {
+    return `<div class="empty-state"><span>Loading Trends &amp; Reels settings...</span></div>`
+  }
+
+  const pinnedText = Array.isArray(tr.pinnedTrends) ? tr.pinnedTrends.join('\n') : ''
+  const mutedText = Array.isArray(tr.mutedTrends) ? tr.mutedTrends.join('\n') : ''
+
+  return `
+    <div data-testid="opsTrendsPanel">
+      <div class="info-banner accent" style="margin-bottom: 18px;">
+        ${iconSvg('trending', 16)}
+        <span>
+          <strong>Trends &amp; Reels Algorithm Curation:</strong> Pin strategic topics, suppress inorganic spam hashtags, and fine-tune FYP Reels freshness gravity &amp; author diversity.
+        </span>
+      </div>
+
+      <form id="trends-settings-form" class="ops-form" novalidate>
+        <section class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">${iconSvg('trending', 16)}<span>Sovereign Hashtags &amp; Topic Curation</span></h2>
+              <p class="card-subtitle">Promote official topics or silence manipulated trending keywords</p>
+            </div>
+          </div>
+
+          <div class="settings-grid-2">
+            <div class="ops-field">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label class="ops-label" for="tr-pinned">Pinned Trends (${Array.isArray(tr.pinnedTrends) ? tr.pinnedTrends.length : 0})</label>
+              </div>
+              <textarea
+                id="tr-pinned"
+                class="ops-textarea"
+                name="pinnedTrends"
+                placeholder="#QuantZing&#10;#QuantOS&#10;#SovereignAI&#10;One hashtag per line"
+                data-testid="trendsPinnedInput"
+                rows="4"
+                ${!canManage ? 'readonly' : ''}
+              >${esc(pinnedText)}</textarea>
+              <span class="field-hint">Always pinned to top of the Explore &amp; Search trending rail</span>
+            </div>
+
+            <div class="ops-field">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label class="ops-label" for="tr-muted">Muted / Suppressed Trends (${Array.isArray(tr.mutedTrends) ? tr.mutedTrends.length : 0})</label>
+              </div>
+              <textarea
+                id="tr-muted"
+                class="ops-textarea"
+                name="mutedTrends"
+                placeholder="#SpamTag&#10;#BotRaid&#10;One keyword or hashtag per line"
+                data-testid="trendsMutedInput"
+                rows="4"
+                ${!canManage ? 'readonly' : ''}
+              >${esc(mutedText)}</textarea>
+              <span class="field-hint">Suppressed from appearing in public trending topics</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title">${iconSvg('sliders', 16)}<span>Reels Video Feed Algorithm Tuning</span></h2>
+              <p class="card-subtitle">Tune For You Video feed ranking dynamics</p>
+            </div>
+          </div>
+
+          <div class="settings-grid-2">
+            <div class="ops-field">
+              <label class="ops-label" for="tr-gravity">Freshness Gravity Decay Rate</label>
+              <input
+                id="tr-gravity"
+                class="ops-input tabular"
+                type="number"
+                name="reelsFreshnessGravity"
+                min="0.1"
+                max="10"
+                step="0.05"
+                value="${esc(tr.reelsFreshnessGravity ?? 1.35)}"
+                data-testid="trendsGravityInput"
+                ${!canManage ? 'readonly' : ''}
+              />
+              <span class="field-hint">Default 1.35. Higher gravity penalizes older videos faster in FYP.</span>
+            </div>
+
+            <div class="ops-field">
+              <label class="ops-label" for="tr-diversity">Author Diversity Window</label>
+              <input
+                id="tr-diversity"
+                class="ops-input tabular"
+                type="number"
+                name="reelsDiversityWindow"
+                min="1"
+                max="50"
+                step="1"
+                value="${esc(tr.reelsDiversityWindow ?? 3)}"
+                data-testid="trendsDiversityInput"
+                ${!canManage ? 'readonly' : ''}
+              />
+              <span class="field-hint">Default 3. Number of distinct creators before repeating an author in feed.</span>
+            </div>
+          </div>
+        </section>
+
+        ${
+          canManage
+            ? `
+            <div class="toolbar-group" style="justify-content: flex-end;">
+              <button
+                type="submit"
+                class="btn btn-primary btn-lg"
+                data-testid="trendsSaveBtn"
+              >
+                ${iconSvg('check', 16)}
+                <span>Save Trends &amp; Reels Curation</span>
+              </button>
+            </div>
+          `
+            : `<div class="cell-sub" style="text-align: right;">Requires trends.manage permission to edit.</div>`
+        }
+      </form>
+    </div>
+  `
+}
+
+// ---------------------------------------------------------------------------
 // Panel 7: Staff Team & Offboarding Kill Switch
 // ---------------------------------------------------------------------------
 
@@ -3255,6 +3936,144 @@ async function handleInspectSubmit(form) {
   }
 }
 
+async function handleAiSettingsSubmit(form) {
+  if (!hasPerm('ai.manage')) return
+  const provider = form.elements.provider?.value || 'cloudflare-workers-ai'
+  const cfAccountId = String(form.elements.cfAccountId?.value || '').trim()
+  const rawToken = String(form.elements.cfApiToken?.value || '').trim()
+  const cfPrimaryModel = String(form.elements.cfPrimaryModel?.value || '').trim() || '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
+  const cfFastModel = String(form.elements.cfFastModel?.value || '').trim() || '@cf/meta/llama-3.1-8b-instruct-fast'
+  const dailyNeuronBudget = Number(form.elements.dailyNeuronBudget?.value || 100000)
+  const temperature = Number(form.elements.temperature?.value || 0.7)
+  const maxTokens = Number(form.elements.maxTokens?.value || 2048)
+  const enableWebGrounding = Boolean(form.elements.enableWebGrounding?.checked)
+  const systemPromptAddon = String(form.elements.systemPromptAddon?.value || '')
+
+  const payload = {
+    provider,
+    cfAccountId,
+    cfPrimaryModel,
+    cfFastModel,
+    dailyNeuronBudget,
+    temperature,
+    maxTokens,
+    enableWebGrounding,
+    systemPromptAddon,
+  }
+  if (rawToken && !rawToken.startsWith('••••') && !rawToken.startsWith('****')) {
+    payload.cfApiToken = rawToken
+  }
+
+  const submitBtn = form.querySelector('[data-testid="aiSaveBtn"]')
+  if (submitBtn) submitBtn.disabled = true
+
+  try {
+    const {data} = await apiRequest('/ops/api/settings/ai', {
+      method: 'PATCH',
+      body: payload,
+    })
+    state.aiSettings = data.settings || data
+    showToast('AI & Quanty settings saved successfully', 'success')
+    renderActivePanel()
+  } catch (err) {
+    showToast(err.message || 'Failed to save AI settings', 'error')
+  } finally {
+    if (submitBtn) submitBtn.disabled = false
+  }
+}
+
+async function handleAntibotSettingsSubmit(form) {
+  if (!hasPerm('antibot.manage')) return
+  const maxPostsPerMinute = Number(form.elements.maxPostsPerMinute?.value || 30)
+  const maxLikesPerMinute = Number(form.elements.maxLikesPerMinute?.value || 120)
+  const maxViewsPerMinutePerIp = Number(form.elements.maxViewsPerMinutePerIp?.value || 600)
+  const maxSignupsPerHourPerIp = Number(form.elements.maxSignupsPerHourPerIp?.value || 10)
+  const autoShadowThrottle = Boolean(form.elements.autoShadowThrottle?.checked)
+  const requireEmailVerifyForLinks = Boolean(form.elements.requireEmailVerifyForLinks?.checked)
+
+  const blockedIpsRaw = String(form.elements.blockedIps?.value || '')
+  const blockedIps = blockedIpsRaw
+    .split(/[\n,]+/)
+    .map(s => s.trim())
+    .filter(Boolean)
+
+  const blockedDomainsRaw = String(form.elements.blockedDomains?.value || '')
+  const blockedDomains = blockedDomainsRaw
+    .split(/[\n,]+/)
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean)
+
+  const payload = {
+    maxPostsPerMinute,
+    maxLikesPerMinute,
+    maxViewsPerMinutePerIp,
+    maxSignupsPerHourPerIp,
+    autoShadowThrottle,
+    requireEmailVerifyForLinks,
+    blockedIps,
+    blockedDomains,
+  }
+
+  const submitBtn = form.querySelector('[data-testid="antibotSaveBtn"]')
+  if (submitBtn) submitBtn.disabled = true
+
+  try {
+    const {data} = await apiRequest('/ops/api/settings/antibot', {
+      method: 'PATCH',
+      body: payload,
+    })
+    state.antibotSettings = data.settings || data
+    showToast('Anti-Bot & Shield settings saved successfully', 'success')
+    renderActivePanel()
+  } catch (err) {
+    showToast(err.message || 'Failed to save Anti-Bot settings', 'error')
+  } finally {
+    if (submitBtn) submitBtn.disabled = false
+  }
+}
+
+async function handleTrendsSettingsSubmit(form) {
+  if (!hasPerm('trends.manage')) return
+  const pinnedRaw = String(form.elements.pinnedTrends?.value || '')
+  const pinnedTrends = pinnedRaw
+    .split(/[\n,]+/)
+    .map(s => s.trim())
+    .filter(Boolean)
+
+  const mutedRaw = String(form.elements.mutedTrends?.value || '')
+  const mutedTrends = mutedRaw
+    .split(/[\n,]+/)
+    .map(s => s.trim())
+    .filter(Boolean)
+
+  const reelsFreshnessGravity = Number(form.elements.reelsFreshnessGravity?.value || 1.35)
+  const reelsDiversityWindow = Number(form.elements.reelsDiversityWindow?.value || 3)
+
+  const payload = {
+    pinnedTrends,
+    mutedTrends,
+    reelsFreshnessGravity,
+    reelsDiversityWindow,
+  }
+
+  const submitBtn = form.querySelector('[data-testid="trendsSaveBtn"]')
+  if (submitBtn) submitBtn.disabled = true
+
+  try {
+    const {data} = await apiRequest('/ops/api/settings/trends', {
+      method: 'PATCH',
+      body: payload,
+    })
+    state.trendsSettings = data.settings || data
+    showToast('Trends & Reels settings saved successfully', 'success')
+    renderActivePanel()
+  } catch (err) {
+    showToast(err.message || 'Failed to save Trends & Reels settings', 'error')
+  } finally {
+    if (submitBtn) submitBtn.disabled = false
+  }
+}
+
 async function handleClaimNextReport() {
   try {
     const {data} = await apiRequest('/api/quantzing/admin/reports/claim-next', {
@@ -3472,6 +4291,15 @@ function wireEvents() {
     } else if (form.id === 'ops-inspect-form') {
       event.preventDefault()
       void handleInspectSubmit(form)
+    } else if (form.id === 'ai-settings-form') {
+      event.preventDefault()
+      void handleAiSettingsSubmit(form)
+    } else if (form.id === 'antibot-settings-form') {
+      event.preventDefault()
+      void handleAntibotSettingsSubmit(form)
+    } else if (form.id === 'trends-settings-form') {
+      event.preventDefault()
+      void handleTrendsSettingsSubmit(form)
     }
   })
 

@@ -89,6 +89,17 @@ import {TrendingTopicsWidgetSync} from '#/features/trendingWidget/Sync'
 import * as Geo from '#/geolocation'
 import {Splash} from '#/Splash'
 
+const STARTUP_TIMEOUT_MS = 3500
+const SPLASH_FAILSAFE_TIMEOUT_MS = 4500
+
+async function ensureGeolocationResolved() {
+  try {
+    await Geo.resolve()
+  } catch (error) {
+    logger.warn('app: geolocation startup resolve warning', {message: error})
+  }
+}
+
 void identifyDevice(getDeviceId(), setupDeviceId)
 
 void SplashScreen.preventAutoHideAsync()
@@ -108,13 +119,39 @@ void prefetchAgeAssuranceConfig()
 void prefetchLiveEvents()
 void prefetchAppConfig()
 
+// Unconditional global failsafe: never allow native splash screen to freeze the app
+setTimeout(() => {
+  void SplashScreen.hideAsync().catch(() => {})
+}, SPLASH_FAILSAFE_TIMEOUT_MS)
+
 function InnerApp() {
   const [isReady, setIsReady] = useState(false)
+  const [splashFailsafeTriggered, setSplashFailsafeTriggered] = useState(false)
   const {currentAccount} = useSession()
   const {resumeSession} = useSessionApi()
   const theme = useColorModeTheme()
   const {t: l} = useLingui()
   const hasCheckedLanding = useLandingEntry()
+  const [landingTimeout, setLandingTimeout] = useState(false)
+
+  // Landing check timeout fallback (3.5s max)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setLandingTimeout(true)
+    }, STARTUP_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [])
+
+  // Unconditional Splash Screen failsafe timer (4500ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      logger.warn('InnerApp: unconditional 4500ms splash failsafe triggered')
+      void SplashScreen.hideAsync().catch(() => {})
+      setSplashFailsafeTriggered(true)
+      setIsReady(true)
+    }, SPLASH_FAILSAFE_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [])
 
   // init
   useEffect(() => {
@@ -122,7 +159,7 @@ function InnerApp() {
     let timer: ReturnType<typeof setTimeout> | undefined
     async function onLaunch(account?: SessionAccount) {
       const safetyTimeout = new Promise<'timeout'>(resolve => {
-        timer = setTimeout(() => resolve('timeout'), 1200)
+        timer = setTimeout(() => resolve('timeout'), STARTUP_TIMEOUT_MS)
       })
       const bootTask = (async () => {
         try {
@@ -138,7 +175,9 @@ function InnerApp() {
       const outcome = await Promise.race([bootTask, safetyTimeout])
       if (timer) clearTimeout(timer)
       if (outcome === 'timeout') {
-        logger.debug('app: boot timeout reached, continuing in background')
+        logger.warn(
+          'app: boot session timeout reached (3.5s), continuing in background',
+        )
       }
       if (active) {
         setIsReady(true)
@@ -160,11 +199,14 @@ function InnerApp() {
     })
   }, [l])
 
+  const isLandingReady = hasCheckedLanding || landingTimeout
+  const isSplashReady = (isReady && isLandingReady) || splashFailsafeTriggered
+
   return (
     <Alf theme={theme}>
       <ThemeProvider theme={theme}>
         <ContextMenuProvider>
-          <Splash isReady={isReady && hasCheckedLanding}>
+          <Splash isReady={isSplashReady}>
             <VideoVolumeProvider>
               <GestureHandlerRootView style={a.h_full}>
                 <Fragment
@@ -237,23 +279,55 @@ function App() {
 
   useEffect(() => {
     let active = true
-    let timer: ReturnType<typeof setTimeout> | undefined
-    void Geo.resolve()
-    const safetyTimeout = new Promise<void>(resolve => {
-      timer = setTimeout(resolve, 1000)
+    let startupTimer: ReturnType<typeof setTimeout> | undefined
+    let splashFailsafeTimer: ReturnType<typeof setTimeout> | undefined
+
+    // Unconditional Splash Screen failsafe timer (4500ms)
+    // Ensures native splash screen is dismissed and app hydrates even on complete deadlock
+    splashFailsafeTimer = setTimeout(() => {
+      logger.warn('app: unconditional 4500ms splash failsafe timer triggered')
+      void SplashScreen.hideAsync().catch(() => {})
+      if (active) {
+        setIsReady(true)
+      }
+    }, SPLASH_FAILSAFE_TIMEOUT_MS)
+
+    const startupTimeout = new Promise<'timeout'>(resolve => {
+      startupTimer = setTimeout(() => resolve('timeout'), STARTUP_TIMEOUT_MS)
     })
-    void Promise.race([
-      Promise.all([initPersistedState(), setupDeviceId]).catch(e => {
-        logger.warn('app: local startup init warning', {message: e})
+
+    const startupTasks = Promise.all([
+      initPersistedState().catch(e => {
+        logger.warn('app: initPersistedState warning', {message: e})
       }),
-      safetyTimeout,
-    ]).finally(() => {
-      if (timer) clearTimeout(timer)
-      if (active) setIsReady(true)
-    })
+      Promise.resolve(setupDeviceId).catch(e => {
+        logger.warn('app: setupDeviceId warning', {message: e})
+      }),
+      ensureGeolocationResolved(),
+    ])
+
+    void Promise.race([startupTasks, startupTimeout])
+      .then(result => {
+        if (result === 'timeout') {
+          logger.warn(
+            'app: startup init timeout reached (3.5s), hydrating app without blocking',
+          )
+        }
+      })
+      .catch(e => {
+        logger.warn('app: local startup init error', {message: e})
+      })
+      .finally(() => {
+        if (startupTimer) clearTimeout(startupTimer)
+        if (active) {
+          setIsReady(true)
+        }
+      })
+
     return () => {
       active = false
-      if (timer) clearTimeout(timer)
+      if (startupTimer) clearTimeout(startupTimer)
+      if (splashFailsafeTimer) clearTimeout(splashFailsafeTimer)
     }
   }, [])
 

@@ -7,6 +7,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
+import Svg, {Circle} from 'react-native-svg'
 import {RichText} from '@bsky/sdk/richtext'
 import {useNavigation} from '@react-navigation/native'
 import {useQueryClient} from '@tanstack/react-query'
@@ -38,6 +39,7 @@ import {Button} from '#/components/Button'
 import {useSheetWrapper} from '#/components/Dialog/sheet-wrapper'
 import {BulletList_Stroke2_Corner0_Rounded as PollIcon} from '#/components/icons/BulletList'
 import {Camera_Stroke2_Corner0_Rounded as CameraIcon} from '#/components/icons/Camera'
+import {Globe_Stroke2_Corner0_Rounded as GlobeIcon} from '#/components/icons/Globe'
 import {Image_Stroke2_Corner2_Rounded as ImageIcon} from '#/components/icons/Image'
 import {PlusLarge_Stroke2_Corner0_Rounded as PlusIcon} from '#/components/icons/Plus'
 import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
@@ -49,6 +51,7 @@ import {IS_NATIVE, IS_WEB} from '#/env'
 import {com} from '#/lexicons'
 
 const MAX_WAVE_LENGTH = 300
+const PROGRESS_CIRCUMFERENCE = 50.265 // 2 * Math.PI * 8
 const MIN_POLL_OPTIONS = 2
 const MAX_POLL_OPTIONS = 4
 const POLL_DURATIONS = [
@@ -76,6 +79,7 @@ export function ComposerPrompt() {
   const sheetWrapper = useSheetWrapper()
 
   const [draftText, setDraftText] = useState('')
+  const [isFocused, setIsFocused] = useState(false)
   const [pollOpen, setPollOpen] = useState(false)
   const [pollOptions, setPollOptions] = useState<string[]>(['', ''])
   const [pollDurationHours, setPollDurationHours] = useState<number>(24)
@@ -417,11 +421,15 @@ export function ComposerPrompt() {
     return null
   }
 
-  const counterColor = isOverLimit
-    ? colors.like
-    : charCount >= 260
-      ? colors.accent
-      : colors.muted
+  const remainingChars = MAX_WAVE_LENGTH - charCount
+  const progressRatio = Math.min(charCount / MAX_WAVE_LENGTH, 1)
+  const strokeDashoffset = PROGRESS_CIRCUMFERENCE * (1 - progressRatio)
+  const ringColor =
+    charCount >= 280
+      ? '#F4212E'
+      : charCount >= 260
+        ? '#FFAD1F'
+        : '#1D9BF0'
 
   return (
     <View
@@ -447,6 +455,8 @@ export function ComposerPrompt() {
           <TextInput
             value={draftText}
             onChangeText={setDraftText}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
             placeholder="What's zinging?"
             placeholderTextColor={colors.muted}
             multiline
@@ -614,6 +624,47 @@ export function ComposerPrompt() {
             </View>
           )}
 
+          {(isFocused || draftText.length > 0) && (
+            <View
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.gap_xs,
+                {
+                  marginTop: 6,
+                  marginBottom: 2,
+                },
+              ]}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Who can reply: Everyone can reply"
+                style={({pressed}) => [
+                  a.flex_row,
+                  a.align_center,
+                  a.gap_2xs,
+                  a.rounded_full,
+                  {
+                    paddingVertical: 3,
+                    paddingHorizontal: 8,
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}>
+                <GlobeIcon width={14} height={14} style={{color: '#1D9BF0'}} />
+                <Text
+                  style={[
+                    {
+                      color: '#1D9BF0',
+                      fontSize: 13,
+                      fontWeight: '700',
+                      lineHeight: 16,
+                    },
+                  ]}>
+                  Everyone can reply
+                </Text>
+              </Pressable>
+            </View>
+          )}
+
           <View
             style={[
               a.flex_row,
@@ -697,14 +748,50 @@ export function ComposerPrompt() {
             </View>
 
             <View style={[a.flex_row, a.align_center, a.gap_sm]}>
-              <Text
-                style={[
-                  a.text_xs,
-                  a.font_medium,
-                  {color: counterColor, fontVariant: ['tabular-nums']},
-                ]}>
-                {charCount}/{MAX_WAVE_LENGTH}
-              </Text>
+              {(charCount > 0 || isFocused) && (
+                <View
+                  testID="composerProgressRing"
+                  style={[a.flex_row, a.align_center, a.gap_xs]}>
+                  <Svg
+                    width={20}
+                    height={20}
+                    viewBox="0 0 20 20"
+                    style={{transform: [{rotate: '-90deg'}]}}>
+                    <Circle
+                      cx={10}
+                      cy={10}
+                      r={8}
+                      stroke={colors.border}
+                      strokeWidth={2}
+                      fill="none"
+                    />
+                    <Circle
+                      cx={10}
+                      cy={10}
+                      r={8}
+                      stroke={ringColor}
+                      strokeWidth={2}
+                      fill="none"
+                      strokeDasharray={PROGRESS_CIRCUMFERENCE}
+                      strokeDashoffset={strokeDashoffset}
+                      strokeLinecap="round"
+                    />
+                  </Svg>
+                  {remainingChars <= 20 && (
+                    <Text
+                      style={[
+                        a.text_xs,
+                        a.font_bold,
+                        {
+                          color: ringColor,
+                          fontVariant: ['tabular-nums'],
+                        },
+                      ]}>
+                      {remainingChars}
+                    </Text>
+                  )}
+                </View>
+              )}
               <Pressable
                 testID="composerPromptPostBtn"
                 disabled={isOverLimit || isPublishing}

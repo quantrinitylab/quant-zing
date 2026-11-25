@@ -15,9 +15,6 @@ import {useActorSearch} from '#/state/queries/actor-search'
 import {usePopularFeedsSearch} from '#/state/queries/feed'
 import {useSearchPostsV2Query} from '#/state/queries/search-posts-v2'
 import {useStarterPackSearch} from '#/state/queries/starter-pack-search'
-import {useSession} from '#/state/session'
-import {useLoggedOutViewControls} from '#/state/shell/logged-out'
-import {useCloseAllActiveElements} from '#/state/util'
 import {Pager} from '#/view/com/pager/Pager'
 import {TabBar} from '#/view/com/pager/TabBar'
 import {Post} from '#/view/com/post/Post'
@@ -33,7 +30,6 @@ import * as FeedCard from '#/components/FeedCard'
 import * as Layout from '#/components/Layout'
 import {InlineLinkText} from '#/components/Link'
 import {ListFooter} from '#/components/Lists'
-import {SearchError} from '#/components/SearchError'
 import {Text} from '#/components/Typography'
 import {type Metrics, useAnalytics} from '#/analytics'
 import {type app} from '#/lexicons'
@@ -303,7 +299,6 @@ let SearchScreenPostResults = ({
 }): React.ReactNode => {
   const ax = useAnalytics()
   const {t: l} = useLingui()
-  const {hasSession} = useSession()
   const [isPTR, setIsPTR] = useState(false)
   const trackPostView = usePostViewTracking('SearchResults')
 
@@ -368,9 +363,6 @@ let SearchScreenPostResults = ({
     return temp
   }, [posts, isFetchingNextPage])
 
-  const closeAllActiveElements = useCloseAllActiveElements()
-  const {requestSwitchToAccount} = useLoggedOutViewControls()
-
   const fireTracking = useCallOnce(() => {
     if (sort) {
       // ts only
@@ -382,42 +374,6 @@ let SearchScreenPostResults = ({
   })
   if (isFetched && sort) {
     fireTracking()
-  }
-
-  const showSignIn = () => {
-    closeAllActiveElements()
-    requestSwitchToAccount({requestedAccount: 'none'})
-  }
-
-  const showCreateAccount = () => {
-    closeAllActiveElements()
-    requestSwitchToAccount({requestedAccount: 'new'})
-  }
-
-  if (!hasSession) {
-    return (
-      <SearchError title={l`Search is currently unavailable when logged out`}>
-        <Text style={[a.text_md, a.text_center, a.leading_snug]}>
-          <Trans>
-            <InlineLinkText label={l`Sign in`} to="#" onPress={showSignIn}>
-              Sign in
-            </InlineLinkText>
-            <Text style={t.atoms.text_contrast_medium}> or </Text>
-            <InlineLinkText
-              label={l`Create an account`}
-              to={'#'}
-              onPress={showCreateAccount}>
-              create an account
-            </InlineLinkText>
-            <Text> </Text>
-            <Text style={t.atoms.text_contrast_medium}>
-              to search for news, sports, politics, and everything else
-              happening on QuantZing.
-            </Text>
-          </Trans>
-        </Text>
-      </SearchError>
-    )
   }
 
   return error ? (
@@ -518,7 +474,6 @@ let SearchScreenUserResults = ({
 }): React.ReactNode => {
   const ax = useAnalytics()
   const {t: l} = useLingui()
-  const {hasSession} = useSession()
   const [isPTR, setIsPTR] = useState(false)
 
   const {
@@ -541,10 +496,9 @@ let SearchScreenUserResults = ({
     setIsPTR(false)
   }, [setIsPTR, refetch])
   const onEndReached = useCallback(() => {
-    if (!hasSession) return
     if (isFetching || !hasNextPage || error) return
     void fetchNextPage()
-  }, [isFetching, error, hasNextPage, fetchNextPage, hasSession])
+  }, [isFetching, error, hasNextPage, fetchNextPage])
 
   const profiles = useMemo(() => {
     return results?.pages.flatMap(page => page.actors) || []
@@ -592,7 +546,7 @@ let SearchScreenUserResults = ({
           desktopFixedHeight
           ListFooterComponent={
             <ListFooter
-              hasNextPage={hasNextPage && hasSession}
+              hasNextPage={hasNextPage}
               isFetchingNextPage={isFetchingNextPage}
             />
           }

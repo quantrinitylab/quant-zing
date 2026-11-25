@@ -49,6 +49,48 @@ const FIELD_LABELS: Record<string, string> = {
 
 const MULTILINE_FIELDS = new Set(['text', 'body', 'description', 'options'])
 
+export const ALLOWED_NAV_SCREENS = new Set([
+  'Home',
+  'Search',
+  'Notifications',
+  'Messages',
+  'Profile',
+  'PostThread',
+  'Bookmarks',
+  'Quanty',
+  'Articles',
+  'CreatorStudio',
+  'ZingSpaces',
+  'QuantZingPro',
+  'VideoFeed',
+  'Settings',
+])
+
+export function sanitizeNavParams(
+  rawParams?: unknown,
+): Record<string, unknown> | undefined {
+  if (!rawParams || typeof rawParams !== 'object' || Array.isArray(rawParams)) {
+    return undefined
+  }
+  const clean: Record<string, unknown> = {}
+  for (const key of Object.keys(rawParams as Record<string, unknown>)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      continue
+    }
+    const val = (rawParams as Record<string, unknown>)[key]
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
+      clean[key] = sanitizeNavParams(val)
+    } else if (Array.isArray(val)) {
+      clean[key] = val.filter(
+        item => typeof item !== 'function' && typeof item !== 'symbol',
+      )
+    } else if (typeof val !== 'function' && typeof val !== 'symbol') {
+      clean[key] = val
+    }
+  }
+  return clean
+}
+
 function getFriendlyActionHeading(
   toolName: string,
   fallbackTitle: string,
@@ -173,10 +215,16 @@ export function QuantyActionCard({
   const handleNavigateHint = useCallback(
     (hint: QuantyNavigationHint) => {
       try {
+        if (!hint || !ALLOWED_NAV_SCREENS.has(hint.screen)) {
+          Toast.show('Open the target tab to view the updated item.', {
+            type: 'info',
+          })
+          return
+        }
         navigation.dispatch(
           CommonActions.navigate({
             name: hint.screen,
-            params: hint.params,
+            params: sanitizeNavParams(hint.params),
           }),
         )
       } catch {

@@ -24,14 +24,39 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(__dirname, '..')
 const isWin = process.platform === 'win32'
 
-const args = process.argv.slice(2)
-const flags = new Set(args.filter(a => a.startsWith('--')))
-const positionalArgs = args.filter(a => !a.startsWith('--'))
+const rawArgs = process.argv.slice(2)
 
-function getFlagValue(prefix, fallback) {
-  const match = args.find(a => a.startsWith(`${prefix}=`))
-  return match ? match.slice(prefix.length + 1) : fallback
+function parseArgs(argsList) {
+  const flags = new Set()
+  const options = new Map()
+  const positional = []
+  const valueFlags = new Set(['--abi', '--arch', '--out'])
+
+  for (let i = 0; i < argsList.length; i++) {
+    const item = argsList[i]
+    if (item.startsWith('--')) {
+      const eqIdx = item.indexOf('=')
+      if (eqIdx !== -1) {
+        const flagName = item.slice(0, eqIdx)
+        const flagVal = item.slice(eqIdx + 1)
+        flags.add(flagName)
+        options.set(flagName, flagVal)
+      } else if (valueFlags.has(item) && i + 1 < argsList.length && !argsList[i + 1].startsWith('--')) {
+        flags.add(item)
+        options.set(item, argsList[i + 1])
+        i++
+      } else {
+        flags.add(item)
+      }
+    } else {
+      positional.push(item)
+    }
+  }
+
+  return {flags, options, positional}
 }
+
+const {flags, options, positional: positionalArgs} = parseArgs(rawArgs)
 
 const isDryRun = flags.has('--dry-run')
 const isPrebuildOnly = flags.has('--prebuild-only')
@@ -43,24 +68,22 @@ const useSubst = flags.has('--use-subst') && !flags.has('--no-subst')
 const keepSubst = flags.has('--keep-subst')
 const arm64Only = flags.has('--arm64-only')
 
-const REACT_NATIVE_ABIS = getFlagValue(
-  '--arch',
+const explicitAbi = options.get('--abi') || options.get('--arch')
+const REACT_NATIVE_ABIS =
+  explicitAbi ||
   process.env.QUANTZING_ANDROID_ABIS ||
-    (arm64Only ? 'arm64-v8a' : 'arm64-v8a,armeabi-v7a'),
-)
+  (arm64Only ? 'arm64-v8a' : 'arm64-v8a,armeabi-v7a')
 
 const OUT_APK = path.resolve(
-  getFlagValue(
-    '--out',
+  options.get('--out') ||
     positionalArgs[0] ||
-      process.env.QUANTZING_APK_PATH ||
-      path.join(
-        projectRoot,
-        '.quantzing-data',
-        'releases',
-        'quantzing-android.apk',
-      ),
-  ),
+    process.env.QUANTZING_APK_PATH ||
+    path.join(
+      projectRoot,
+      '.quantzing-data',
+      'releases',
+      'quantzing-android.apk',
+    ),
 )
 
 function logStep(step, msg) {
@@ -386,7 +409,7 @@ function verifyAndFixPrebuildOutputs(workRoot, androidSdk, ndkVersion, compileSd
     )
   }
 
-  // 3. Verify android/app/build.gradle has applicationId 'com.quantzing.app' and release signing
+  // 3. Verify android/app/build.gradle has applicationId 'com.quantzing.app', release signing, R8 minification, and legacy packaging
   const appGradlePath = path.join(androidDir, 'app', 'build.gradle')
   let appGradle = fs.readFileSync(appGradlePath, 'utf8')
   if (!appGradle.includes('https://dl.bitdrift.io/sdk/android-maven')) {
@@ -405,6 +428,18 @@ function verifyAndFixPrebuildOutputs(workRoot, androidSdk, ndkVersion, compileSd
       `$1    externalNativeBuild {\n        cmake {\n            buildStagingDirectory file(System.getProperty("os.name").toLowerCase().contains("win") ? "C:/q" : "\${projectDir}/.cxx")\n        }\n    }\n`,
     )
   }
+  if (!appGradle.includes('shrinkResources enableMinifyInReleaseBuilds')) {
+    appGradle = appGradle.replace(
+      /shrinkResources\s+[^\r\n]+/,
+      'shrinkResources enableMinifyInReleaseBuilds',
+    )
+  }
+  if (!appGradle.includes('useLegacyPackaging = true')) {
+    appGradle = appGradle.replace(
+      /useLegacyPackaging\s+[^\r\n]+/,
+      'useLegacyPackaging = true',
+    )
+  }
   fs.writeFileSync(appGradlePath, appGradle, 'utf8')
   if (
     !appGradle.includes("applicationId 'com.quantzing.app'") &&
@@ -420,7 +455,7 @@ function verifyAndFixPrebuildOutputs(workRoot, androidSdk, ndkVersion, compileSd
     )
   }
 
-  // 4. Verify android/gradle.properties has safe JVM heap and suppressUnsupportedCompileSdk
+  // 4. Verify android/gradle.properties has safe JVM heap, suppressUnsupportedCompileSdk, and release size optimizations
   const gradlePropsPath = path.join(androidDir, 'gradle.properties')
   let gradleProps = fs.readFileSync(gradlePropsPath, 'utf8')
   if (isWin && !gradleProps.includes('javax.net.ssl.trustStoreType=WINDOWS-ROOT')) {
@@ -428,8 +463,17 @@ function verifyAndFixPrebuildOutputs(workRoot, androidSdk, ndkVersion, compileSd
       /(org\.gradle\.jvmargs=[^\r\n]*)/,
       '$1 -Djavax.net.ssl.trustStoreType=WINDOWS-ROOT',
     )
-    fs.writeFileSync(gradlePropsPath, gradleProps, 'utf8')
   }
+  if (!gradleProps.includes('android.enableMinifyInReleaseBuilds=true')) {
+    gradleProps += '\nandroid.enableMinifyInReleaseBuilds=true\n'
+  }
+  if (!gradleProps.includes('android.enableShrinkResourcesInReleaseBuilds=true')) {
+    gradleProps += '\nandroid.enableShrinkResourcesInReleaseBuilds=true\n'
+  }
+  if (!gradleProps.includes('android.enableBundleCompression=true')) {
+    gradleProps += '\nandroid.enableBundleCompression=true\n'
+  }
+  fs.writeFileSync(gradlePropsPath, gradleProps, 'utf8')
   if (!gradleProps.includes('-Xmx2560m')) {
     throw new Error(
       `Verification failed: ${gradlePropsPath} does not contain -Xmx2560m JVM heap configuration.`,

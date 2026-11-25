@@ -27,6 +27,7 @@ import {useListConvosQuery} from '#/state/queries/messages/list-conversations'
 import {useUpdateAllRead} from '#/state/queries/messages/update-all-read'
 import {EmptyState} from '#/view/com/util/EmptyState'
 import {List, type ListRef} from '#/view/com/util/List'
+import {PressableWithHover} from '#/view/com/util/PressableWithHover'
 import {ChatListSkeleton} from '#/screens/Messages/components/ChatListSkeleton'
 import {atoms as a, useBreakpoints, useTheme, web} from '#/alf'
 import {AgeRestrictedScreen} from '#/components/ageAssurance/AgeRestrictedScreen'
@@ -294,6 +295,10 @@ export function ChatList({
   const initialNumToRender = useInitialNumToRender({minItemHeight: 80})
   const [isPTRing, setIsPTRing] = useState(false)
   const [dmSearch, setDmSearch] = useState('')
+  const [dmFilter, setDmFilter] = useState<'all' | 'unread'>('all')
+  const navigation = useNavigation<NavigationProp>()
+  const {data: unreadCounts} = useUnreadCountsQuery()
+  const requestCount = unreadCounts?.unreadRequestConvos ?? 0
 
   const {
     data,
@@ -319,7 +324,10 @@ export function ChatList({
 
   const conversations = useMemo(() => {
     if (data?.pages) {
-      const allConvos = data.pages.flatMap(page => page.convos)
+      let allConvos = data.pages.flatMap(page => page.convos)
+      if (dmFilter === 'unread') {
+        allConvos = allConvos.filter(convo => convo.unreadCount > 0)
+      }
       const q = dmSearch.trim().toLowerCase()
       const filtered = q
         ? allConvos.filter(convo => {
@@ -342,7 +350,7 @@ export function ChatList({
       ) satisfies ListItem[]
     }
     return []
-  }, [data, dmSearch, selectedChat])
+  }, [data, dmFilter, dmSearch, selectedChat])
 
   const onRefresh = useCallback(async () => {
     setIsPTRing(true)
@@ -403,7 +411,9 @@ export function ChatList({
     return listenSoftReset(() => void onSoftReset())
   }, [onSoftReset, isScreenFocused])
 
-  if (conversations.length === 0) {
+  const hasConvos = Boolean(data?.pages?.some(page => page.convos.length > 0))
+
+  if (conversations.length === 0 && !hasConvos) {
     return (
       <Layout.Center style={web({minHeight: '100%'})}>
         {isLoading ? (
@@ -496,7 +506,7 @@ export function ChatList({
           {chatStatus?.chatDisabled && (
             <ChatDisabled shape="banner" style={[isWithinSplitView && a.mb_sm]} />
           )}
-          <View style={[a.px_md, a.py_sm, a.border_b, t.atoms.border_contrast_low]}>
+          <View style={[a.px_md, a.py_sm, a.border_b, t.atoms.border_contrast_low, a.gap_sm]}>
             <View
               style={[
                 a.flex_row,
@@ -522,8 +532,113 @@ export function ChatList({
                 ]}
               />
             </View>
+            <View style={[a.flex_row, a.align_center, a.gap_xs]}>
+              <PressableWithHover
+                testID="dmFilterAll"
+                accessibilityRole="button"
+                onPress={() => setDmFilter('all')}
+                style={[
+                  a.rounded_full,
+                  a.px_md,
+                  {paddingVertical: 5},
+                  dmFilter === 'all'
+                    ? {backgroundColor: '#1D9BF0'}
+                    : [t.atoms.bg_contrast_25, {borderWidth: 1, borderColor: t.palette.contrast_100}],
+                ]}
+                hoverStyle={dmFilter === 'all' ? undefined : t.atoms.bg_contrast_50}>
+                <Text
+                  style={[
+                    a.text_sm,
+                    a.font_bold,
+                    dmFilter === 'all'
+                      ? {color: '#FFFFFF'}
+                      : t.atoms.text_contrast_medium,
+                  ]}>
+                  All
+                </Text>
+              </PressableWithHover>
+              <PressableWithHover
+                testID="dmFilterUnread"
+                accessibilityRole="button"
+                onPress={() => setDmFilter('unread')}
+                style={[
+                  a.rounded_full,
+                  a.px_md,
+                  {paddingVertical: 5},
+                  dmFilter === 'unread'
+                    ? {backgroundColor: '#1D9BF0'}
+                    : [t.atoms.bg_contrast_25, {borderWidth: 1, borderColor: t.palette.contrast_100}],
+                ]}
+                hoverStyle={dmFilter === 'unread' ? undefined : t.atoms.bg_contrast_50}>
+                <Text
+                  style={[
+                    a.text_sm,
+                    a.font_bold,
+                    dmFilter === 'unread'
+                      ? {color: '#FFFFFF'}
+                      : t.atoms.text_contrast_medium,
+                  ]}>
+                  Unread
+                </Text>
+              </PressableWithHover>
+              <PressableWithHover
+                testID="dmFilterRequests"
+                accessibilityRole="button"
+                onPress={() => navigation.navigate('MessagesInbox')}
+                style={[
+                  a.rounded_full,
+                  a.px_md,
+                  a.flex_row,
+                  a.align_center,
+                  a.gap_2xs,
+                  {paddingVertical: 5},
+                  t.atoms.bg_contrast_25,
+                  {borderWidth: 1, borderColor: t.palette.contrast_100},
+                ]}
+                hoverStyle={t.atoms.bg_contrast_50}>
+                <Text
+                  style={[
+                    a.text_sm,
+                    a.font_bold,
+                    t.atoms.text_contrast_medium,
+                  ]}>
+                  Requests
+                </Text>
+                {requestCount > 0 && (
+                  <View
+                    style={[
+                      a.rounded_full,
+                      a.align_center,
+                      a.justify_center,
+                      {
+                        backgroundColor: '#1D9BF0',
+                        minWidth: 18,
+                        height: 18,
+                        paddingHorizontal: 4,
+                      },
+                    ]}>
+                    <Text
+                      style={[
+                        a.text_xs,
+                        a.font_bold,
+                        {color: '#FFFFFF', lineHeight: 14},
+                      ]}>
+                      {requestCount}
+                    </Text>
+                  </View>
+                )}
+              </PressableWithHover>
+            </View>
           </View>
         </>
+      }
+      ListEmptyComponent={
+        <EmptyState
+          message={dmFilter === 'unread' ? 'No unread messages' : 'No messages found'}
+          icon={InboxLargeIcon}
+          iconSize="3xl"
+          style={[a.py_2xl]}
+        />
       }
       ListFooterComponent={
         <ListFooter

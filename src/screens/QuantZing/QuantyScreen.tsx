@@ -45,6 +45,7 @@ import {
 import {type NavigationProp} from '#/lib/routes/types'
 import {useGetTrendsQuery} from '#/state/queries/trending/useGetTrendsQuery'
 import {useRequireAuth, useSession} from '#/state/session'
+import Svg, {Path} from 'react-native-svg'
 import {atoms as a, useBreakpoints, useTheme, web} from '#/alf'
 import {
   ArrowRotateClockwise_Stroke2_Corner0_Rounded as RefreshIcon,
@@ -177,6 +178,61 @@ function readWebFallbackParams(): QuantyRouteParams {
   }
 }
 
+function MicIcon({
+  size = 14,
+  fill = '#000000',
+}: {
+  size?: number
+  fill?: string
+}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"
+        fill={fill}
+      />
+      <Path
+        d="M19 10v2a7 7 0 0 1-14 0v-2a1 1 0 0 0-2 0v2a9 9 0 0 0 8 8.94V22a1 1 0 0 0 2 0v-1.06A9 9 0 0 0 21 12v-2a1 1 0 0 0-2 0Z"
+        fill={fill}
+      />
+    </Svg>
+  )
+}
+
+function ThumbsUpIcon({
+  size = 14,
+  fill = '#8B98A5',
+}: {
+  size?: number
+  fill?: string
+}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M2 20h2c.55 0 1-.45 1-1v-9c0-.55-.45-1-1-1H2v11Zm19.83-7.12c.11-.25.17-.52.17-.8V11c0-1.1-.9-2-2-2h-5.5l.92-4.65c.05-.22.02-.46-.08-.66a1.002 1.002 0 0 0-.75-.54L13.5 3 7.88 8.62C7.32 9.18 7 9.95 7 10.75V19c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.48.14-.73v-.12Z"
+        fill={fill}
+      />
+    </Svg>
+  )
+}
+
+function ThumbsDownIcon({
+  size = 14,
+  fill = '#8B98A5',
+}: {
+  size?: number
+  fill?: string
+}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M22 4h-2c-.55 0-1 .45-1 1v9c0 .55.45 1 1 1h2V4ZM2.17 11.12c-.11.25-.17.52-.17.8V13c0 1.1.9 2 2 2h5.5l-.92 4.65c-.05.22-.02.46.08.66.1.2.3.36.54.44l1.04.25 5.62-5.62c.56-.56.88-1.33.88-2.13V5c0-1.1-.9-2-2-2H5.75c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.48-.14.73v.12Z"
+        fill={fill}
+      />
+    </Svg>
+  )
+}
+
 function formatCompact(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
@@ -303,6 +359,13 @@ export function QuantyScreen() {
     routeParams.postText ? 'deepsearch' : 'ask',
   )
   const [thinkActive, setThinkActive] = useState(false)
+  const [showModeSelector, setShowModeSelector] = useState(false)
+  const [selectedHeaderMode, setSelectedHeaderMode] = useState<
+    'Auto' | 'Fast' | 'Think' | 'DeepSearch'
+  >('Auto')
+  const [isListening, setIsListening] = useState(false)
+  const recognitionRef = useRef<any>(null)
+  const [feedbackMap, setFeedbackMap] = useState<Record<string, 'up' | 'down'>>({})
   const [input, setInput] = useState('')
   const [composerFocused, setComposerFocused] = useState(false)
   const [showActionsMenu, setShowActionsMenu] = useState(false)
@@ -850,6 +913,77 @@ export function QuantyScreen() {
     [attachedPost, mode, runQuery],
   )
 
+  const currentModeDisplay = useMemo<
+    'Auto' | 'Fast' | 'Think' | 'DeepSearch'
+  >(() => {
+    if (mode === 'deepsearch') return 'DeepSearch'
+    if (thinkActive) return 'Think'
+    if (mode === 'pulse') return 'Fast'
+    return selectedHeaderMode
+  }, [mode, thinkActive, selectedHeaderMode])
+
+  const handleThinkHarder = useCallback(
+    (assistantIndex: number) => {
+      if (isSendingRef.current) return
+      for (let i = assistantIndex - 1; i >= 0; i--) {
+        const candidate = messagesRef.current[i]
+        if (candidate?.role === 'user' && candidate.content.trim()) {
+          setThinkActive(true)
+          setSelectedHeaderMode('Think')
+          void runQuery(candidate.content, 'deepsearch', attachedPost)
+          return
+        }
+      }
+    },
+    [attachedPost, runQuery],
+  )
+
+  const handleToggleSpeak = useCallback(() => {
+    if (isListening) {
+      try {
+        recognitionRef.current?.stop?.()
+      } catch {
+        // ignore
+      }
+      setIsListening(false)
+      return
+    }
+
+    const SpeechRec =
+      IS_WEB && typeof window !== 'undefined'
+        ? (window as any).SpeechRecognition ||
+          (window as any).webkitSpeechRecognition
+        : null
+
+    if (SpeechRec) {
+      try {
+        const rec = new SpeechRec()
+        rec.continuous = false
+        rec.interimResults = true
+        rec.lang = 'en-US'
+        rec.onstart = () => setIsListening(true)
+        rec.onresult = (evt: any) => {
+          const transcript = Array.from(evt.results)
+            .map((r: any) => r[0]?.transcript)
+            .join('')
+          if (transcript) setInput(transcript)
+        }
+        rec.onerror = () => setIsListening(false)
+        rec.onend = () => setIsListening(false)
+        rec.start()
+        recognitionRef.current = rec
+        Toast.show('Listening... Speak your prompt', 'info')
+      } catch {
+        setIsListening(false)
+        Toast.show('Voice mode ready — speak or type your prompt', 'info')
+        inputRef.current?.focus()
+      }
+    } else {
+      Toast.show('Voice prompt mode active — type or speak your query', 'info')
+      inputRef.current?.focus()
+    }
+  }, [isListening])
+
   const handleOpenPostUri = useCallback(
     (rawUri?: string, fallbackHandle?: string) => {
       if (!rawUri) return
@@ -1265,31 +1399,71 @@ export function QuantyScreen() {
               </Pressable>
             </View>
 
-            {/* Circular Grok Send Button */}
+            {/* Grok "Speak" Morphing Pill / Circular Send Button */}
             <Pressable
               testID={
                 variant === 'home' ? 'quantySendBtn' : 'quantyFollowUpSendBtn'
               }
               accessibilityRole="button"
-              accessibilityLabel="Send prompt to Quanty"
-              disabled={!canSend}
-              onPress={handleSubmitCurrent}
+              accessibilityLabel={
+                input.trim()
+                  ? 'Send prompt to Quanty'
+                  : isListening
+                    ? 'Stop listening'
+                    : 'Speak'
+              }
+              disabled={isSending || (input.trim().length > 0 && !canSend)}
+              onPress={input.trim() ? handleSubmitCurrent : handleToggleSpeak}
               style={[
                 a.align_center,
                 a.justify_center,
                 a.rounded_full,
-                {
-                  width: 36,
-                  height: 36,
-                  backgroundColor: colors.ctaBg,
-                  opacity: canSend ? 1 : 0.35,
-                },
+                input.trim()
+                  ? {
+                      width: 36,
+                      height: 36,
+                      backgroundColor: colors.ctaBg,
+                      opacity: canSend ? 1 : 0.35,
+                    }
+                  : {
+                      height: 36,
+                      paddingHorizontal: 14,
+                      flexDirection: 'row',
+                      gap: 6,
+                      backgroundColor: colors.isLight ? '#0F1419' : '#FFFFFF',
+                      opacity: 1,
+                    },
                 web({
-                  cursor: canSend ? 'pointer' : 'default',
-                  transition: 'opacity 140ms ease',
+                  cursor: 'pointer',
+                  transition: 'all 160ms cubic-bezier(0.2, 0, 0, 1)',
+                  boxShadow: !input.trim()
+                    ? colors.isLight
+                      ? '0 2px 8px rgba(15, 20, 25, 0.15)'
+                      : '0 2px 8px rgba(255, 255, 255, 0.15)'
+                    : 'none',
                 }),
               ]}>
-              <ArrowUpIcon size="sm" fill={colors.ctaText} />
+              {input.trim() ? (
+                <ArrowUpIcon size="sm" fill={colors.ctaText} />
+              ) : (
+                <>
+                  <MicIcon
+                    size={14}
+                    fill={colors.isLight ? '#FFFFFF' : '#0F1419'}
+                  />
+                  <Text
+                    style={[
+                      a.text_xs,
+                      a.font_bold,
+                      {
+                        color: colors.isLight ? '#FFFFFF' : '#0F1419',
+                        letterSpacing: -0.1,
+                      },
+                    ]}>
+                    {isListening ? 'Listening...' : 'Speak'}
+                  </Text>
+                </>
+              )}
             </Pressable>
           </View>
         </View>
@@ -1335,9 +1509,13 @@ export function QuantyScreen() {
           )}
         </View>
 
-        {/* Centered Quanty 3 Badge */}
+        {/* Centered Interactive Quanty 3 · Mode ▾ Selector */}
         <View style={[a.flex_1, a.align_center, a.justify_center]}>
-          <View
+          <Pressable
+            testID="quantyModeDropdownBtn"
+            accessibilityRole="button"
+            accessibilityLabel={`Model selector: Quanty 3 · ${currentModeDisplay}`}
+            onPress={() => setShowModeSelector(prev => !prev)}
             style={[
               a.flex_row,
               a.align_center,
@@ -1346,10 +1524,11 @@ export function QuantyScreen() {
                 gap: 6,
                 paddingHorizontal: 13,
                 paddingVertical: 5,
-                backgroundColor: composerBg,
+                backgroundColor: showModeSelector ? userBubbleBg : composerBg,
                 borderWidth: 1,
-                borderColor: colors.border,
+                borderColor: showModeSelector ? colors.accent : colors.border,
               },
+              web({cursor: 'pointer'}),
             ]}>
             <SparkleIcon size="xs" fill={colors.text} />
             <Text
@@ -1358,9 +1537,117 @@ export function QuantyScreen() {
                 a.font_bold,
                 {color: colors.text, letterSpacing: -0.1},
               ]}>
-              Quanty 3
+              {`Quanty 3 · ${currentModeDisplay} ▾`}
             </Text>
-          </View>
+          </Pressable>
+
+          {/* Interactive Mode Dropdown Popover */}
+          {showModeSelector && (
+            <View
+              style={[
+                a.absolute,
+                a.p_xs,
+                a.gap_2xs,
+                {
+                  top: 38,
+                  zIndex: 100,
+                  width: 200,
+                  borderRadius: 14,
+                  backgroundColor: composerBg,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                },
+                web({
+                  boxShadow: composerShadow,
+                }),
+              ]}>
+              {[
+                {
+                  id: 'Auto',
+                  label: 'Auto',
+                  desc: 'Balanced reasoning & tools',
+                  onSelect: () => {
+                    setMode('ask')
+                    setThinkActive(false)
+                    setSelectedHeaderMode('Auto')
+                  },
+                },
+                {
+                  id: 'Fast',
+                  label: 'Fast',
+                  desc: 'Instant concise replies',
+                  onSelect: () => {
+                    setMode('pulse')
+                    setThinkActive(false)
+                    setSelectedHeaderMode('Fast')
+                  },
+                },
+                {
+                  id: 'Think',
+                  label: 'Think',
+                  desc: 'Deep reasoning chain',
+                  onSelect: () => {
+                    setMode('ask')
+                    setThinkActive(true)
+                    setSelectedHeaderMode('Think')
+                  },
+                },
+                {
+                  id: 'DeepSearch',
+                  label: 'DeepSearch',
+                  desc: 'Live web & network synthesis',
+                  onSelect: () => {
+                    setMode('deepsearch')
+                    setThinkActive(false)
+                    setSelectedHeaderMode('DeepSearch')
+                  },
+                },
+              ].map(opt => {
+                const isSelected = currentModeDisplay === opt.id
+                return (
+                  <Pressable
+                    key={opt.id}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      opt.onSelect()
+                      setShowModeSelector(false)
+                    }}
+                    style={[
+                      a.flex_row,
+                      a.align_center,
+                      a.justify_between,
+                      a.px_sm,
+                      a.py_xs,
+                      {
+                        borderRadius: 10,
+                        backgroundColor: isSelected
+                          ? activeToggleBg
+                          : 'transparent',
+                      },
+                      web({cursor: 'pointer'}),
+                    ]}>
+                    <View style={{flex: 1}}>
+                      <Text
+                        style={[
+                          a.text_xs,
+                          a.font_bold,
+                          {color: isSelected ? colors.accent : colors.text},
+                        ]}>
+                        {opt.label}
+                      </Text>
+                      <Text
+                        style={[
+                          {fontSize: 10, color: colors.muted, lineHeight: 14},
+                        ]}>
+                        {opt.desc}
+                      </Text>
+                    </View>
+                    {isSelected && <CheckIcon size="xs" fill={colors.accent} />}
+                  </Pressable>
+                )
+              })}
+            </View>
+          )}
         </View>
 
         {/* Right: Clean + New Chat Icon Button */}
@@ -2050,12 +2337,13 @@ export function QuantyScreen() {
                         </View>
                       )}
 
-                      {/* Minimal Editorial Action Bar: Copy · Post as Zing · Retry */}
+                      {/* Grok Action Row: Copy · Post as Zing · Retry · ThumbsUp/Down · Think harder */}
                       <View
                         style={[
                           a.flex_row,
                           a.align_center,
-                          {gap: 4, paddingTop: 2},
+                          a.flex_wrap,
+                          {gap: 4, paddingTop: 4},
                         ]}>
                         <Pressable
                           accessibilityRole="button"
@@ -2067,8 +2355,8 @@ export function QuantyScreen() {
                             a.rounded_full,
                             {
                               gap: 5,
-                              paddingHorizontal: 10,
-                              paddingVertical: 6,
+                              paddingHorizontal: 9,
+                              paddingVertical: 5,
                             },
                             web({cursor: 'pointer'}),
                           ]}>
@@ -2099,8 +2387,8 @@ export function QuantyScreen() {
                             a.rounded_full,
                             {
                               gap: 5,
-                              paddingHorizontal: 10,
-                              paddingVertical: 6,
+                              paddingHorizontal: 9,
+                              paddingVertical: 5,
                             },
                             web({cursor: 'pointer'}),
                           ]}>
@@ -2126,8 +2414,8 @@ export function QuantyScreen() {
                             a.rounded_full,
                             {
                               gap: 5,
-                              paddingHorizontal: 10,
-                              paddingVertical: 6,
+                              paddingHorizontal: 9,
+                              paddingVertical: 5,
                               opacity: isSending ? 0.45 : 1,
                             },
                             web({cursor: 'pointer'}),
@@ -2142,7 +2430,151 @@ export function QuantyScreen() {
                             Retry
                           </Text>
                         </Pressable>
+
+                        {/* Thumbs Up feedback */}
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Good response"
+                          onPress={() => {
+                            setFeedbackMap(prev => ({
+                              ...prev,
+                              [msg.id]: prev[msg.id] === 'up' ? undefined : 'up',
+                            } as any))
+                            Toast.show('Feedback recorded', 'info')
+                          }}
+                          style={[
+                            a.align_center,
+                            a.justify_center,
+                            a.rounded_full,
+                            {
+                              width: 28,
+                              height: 28,
+                              backgroundColor:
+                                feedbackMap[msg.id] === 'up'
+                                  ? colors.accentSubtle
+                                  : 'transparent',
+                            },
+                            web({cursor: 'pointer'}),
+                          ]}>
+                          <ThumbsUpIcon
+                            size={14}
+                            fill={
+                              feedbackMap[msg.id] === 'up'
+                                ? colors.accent
+                                : colors.muted
+                            }
+                          />
+                        </Pressable>
+
+                        {/* Thumbs Down feedback */}
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Poor response"
+                          onPress={() => {
+                            setFeedbackMap(prev => ({
+                              ...prev,
+                              [msg.id]: prev[msg.id] === 'down' ? undefined : 'down',
+                            } as any))
+                            Toast.show('Feedback recorded', 'info')
+                          }}
+                          style={[
+                            a.align_center,
+                            a.justify_center,
+                            a.rounded_full,
+                            {
+                              width: 28,
+                              height: 28,
+                              backgroundColor:
+                                feedbackMap[msg.id] === 'down'
+                                  ? 'rgba(244, 33, 46, 0.12)'
+                                  : 'transparent',
+                            },
+                            web({cursor: 'pointer'}),
+                          ]}>
+                          <ThumbsDownIcon
+                            size={14}
+                            fill={
+                              feedbackMap[msg.id] === 'down'
+                                ? colors.danger
+                                : colors.muted
+                            }
+                          />
+                        </Pressable>
+
+                        {/* Grok "Think harder" Action Pill */}
+                        <Pressable
+                          testID="quantyThinkHarderBtn"
+                          accessibilityRole="button"
+                          accessibilityLabel="Think harder on this prompt"
+                          disabled={isSending}
+                          onPress={() => handleThinkHarder(msgIdx)}
+                          style={[
+                            a.flex_row,
+                            a.align_center,
+                            a.rounded_full,
+                            {
+                              gap: 5,
+                              marginLeft: 4,
+                              paddingHorizontal: 11,
+                              paddingVertical: 5,
+                              backgroundColor: userBubbleBg,
+                              borderWidth: 1,
+                              borderColor: colors.border,
+                              opacity: isSending ? 0.45 : 1,
+                            },
+                            web({cursor: 'pointer'}),
+                          ]}>
+                          <AtomIcon size="xs" fill={colors.accent} />
+                          <Text
+                            style={[
+                              a.text_xs,
+                              a.font_bold,
+                              {color: colors.accent},
+                            ]}>
+                            Think harder
+                          </Text>
+                        </Pressable>
                       </View>
+
+                      {/* Contextual Follow-up Suggestion Pills below latest Assistant message */}
+                      {msgIdx === messages.length - 1 && !isSending && (
+                        <View style={[a.flex_row, a.flex_wrap, {gap: 6, paddingTop: 4}]}>
+                          {[
+                            {
+                              label: 'Make it shorter',
+                              prompt: 'Make the previous response shorter and punchier.',
+                            },
+                            {
+                              label: 'Explain simply',
+                              prompt: 'Explain the previous response simply so anyone can understand.',
+                            },
+                            {
+                              label: 'Turn into a Zing thread',
+                              prompt: 'Turn this into an engaging multi-part Zing thread with numbered posts.',
+                            },
+                          ].map(pill => (
+                            <Pressable
+                              key={pill.label}
+                              accessibilityRole="button"
+                              onPress={() => void runQuery(pill.prompt, mode, attachedPost)}
+                              style={[
+                                a.px_sm,
+                                a.py_2xs,
+                                a.rounded_full,
+                                {
+                                  backgroundColor: composerBg,
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                },
+                                web({cursor: 'pointer'}),
+                              ]}>
+                              <Text style={[a.text_xs, a.font_semi_bold, {color: colors.text}]}>
+                                {pill.label}
+                              </Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      )}
                     </View>
                   )
                 })}

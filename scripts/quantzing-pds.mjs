@@ -9,6 +9,7 @@ import path from 'node:path'
 import util from 'node:util'
 import {fileURLToPath} from 'node:url'
 import {
+  DEFAULT_PLATFORM_SETTINGS,
   FOUNDER_DID,
   checkAccountEnforcement,
   enforceRateLimit,
@@ -21,6 +22,8 @@ import {
   isConfiguredAdminHandle,
   isPostHiddenForViewer,
   isStaffRole,
+  loadPlatformSettings,
+  normalizeRole,
 } from './quantzing-admin.mjs'
 import {createQuantyBridge} from './quantzing-quanty.mjs'
 import {
@@ -69,9 +72,267 @@ const VIDEO_AUTH_SCOPES = [
 const activeVideoUploads = new Map()
 const spaceSseClients = new Map() // slug -> Set<{res, did, handle, clientId, connectedAt}>
 const spaceSignalBuffers = new Map() // slug -> Array<signalEnvelope>
+export const spaceSseTickets = new Map() // ticket -> {ticket, did, handle, slug, clientId, expiresAt}
+export function getSpaceSseTickets() {
+  return spaceSseTickets
+}
 const passwordResetTokens = new Map() // token -> {did, email, expiresAtMs}
 const emailConfirmTokens = new Map() // token -> {did, email, expiresAtMs}
 const accountDeleteTokens = new Map() // token -> {did, expiresAtMs}
+
+export function pruneSpaceSseTickets() {
+  const now = Date.now()
+  for (const [t, data] of spaceSseTickets.entries()) {
+    if (!data || data.expiresAt <= now) {
+      spaceSseTickets.delete(t)
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic Platform Settings (quantzing-platform-settings.json with 5s TTL Cache)
+// ---------------------------------------------------------------------------
+
+let cachedPlatformSettings = null
+let cachedPlatformSettingsLoadedAt = 0
+const PLATFORM_SETTINGS_CACHE_TTL_MS = 5000
+
+export function getCachedPlatformSettings(dataDir = null) {
+  const now = Date.now()
+  if (
+    cachedPlatformSettings &&
+    now - cachedPlatformSettingsLoadedAt < PLATFORM_SETTINGS_CACHE_TTL_MS
+  ) {
+    return cachedPlatformSettings
+  }
+  try {
+    const dir = dataDir || getDataDir()
+    cachedPlatformSettings = loadPlatformSettings(dir)
+    cachedPlatformSettingsLoadedAt = now
+  } catch {
+    cachedPlatformSettings = DEFAULT_PLATFORM_SETTINGS
+    cachedPlatformSettingsLoadedAt = now
+  }
+  return cachedPlatformSettings
+}
+
+export function invalidatePlatformSettingsCache() {
+  cachedPlatformSettings = null
+  cachedPlatformSettingsLoadedAt = 0
+}
+
+// ---------------------------------------------------------------------------
+// Zero-Dependency In-Memory Anti-Bot, Sybil & Velocity Shield
+// ---------------------------------------------------------------------------
+
+export class AntiBotVelocityShield {
+  constructor() {
+    this.buckets = new Map() // key -> { tokens, lastRefillMs, history: [timestamps] }
+    this.viewDedupeCache = new Map() // `${viewerKey}\0${uri}` -> timestamp (10 min TTL, max 50k)
+    this.stats = {
+      totalEvaluated: 0,
+      totalBlockedIps: 0,
+      totalRateLimited: 0,
+      totalAnomaliesDetected: 0,
+      deduplicatedViews: 0,
+      startedAt: new Date().toISOString(),
+    }
+    this.recentViolations = []
+    this.lastCleanupMs = Date.now()
+  }
+
+  reset() {
+    this.buckets.clear()
+    this.viewDedupeCache.clear()
+    this.stats.totalEvaluated = 0
+    this.stats.totalBlockedIps = 0
+    this.stats.totalRateLimited = 0
+    this.stats.totalAnomaliesDetected = 0
+    this.stats.deduplicatedViews = 0
+    this.recentViolations = []
+  }
+
+  isIpBlocked(rawIp, settings) {
+    if (!rawIp) return false
+    this.stats.totalEvaluated++
+    let ip = String(rawIp || '').trim()
+    if (ip.startsWith('::ffff:')) {
+      ip = ip.slice(7)
+    }
+    const blockedList = Array.isArray(settings?.antibot?.blockedIps)
+      ? settings.antibot.blockedIps
+      : []
+    for (const item of blockedList) {
+      let b = String(item || '').trim()
+      if (b.startsWith('::ffff:')) b = b.slice(7)
+      if (b && (b === ip || ip === b)) {
+        this.stats.totalBlockedIps++
+        this.recordViolation({
+          ip,
+          action: 'blocked_ip',
+          reason: 'IP explicitly blocked by platform settings',
+        })
+        return true
+      }
+    }
+    return false
+  }
+
+  recordViewIfFresh(viewerKey, postUri) {
+    if (!viewerKey || !postUri) return false
+    const key = `${viewerKey}\0${postUri}`
+    const now = Date.now()
+    const last = this.viewDedupeCache.get(key)
+    if (last && now - last < 10 * 60 * 1000) {
+      this.stats.deduplicatedViews++
+      return false
+    }
+    if (this.viewDedupeCache.size >= 50_000) {
+      const oldest = this.viewDedupeCache.keys().next().value
+      this.viewDedupeCache.delete(oldest)
+    }
+    this.viewDedupeCache.set(key, now)
+    return true
+  }
+
+  checkRate({
+    action,
+    key,
+    limit,
+    windowMs = 60_000,
+    burstMax = 10,
+    burstWindowMs = 3000,
+    ip = null,
+    did = null,
+    auth = null,
+  }) {
+    this.stats.totalEvaluated++
+    if (
+      auth &&
+      !auth.error &&
+      normalizeRole(auth.account?.role) === 'super_admin'
+    ) {
+      return { allowed: true }
+    }
+
+    const now = Date.now()
+    this._maybeCleanup(now)
+
+    let bucket = this.buckets.get(key)
+    if (!bucket) {
+      bucket = {
+        tokens: limit,
+        lastRefillMs: now,
+        history: [],
+      }
+      this.buckets.set(key, bucket)
+    }
+
+    // 1. Sliding window burst anomaly detection
+    const burstCutoff = now - burstWindowMs
+    bucket.history = bucket.history.filter(ts => ts > burstCutoff)
+    bucket.history.push(now)
+
+    if (bucket.history.length > burstMax) {
+      this.stats.totalAnomaliesDetected++
+      this.stats.totalRateLimited++
+      const retryAfterSec = Math.max(1, Math.ceil(burstWindowMs / 1000))
+      this.recordViolation({
+        ip,
+        did,
+        action,
+        reason: 'burst_velocity_anomaly',
+        count: bucket.history.length,
+        max: burstMax,
+      })
+      return {
+        allowed: false,
+        reason: 'burst_velocity_anomaly',
+        retryAfterSec,
+      }
+    }
+
+    // 2. Token-bucket rate limiting
+    const elapsedSec = (now - bucket.lastRefillMs) / 1000
+    const refillRate = limit / (windowMs / 1000)
+    bucket.tokens = Math.min(limit, bucket.tokens + elapsedSec * refillRate)
+    bucket.lastRefillMs = now
+
+    if (bucket.tokens < 1) {
+      this.stats.totalRateLimited++
+      const retryAfterSec = Math.max(1, Math.ceil((1 - bucket.tokens) / refillRate))
+      this.recordViolation({
+        ip,
+        did,
+        action,
+        reason: 'rate_limit_exceeded',
+        limit,
+        windowMs,
+      })
+      return {
+        allowed: false,
+        reason: 'rate_limit_exceeded',
+        retryAfterSec,
+      }
+    }
+
+    bucket.tokens -= 1
+    return { allowed: true }
+  }
+
+  recordViolation({ ip, did, action, reason, ...extra }) {
+    if (this.recentViolations.length >= 100) {
+      this.recentViolations.shift()
+    }
+    this.recentViolations.push({
+      ip: ip || null,
+      did: did || null,
+      action: action || 'unknown',
+      reason: reason || 'unknown',
+      ...extra,
+      timestamp: new Date().toISOString(),
+    })
+  }
+
+  _maybeCleanup(now) {
+    if (now - this.lastCleanupMs < 60_000) return
+    this.lastCleanupMs = now
+    const staleCutoff = now - 15 * 60 * 1000
+    for (const [k, b] of this.buckets.entries()) {
+      if (
+        b.lastRefillMs < staleCutoff &&
+        (!b.history.length || b.history[b.history.length - 1] < staleCutoff)
+      ) {
+        this.buckets.delete(k)
+      }
+    }
+    for (const [k, ts] of this.viewDedupeCache.entries()) {
+      if (now - ts > 10 * 60 * 1000) {
+        this.viewDedupeCache.delete(k)
+      }
+    }
+  }
+
+  getStats() {
+    return {
+      totalEvaluated: this.stats.totalEvaluated,
+      totalBlockedIps: this.stats.totalBlockedIps,
+      totalRateLimited: this.stats.totalRateLimited,
+      totalAnomaliesDetected: this.stats.totalAnomaliesDetected,
+      deduplicatedViews: this.stats.deduplicatedViews,
+      activeBucketsCount: this.buckets.size,
+      viewDedupeCacheSize: this.viewDedupeCache.size,
+      recentViolations: [...this.recentViolations],
+      startedAt: this.stats.startedAt,
+    }
+  }
+}
+
+export const antiBotShield = new AntiBotVelocityShield()
+
+export function getAntiBotStats() {
+  return antiBotShield.getStats()
+}
 
 const SHORT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 function generateShortCode(length = 8) {
@@ -502,7 +763,7 @@ function getJwtSecretFromStoreOrDb(storeOrDb) {
   return storeOrDb.jwtSecret || getActiveStore().getJwtSecret()
 }
 
-function signJwt(storeOrDb, {did, scope, ttlSeconds, tv}) {
+export function signJwt(storeOrDb, {did, scope, ttlSeconds, tv}) {
   const now = Math.floor(Date.now() / 1000)
   const header = base64UrlEncode(JSON.stringify({alg: 'HS256', typ: 'at+jwt'}))
   const payload = base64UrlEncode(
@@ -560,7 +821,7 @@ function resolveCanonicalAccountForStoreOrDb(storeOrDb, account) {
   return account
 }
 
-function verifyJwt(storeOrDb, token, expectedScope = null) {
+export function verifyJwt(storeOrDb, token, expectedScope = null) {
   if (!token || typeof token !== 'string') return null
   const parts = token.split('.')
   if (parts.length !== 3) return null
@@ -2740,6 +3001,7 @@ function getLocalFeedItems(
     filterTags = null,
     onlyVideo = false,
     onlyMedia = false,
+    rankReels = false,
     limit = 60,
   } = {},
 ) {
@@ -2811,6 +3073,12 @@ function getLocalFeedItems(
     }
   }
 
+  if (onlyVideo || rankReels) {
+    const settings = getCachedPlatformSettings(getDataDir())
+    const ranked = rankReelsItems(items, settings, store)
+    return ranked.map(({_sortTime, ...rest}) => rest)
+  }
+
   items.sort((a, b) => b._sortTime - a._sortTime)
   return items.map(({_sortTime, ...rest}) => rest)
 }
@@ -2870,9 +3138,41 @@ function buildFeedGeneratorView(storeOrDb, spec, viewerDid, origin) {
   }
 }
 
-function computeSovereignTrends(storeOrDb, viewerDid, origin, limit = 10) {
+let sovereignTrendsCache = new Map() // key -> { timestamp, data }
+const TRENDS_CACHE_TTL_MS = 5000
+
+export function clearTrendsCache() {
+  sovereignTrendsCache.clear()
+}
+
+export function computeSovereignTrends(storeOrDb, viewerDid, origin, limit = 10) {
   const store = unwrapStore(storeOrDb)
-  const rawTrends = store.getTimeDecayedTrends({limit})
+  const reqLimit = Math.min(100, Math.max(1, Number(limit) || 10))
+  const cacheKey = `${viewerDid || 'anon'}:${origin || ''}:${reqLimit}`
+  const now = Date.now()
+
+  const cached = sovereignTrendsCache.get(cacheKey)
+  if (cached && now - cached.timestamp < TRENDS_CACHE_TTL_MS) {
+    return cached.data
+  }
+
+  const settings = getCachedPlatformSettings(getDataDir())
+  const pinnedList = Array.isArray(settings?.trends?.pinnedTrends)
+    ? settings.trends.pinnedTrends
+    : []
+  const mutedList = Array.isArray(settings?.trends?.mutedTrends)
+    ? settings.trends.mutedTrends
+    : []
+
+  const mutedSet = new Set(
+    mutedList
+      .map(t => String(t || '').trim().toLowerCase().replace(/^#/, ''))
+      .filter(Boolean),
+  )
+
+  const rawTrends = store.getTimeDecayedTrends({
+    limit: Math.max(reqLimit * 2, 25),
+  })
 
   const categoryForTag = tag => {
     const t = String(tag || '').toLowerCase()
@@ -2885,10 +3185,17 @@ function computeSovereignTrends(storeOrDb, viewerDid, origin, limit = 10) {
     return 'QuantZing'
   }
 
+  // Filter out any muted trends
+  const filteredRaw = rawTrends.filter(entry => {
+    const topicNorm = String(entry.topic || '').trim().toLowerCase().replace(/^#/, '')
+    const displayNorm = String(entry.displayName || '').trim().toLowerCase().replace(/^#/, '')
+    return !mutedSet.has(topicNorm) && !mutedSet.has(displayNorm)
+  })
+
   const usedSampleUris = new Set()
   const usedSnippets = new Set()
 
-  return rawTrends.map((entry, idx) => {
+  const trendViews = filteredRaw.map((entry, idx) => {
     const actors = [...(entry.actorDids || [])]
       .slice(0, 3)
       .map(did => store.getAccountByDid(did))
@@ -2935,6 +3242,136 @@ function computeSovereignTrends(storeOrDb, viewerDid, origin, limit = 10) {
       actors,
     }
   })
+
+  // Handle pinned trends (promoted to very top)
+  const pinnedViews = []
+  const pinnedNorms = new Set()
+
+  for (const rawPinned of pinnedList) {
+    const cleanPin = String(rawPinned || '').trim()
+    if (!cleanPin) continue
+    const norm = cleanPin.toLowerCase().replace(/^#/, '')
+    if (mutedSet.has(norm) || pinnedNorms.has(norm)) continue
+    pinnedNorms.add(norm)
+
+    const existingIdx = trendViews.findIndex(
+      tv =>
+        tv.displayName.toLowerCase().replace(/^#/, '') === norm ||
+        tv.topic.toLowerCase().replace(/^#/, '') === norm,
+    )
+
+    if (existingIdx !== -1) {
+      const existing = trendViews[existingIdx]
+      trendViews.splice(existingIdx, 1)
+      pinnedViews.push({
+        ...existing,
+        status: 'pinned',
+        pinned: true,
+      })
+    } else {
+      const topic = cleanPin.startsWith('#') ? cleanPin : `#${cleanPin}`
+      const displayName = cleanPin.replace(/^#/, '')
+      pinnedViews.push({
+        $type: 'app.bsky.unspecced.defs#trendView',
+        topic,
+        displayName,
+        description: `Featured Sovereign Trend on QuantZing.`,
+        link: `/search?q=${encodeURIComponent(displayName)}`,
+        startedAt: new Date().toISOString(),
+        postCount: 100,
+        status: 'pinned',
+        pinned: true,
+        category: categoryForTag(topic),
+        actors: [],
+      })
+    }
+  }
+
+  const finalTrends = [...pinnedViews, ...trendViews].slice(0, reqLimit)
+
+  sovereignTrendsCache.set(cacheKey, {
+    timestamp: now,
+    data: finalTrends,
+  })
+
+  return finalTrends
+}
+
+// ---------------------------------------------------------------------------
+// Multi-Signal Reels Ranking Algorithm (Engagement Velocity, Time-Decay & Diversity)
+// ---------------------------------------------------------------------------
+
+export function rankReelsItems(items, settings = null, store = null) {
+  if (!Array.isArray(items) || items.length <= 1) return items
+
+  const now = Date.now()
+  const gravity = Number(settings?.trends?.reelsFreshnessGravity) || 1.35
+  const diversityWindow = Math.max(1, Number(settings?.trends?.reelsDiversityWindow) || 3)
+
+  const scored = items.map(entry => {
+    const post = entry.post || {}
+    const likes = Number(post.likeCount || 0)
+    const reposts = Number(post.repostCount || 0)
+    const replies = Number(post.replyCount || 0)
+    const uri = post.uri
+    const views = uri && store ? store.getPostViewCount(uri) : Number(post.viewCount || 0)
+
+    // Engagement velocity: likes*2 + reposts*3 + replies*4 + uniqueViews*0.15
+    const velocity = (likes * 2) + (reposts * 3) + (replies * 4) + (views * 0.15)
+
+    // Exponential time-decay gravity: 1 / Math.pow(ageHours + 2, gravity)
+    const createdAtMs =
+      Date.parse(post.record?.createdAt || post.indexedAt || entry._sortTime || 0) || now
+    const ageHours = Math.max(0, (now - createdAtMs) / (1000 * 60 * 60))
+    const timeDecay = 1 / Math.pow(ageHours + 2, gravity)
+
+    const score = (1 + velocity) * timeDecay
+    const creatorDid = post.author?.did || 'unknown'
+
+    return {
+      entry,
+      creatorDid,
+      score,
+      velocity,
+      ageHours,
+    }
+  })
+
+  // Sort by raw multi-signal score descending
+  scored.sort((a, b) => b.score - a.score)
+
+  // Creator-diversity penalty & interleaving (preventing same creator back-to-back)
+  const result = []
+  const remaining = [...scored]
+  const recentCreators = []
+
+  while (remaining.length > 0) {
+    let pickIndex = -1
+    const lastCreator =
+      recentCreators.length > 0 ? recentCreators[recentCreators.length - 1] : null
+
+    // Look for best candidate that is not the same creator as the previous video
+    for (let i = 0; i < remaining.length; i++) {
+      if (remaining[i].creatorDid !== lastCreator) {
+        pickIndex = i
+        break
+      }
+    }
+
+    // Fallback if all remaining candidates belong to the same creator
+    if (pickIndex === -1) {
+      pickIndex = 0
+    }
+
+    const [chosen] = remaining.splice(pickIndex, 1)
+    result.push(chosen.entry)
+    recentCreators.push(chosen.creatorDid)
+    if (recentCreators.length > diversityWindow) {
+      recentCreators.shift()
+    }
+  }
+
+  return result
 }
 
 function getSuggestedQuantZingActors(
@@ -4339,6 +4776,19 @@ export async function handleQuantZingPds(req, res) {
   const {pathname, searchParams} = parsedUrl
   const method = (req.method || 'GET').toUpperCase()
   const store = getActiveStore()
+  const clientIp = getClientIp(req)
+  const settings = getCachedPlatformSettings(getDataDir())
+
+  if (antiBotShield.isIpBlocked(clientIp, settings)) {
+    sendXrpcError(
+      req,
+      res,
+      403,
+      'Forbidden',
+      'Access denied: IP address is blocked by platform security policy',
+    )
+    return true
+  }
 
   try {
     // -----------------------------------------------------------------------
@@ -4396,6 +4846,40 @@ export async function handleQuantZingPds(req, res) {
       pathname.startsWith('/mcp/') ||
       pathname.startsWith('/api/quantzing/quanty/')
     ) {
+      if (
+        (pathname === '/api/quantzing/quanty/chat' ||
+          pathname === '/api/quantzing/quanty/ask') &&
+        method === 'POST'
+      ) {
+        const optAuth = getAuthedContext(req, store)
+        const chatDid = optAuth.error ? null : optAuth.did
+        const chatCheck = antiBotShield.checkRate({
+          action: 'quanty_chat',
+          key: `chat:${chatDid || clientIp}`,
+          limit: 30,
+          windowMs: 60 * 1000,
+          burstMax: 5,
+          burstWindowMs: 3000,
+          ip: clientIp,
+          did: chatDid,
+          auth: optAuth,
+        })
+        if (!chatCheck.allowed) {
+          sendJson(
+            req,
+            res,
+            429,
+            {
+              error: 'RateLimitExceeded',
+              message: 'Quanty AI chat rate limit reached. Please wait a moment.',
+              retryAfterSec: chatCheck.retryAfterSec,
+            },
+            {'retry-after': String(chatCheck.retryAfterSec)},
+          )
+          return true
+        }
+      }
+
       const bridge = getQuantyBridgeInstance(store)
       const handled = await bridge.handleQuantyHttpRequest(
         req,
@@ -4409,6 +4893,58 @@ export async function handleQuantZingPds(req, res) {
     // -----------------------------------------------------------------------
     // Sovereign QuantZing Config, Geolocation, Link Meta, Quanty Mention & DID
     // -----------------------------------------------------------------------
+
+    // Fix /api/quantzing/trends Live Timeout Bug: responds in <50ms with cached computeSovereignTrends
+    if (pathname === '/api/quantzing/trends' && method === 'GET') {
+      const limit = Number(searchParams.get('limit') || 10)
+      const viewerDid = getOptionalViewerDid(req, store)
+      const trends = computeSovereignTrends(store, viewerDid, origin, limit)
+      sendJson(req, res, 200, {
+        ok: true,
+        trends,
+        recIdStr: 'quantzing-trends-v1',
+      })
+      return true
+    }
+
+    // Live Anti-Bot & Velocity Shield Metrics
+    if (pathname === '/api/quantzing/antibot/stats' && method === 'GET') {
+      sendJson(req, res, 200, {
+        ok: true,
+        stats: antiBotShield.getStats(),
+        settings: settings.antibot,
+      })
+      return true
+    }
+
+    // Multi-Signal Ranked Sovereign Reels Feed
+    if (
+      (pathname === '/api/quantzing/reels' ||
+        pathname === '/api/quantzing/thevids') &&
+      method === 'GET'
+    ) {
+      const viewerDid = getOptionalViewerDid(req, store)
+      const cursor = searchParams.get('cursor')
+      const limit = Number(searchParams.get('limit') || 30)
+      const items = getLocalFeedItems(store, viewerDid, origin, {
+        includeReplies: false,
+        onlyVideo: true,
+        rankReels: true,
+        limit: Math.max(limit * 2, 60),
+      })
+      const page = paginateItems(items, cursor, limit)
+      const impressionKey = getViewerImpressionKey(req, viewerDid)
+      store.enqueuePostViews(
+        page.items.map(it => it.post?.uri).filter(Boolean),
+        impressionKey,
+      )
+      sendJson(req, res, 200, {
+        ok: true,
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        feed: page.items,
+      })
+      return true
+    }
 
     if (pathname === '/api/quantzing/config') {
       sendJson(req, res, 200, {
@@ -5128,7 +5664,7 @@ export async function handleQuantZingPds(req, res) {
     }
 
     const spaceActionMatch = pathname.match(
-      /^\/api\/quantzing\/spaces\/([^/]+)(?:\/(join|leave|hand|react|events|mute|signal))?$/,
+      /^\/api\/quantzing\/spaces\/([^/]+)(?:\/(join|leave|hand|react|events|events-ticket|mute|signal))?$/,
     )
     if (spaceActionMatch) {
       const slug = decodeURIComponent(spaceActionMatch[1])
@@ -5214,6 +5750,64 @@ export async function handleQuantZingPds(req, res) {
           sendJson(req, res, 200, {ok: true, deleted: true})
           return true
         }
+      }
+
+      // Security Audit C-1: Short-lived, single-use, room-scoped SSE tickets
+      if (subAction === 'events-ticket' && method === 'POST') {
+        const auth = getAuthedContext(req, store)
+        if (auth.error) {
+          sendXrpcError(
+            req,
+            res,
+            auth.status,
+            auth.error,
+            'Authentication required',
+          )
+          return true
+        }
+        const enforcement = checkAccountEnforcement(store, auth.account)
+        if (!enforcement.allowed) {
+          sendXrpcError(
+            req,
+            res,
+            enforcement.status,
+            enforcement.error,
+            enforcement.message,
+          )
+          return true
+        }
+        const existing = store.getSpaceBySlug(slug)
+        if (!existing) {
+          sendXrpcError(req, res, 404, 'NotFound', 'ZingSpace not found')
+          return true
+        }
+        const body = await readJsonBody(req).catch(() => ({}))
+        const clientId =
+          String(body?.clientId || searchParams.get('clientId') || '').trim().slice(0, 80) ||
+          `cli_${generateTid()}`
+
+        pruneSpaceSseTickets()
+
+        const ticket = crypto.randomBytes(24).toString('base64url')
+        const expiresAt = Date.now() + 30_000 // 30-second single-use ticket
+
+        spaceSseTickets.set(ticket, {
+          ticket,
+          did: auth.did,
+          handle: auth.account.handle,
+          slug: existing.slug,
+          clientId,
+          expiresAt,
+        })
+
+        sendJson(req, res, 200, {
+          ok: true,
+          ticket,
+          slug: existing.slug,
+          clientId,
+          expiresInSec: 30,
+        })
+        return true
       }
 
       if (subAction === 'join' && method === 'POST') {
@@ -5389,15 +5983,29 @@ export async function handleQuantZingPds(req, res) {
           )
           return true
         }
-        if (
-          enforceRateLimit(req, res, {
-            bucketKey: `space-signal:${auth.did}`,
-            maxRequests: 300,
-            windowMs: 60 * 1000,
-            auth,
-            sendJson,
-          })
-        ) {
+        const signalCheck = antiBotShield.checkRate({
+          action: 'space_signal',
+          key: `space-signal:${auth.did}`,
+          limit: 300,
+          windowMs: 60 * 1000,
+          burstMax: 30,
+          burstWindowMs: 1000,
+          ip: clientIp,
+          did: auth.did,
+          auth,
+        })
+        if (!signalCheck.allowed) {
+          sendJson(
+            req,
+            res,
+            429,
+            {
+              error: 'RateLimitExceeded',
+              message: 'WebRTC signal velocity exceeded. Please slow down.',
+              retryAfterSec: signalCheck.retryAfterSec,
+            },
+            {'retry-after': String(signalCheck.retryAfterSec)},
+          )
           return true
         }
         const existing = store.getSpaceBySlug(slug)
@@ -5531,24 +6139,75 @@ export async function handleQuantZingPds(req, res) {
           sendXrpcError(req, res, 404, 'NotFound', 'ZingSpace not found')
           return true
         }
-        const queryToken = String(searchParams.get('token') || '').trim()
-        const rawBearer = extractBearerToken(req) || queryToken
+
         let sseDid = null
         let sseHandle = null
-        if (rawBearer) {
-          const verified = verifyJwt(store, rawBearer)
-          if (verified && !verified.expired && verified.account) {
-            const tv = Number(verified.payload?.tv) || 1
-            const accTv = Number(verified.account.tokenVersion) || 1
-            if (tv === accTv) {
-              sseDid = verified.account.did
-              sseHandle = verified.account.handle
+        let clientId =
+          String(searchParams.get('clientId') || '').trim().slice(0, 80) || null
+
+        const ticketParam = String(searchParams.get('ticket') || '').trim()
+        if (ticketParam) {
+          const ticketRecord = spaceSseTickets.get(ticketParam)
+          if (!ticketRecord) {
+            sendXrpcError(
+              req,
+              res,
+              401,
+              'InvalidTicket',
+              'Invalid or already consumed ticket',
+            )
+            return true
+          }
+          // Single-use: consume immediately
+          spaceSseTickets.delete(ticketParam)
+
+          if (ticketRecord.expiresAt <= Date.now()) {
+            sendXrpcError(
+              req,
+              res,
+              401,
+              'ExpiredTicket',
+              'SSE events ticket has expired',
+            )
+            return true
+          }
+          if (ticketRecord.slug !== existing.slug) {
+            sendXrpcError(
+              req,
+              res,
+              403,
+              'Forbidden',
+              'Ticket not valid for this ZingSpace',
+            )
+            return true
+          }
+          sseDid = ticketRecord.did
+          sseHandle = ticketRecord.handle
+          if (ticketRecord.clientId) {
+            clientId = ticketRecord.clientId
+          }
+        } else {
+          // Backwards-compatible fallback during rollout
+          const queryToken = String(searchParams.get('token') || '').trim()
+          const rawBearer = extractBearerToken(req) || queryToken
+          if (rawBearer) {
+            const verified = verifyJwt(store, rawBearer)
+            if (verified && !verified.expired && verified.account) {
+              const tv = Number(verified.payload?.tv) || 1
+              const accTv = Number(verified.account.tokenVersion) || 1
+              if (tv === accTv) {
+                sseDid = verified.account.did
+                sseHandle = verified.account.handle
+              }
             }
           }
         }
-        const clientId =
-          String(searchParams.get('clientId') || '').trim().slice(0, 80) ||
-          `cli_${generateTid()}`
+
+        pruneSpaceSseTickets()
+
+        if (!clientId) {
+          clientId = `cli_${generateTid()}`
+        }
         const connectedAt = new Date().toISOString()
 
         res.writeHead(
@@ -6241,20 +6900,65 @@ export async function handleQuantZingPds(req, res) {
     if (pathname === '/api/quantzing/views/record' && method === 'POST') {
       const viewerDid = getOptionalViewerDid(req, store)
       const viewerKey = getViewerImpressionKey(req, viewerDid)
+
+      const maxViewsPerMin =
+        Number(settings?.antibot?.maxViewsPerMinutePerIp) || 600
+      const viewCheck = antiBotShield.checkRate({
+        action: 'view_record',
+        key: `views:${clientIp}`,
+        limit: maxViewsPerMin,
+        windowMs: 60 * 1000,
+        burstMax: 60,
+        burstWindowMs: 2000,
+        ip: clientIp,
+        did: viewerDid,
+      })
+      if (!viewCheck.allowed) {
+        sendJson(
+          req,
+          res,
+          429,
+          {
+            error: 'RateLimitExceeded',
+            message: 'Too many view records. Please slow down.',
+            retryAfterSec: viewCheck.retryAfterSec,
+          },
+          {'retry-after': String(viewCheck.retryAfterSec)},
+        )
+        return true
+      }
+
       const body = await readJsonBody(req)
-      const uris = Array.isArray(body?.uris)
+      const rawUris = Array.isArray(body?.uris)
         ? body.uris.slice(0, 50).map(u => String(u || ''))
         : body?.uri
           ? [String(body.uri)]
           : []
-      store.enqueuePostViews(uris, viewerKey)
-      store.flushPendingViews()
+
+      const freshUris = []
+      for (const rawUri of rawUris) {
+        const canonical = store.canonicalizeUri(rawUri)
+        if (!canonical) continue
+        if (antiBotShield.recordViewIfFresh(viewerKey, canonical)) {
+          freshUris.push(canonical)
+        }
+      }
+
+      if (freshUris.length > 0) {
+        // Enqueue to coalesced write-behind buffer (ZERO synchronous disk write)
+        store.enqueuePostViews(freshUris, viewerKey)
+      }
+
       const counts = {}
-      for (const u of uris) {
+      for (const u of rawUris) {
         const c = store.canonicalizeUri(u)
         if (c) counts[c] = store.getPostViewCount(c)
       }
-      sendJson(req, res, 200, {ok: true, counts})
+      sendJson(req, res, 200, {
+        ok: true,
+        counts,
+        deduplicated: rawUris.length - freshUris.length,
+      })
       return true
     }
 
@@ -6263,6 +6967,16 @@ export async function handleQuantZingPds(req, res) {
     // -----------------------------------------------------------------------
 
     if (!pathname.startsWith('/xrpc/')) {
+      if (pathname.startsWith('/api/quantzing/')) {
+        sendXrpcError(
+          req,
+          res,
+          404,
+          'NotFound',
+          `QuantZing API route not found: ${pathname}`,
+        )
+        return true
+      }
       return false
     }
 
@@ -6347,15 +7061,30 @@ export async function handleQuantZingPds(req, res) {
 
     if (nsid === 'com.atproto.server.createAccount' && method === 'POST') {
       const optAuth = getAuthedContext(req, store)
-      if (
-        enforceRateLimit(req, res, {
-          bucketKey: `signup:${getClientIp(req)}`,
-          maxRequests: Number(process.env.QUANTZING_RATE_LIMIT_SIGNUP_MAX) || 20,
-          windowMs: 15 * 60 * 1000,
-          auth: optAuth,
-          sendJson,
-        })
-      ) {
+      const maxSignupsPerHour =
+        Number(settings?.antibot?.maxSignupsPerHourPerIp) || 10
+      const signupCheck = antiBotShield.checkRate({
+        action: 'create_account',
+        key: `signup:${clientIp}`,
+        limit: maxSignupsPerHour,
+        windowMs: 60 * 60 * 1000,
+        burstMax: 3,
+        burstWindowMs: 10 * 1000,
+        ip: clientIp,
+        auth: optAuth,
+      })
+      if (!signupCheck.allowed) {
+        sendJson(
+          req,
+          res,
+          429,
+          {
+            error: 'RateLimitExceeded',
+            message: 'Too many account creation attempts. Please try again later.',
+            retryAfterSec: signupCheck.retryAfterSec,
+          },
+          {'retry-after': String(signupCheck.retryAfterSec)},
+        )
         return true
       }
 
@@ -7230,19 +7959,8 @@ export async function handleQuantZingPds(req, res) {
         )
         return true
       }
-      if (
-        enforceRateLimit(req, res, {
-          bucketKey: `write:${auth.did}`,
-          maxRequests: Number(process.env.QUANTZING_RATE_LIMIT_WRITE_MAX) || 60,
-          windowMs: 60 * 1000,
-          auth,
-          sendJson,
-        })
-      ) {
-        return true
-      }
       const body = await readJsonBody(req)
-      const collection = String(body.collection || '')
+      const collection = String(body?.collection || '')
       if (!collection || !body.record || typeof body.record !== 'object') {
         sendXrpcError(
           req,
@@ -7250,6 +7968,81 @@ export async function handleQuantZingPds(req, res) {
           400,
           'InvalidRequest',
           'collection and record are required',
+        )
+        return true
+      }
+
+      // Per-action anti-bot velocity shield (spam posts/likes/follows)
+      let action = 'create_record'
+      let actionLimit = 60
+      let burstMax = 10
+      let burstWindowMs = 5000
+
+      if (collection === 'app.bsky.feed.post') {
+        action = 'create_post'
+        actionLimit = Number(settings?.antibot?.maxPostsPerMinute) || 30
+        burstMax = 6
+        burstWindowMs = 5000
+      } else if (collection === 'app.bsky.feed.like') {
+        action = 'create_like'
+        actionLimit = Number(settings?.antibot?.maxLikesPerMinute) || 120
+        burstMax = 15
+        burstWindowMs = 3000
+      } else if (collection === 'app.bsky.graph.follow') {
+        action = 'create_follow'
+        actionLimit = 60
+        burstMax = 10
+        burstWindowMs = 5000
+      }
+
+      const didCheck = antiBotShield.checkRate({
+        action,
+        key: `${action}:did:${auth.did}`,
+        limit: actionLimit,
+        windowMs: 60 * 1000,
+        burstMax,
+        burstWindowMs,
+        ip: clientIp,
+        did: auth.did,
+        auth,
+      })
+      if (!didCheck.allowed) {
+        sendJson(
+          req,
+          res,
+          429,
+          {
+            error: 'RateLimitExceeded',
+            message: `Velocity limit exceeded for ${action}. Please slow down.`,
+            retryAfterSec: didCheck.retryAfterSec,
+          },
+          {'retry-after': String(didCheck.retryAfterSec)},
+        )
+        return true
+      }
+
+      const ipCheck = antiBotShield.checkRate({
+        action,
+        key: `${action}:ip:${clientIp}`,
+        limit: actionLimit * 2,
+        windowMs: 60 * 1000,
+        burstMax: burstMax * 2,
+        burstWindowMs,
+        ip: clientIp,
+        did: auth.did,
+        auth,
+      })
+      if (!ipCheck.allowed) {
+        sendJson(
+          req,
+          res,
+          429,
+          {
+            error: 'RateLimitExceeded',
+            message: `Velocity limit exceeded for ${action} from this IP. Please slow down.`,
+            retryAfterSec: ipCheck.retryAfterSec,
+          },
+          {'retry-after': String(ipCheck.retryAfterSec)},
         )
         return true
       }
@@ -8126,6 +8919,7 @@ export async function handleQuantZingPds(req, res) {
             ? spec.tags
             : null,
         onlyVideo: isVideoFeed,
+        rankReels: isVideoFeed,
         limit: Math.max(limit * 2, 60),
       })
       if (items.length === 0 && !isVideoFeed) {

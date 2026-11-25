@@ -48,6 +48,7 @@ export interface QuantySourceCitation {
 }
 
 export type QuantyEngineOrigin =
+  | 'cloudflare-workers-ai'
   | 'quant-ai'
   | 'quant-router'
   | 'anthropic'
@@ -2740,15 +2741,36 @@ export async function sendSpaceReaction(
   return data.space
 }
 
+export async function requestSpaceEventsTicket(
+  slug: string,
+  clientId: string,
+  accessJwt: string,
+): Promise<string | null> {
+  try {
+    const safeSlug = assertSafePathSegment(slug, 'space slug')
+    const data = await quantzingApiFetch<{ok: boolean; ticket?: string}>(
+      `/api/quantzing/spaces/${encodeURIComponent(safeSlug)}/events-ticket`,
+      {
+        method: 'POST',
+        accessJwt,
+        body: {clientId},
+      },
+    )
+    return data?.ok && typeof data.ticket === 'string' ? data.ticket : null
+  } catch {
+    return null
+  }
+}
+
 export function getSpaceEventsUrl(
   slug: string,
-  opts?: {clientId?: string; accessJwt?: string},
+  opts?: {clientId?: string; ticket?: string},
 ): string {
   const safeSlug = assertSafePathSegment(slug, 'space slug')
   const origin = getQuantZingApiOrigin()
   const qs = new URLSearchParams()
   if (opts?.clientId) qs.set('clientId', opts.clientId)
-  if (opts?.accessJwt) qs.set('token', opts.accessJwt)
+  if (opts?.ticket) qs.set('ticket', opts.ticket)
   const suffix = qs.toString() ? `?${qs.toString()}` : ''
   return `${origin}/api/quantzing/spaces/${encodeURIComponent(safeSlug)}/events${suffix}`
 }
