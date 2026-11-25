@@ -346,6 +346,31 @@ await runAsyncTest('2.5 Backwards-compatible fallback: valid Bearer JWT connects
   assert.equal(res.headers['content-type'], 'text/event-stream; charset=utf-8')
 })
 
+await runAsyncTest('2.6 LiveKit SFU Token: generates valid room-bound token with audio publishing grants for host', async () => {
+  const req = createMockReq({
+    method: 'GET',
+    url: `/api/quantzing/spaces/${testSpace.slug}/livekit-token`,
+    headers: { authorization: `Bearer ${aliceToken}` },
+  })
+  const res = createMockRes()
+  await handleQuantZingPds(req, res)
+
+  assert.equal(res.statusCode, 200, 'LiveKit token route must return 200')
+  assert.equal(res.body.ok, true)
+  assert.equal(res.body.roomName, `space_${testSpace.slug}`)
+  assert.equal(res.body.role, 'host')
+  assert.equal(res.body.canSpeak, true)
+  assert.ok(typeof res.body.token === 'string' && res.body.token.split('.').length === 3, 'Must be valid 3-part JWT')
+
+  // Decode JWT payload
+  const payloadJson = Buffer.from(res.body.token.split('.')[1], 'base64url').toString('utf8')
+  const payload = JSON.parse(payloadJson)
+  assert.equal(payload.sub, aliceAcc.did)
+  assert.equal(payload.video.room, `space_${testSpace.slug}`)
+  assert.equal(payload.video.canPublish, true)
+  assert.deepEqual(payload.video.canPublishSources, ['microphone'])
+})
+
 // ---------------------------------------------------------------------------
 // 3. Red-Team Anti-Bot & Blocked IP Defense
 // ---------------------------------------------------------------------------

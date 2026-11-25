@@ -3,7 +3,13 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { Readable } from 'node:stream'
-import { createQuantyBridge, callCloudflareWorkersAi, clearPlatformSettingsCache } from '../quantzing-quanty.mjs'
+import {
+  createQuantyBridge,
+  callCloudflareWorkersAi,
+  generateCloudflareEmbeddings,
+  computeCosineSimilarity,
+  clearPlatformSettingsCache,
+} from '../quantzing-quanty.mjs'
 
 console.log('🧪 Starting Quanty Multi-Turn Reasoning & Tool Verification Suite...\n')
 
@@ -324,6 +330,65 @@ await runAsyncTest('Cloudflare Workers AI: callQuantOsReasoning returns cloudfla
     assert.equal(result.origin, 'cloudflare-workers-ai')
     assert.equal(result.content, 'Workers AI reasoning response')
     assert.ok(typeof result.thoughtMs === 'number', 'thoughtMs is present')
+  } finally {
+    globalThis.fetch = originalFetch
+    delete process.env.CLOUDFLARE_ACCOUNT_ID
+    delete process.env.CLOUDFLARE_API_TOKEN
+  }
+})
+
+runTest('Vector Math: computeCosineSimilarity evaluates exact angle between dense vectors', () => {
+  // Identical vectors = 1.0
+  assert.equal(Math.round(computeCosineSimilarity([1, 0, 0], [1, 0, 0]) * 1000) / 1000, 1)
+  // Orthogonal vectors = 0.0
+  assert.equal(computeCosineSimilarity([1, 0], [0, 1]), 0)
+  // Opposite vectors = -1.0
+  assert.equal(Math.round(computeCosineSimilarity([1, 0], [-1, 0]) * 1000) / 1000, -1)
+  // Correlated vectors
+  const sim = computeCosineSimilarity([1, 2, 3], [2, 4, 6])
+  assert.equal(Math.round(sim * 1000) / 1000, 1)
+  // Mismatched / empty vectors return 0 safely without throwing
+  assert.equal(computeCosineSimilarity([], [1]), 0)
+  assert.equal(computeCosineSimilarity([1, 2], [1, 2, 3]), 0)
+})
+
+await runAsyncTest('Cloudflare BGE Embeddings: generateCloudflareEmbeddings batches dense vector generation', async () => {
+  const originalFetch = globalThis.fetch
+  let passedPayload = null
+
+  globalThis.fetch = async (url, opts) => {
+    passedPayload = JSON.parse(opts.body)
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        result: {
+          data: [
+            new Array(384).fill(0.05),
+            new Array(384).fill(0.08),
+          ],
+        },
+        success: true,
+      }),
+    }
+  }
+
+  try {
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'test_emb_acc'
+    process.env.CLOUDFLARE_API_TOKEN = 'test_emb_tok'
+
+    const res = await generateCloudflareEmbeddings([
+      'QuantZing is decentralized',
+      'WebRTC audio spaces',
+    ])
+    assert.equal(res.ok, true)
+    assert.equal(res.count, 2)
+    assert.equal(res.embeddings.length, 2)
+    assert.equal(res.embeddings[0].length, 384, 'BGE dense vector dimension is 384')
+    assert.deepEqual(passedPayload.text, [
+      'QuantZing is decentralized',
+      'WebRTC audio spaces',
+    ])
   } finally {
     globalThis.fetch = originalFetch
     delete process.env.CLOUDFLARE_ACCOUNT_ID

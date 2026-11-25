@@ -2741,6 +2741,35 @@ export async function sendSpaceReaction(
   return data.space
 }
 
+export interface SpaceLiveKitTokenResponse {
+  ok: boolean
+  livekitEnabled: boolean
+  wsUrl: string
+  roomName: string
+  token: string
+  role: 'host' | 'speaker' | 'listener'
+  canSpeak: boolean
+}
+
+export async function fetchSpaceLiveKitToken(
+  slug: string,
+  accessJwt: string,
+): Promise<SpaceLiveKitTokenResponse | null> {
+  try {
+    const safeSlug = assertSafePathSegment(slug, 'space slug')
+    const data = await quantzingApiFetch<SpaceLiveKitTokenResponse>(
+      `/api/quantzing/spaces/${encodeURIComponent(safeSlug)}/livekit-token`,
+      {
+        method: 'GET',
+        accessJwt,
+      },
+    )
+    return data?.ok && data.token ? data : null
+  } catch {
+    return null
+  }
+}
+
 export async function requestSpaceEventsTicket(
   slug: string,
   clientId: string,

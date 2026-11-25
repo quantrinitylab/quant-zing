@@ -4003,6 +4003,77 @@ export async function callCloudflareWorkersAi({
   }
 }
 
+/**
+ * Generates dense 384-dimensional vector embeddings via Cloudflare Workers AI
+ * (@cf/baai/bge-small-en-v1.5) for real semantic search and post retrieval.
+ */
+export async function generateCloudflareEmbeddings(
+  texts,
+  {dataDir = null, timeoutMs = 5000} = {},
+) {
+  const config = getCloudflareWorkersAiConfig(dataDir)
+  if (!config.accountId || !config.apiToken) {
+    return {ok: false, error: 'missing_credentials'}
+  }
+  const items = (Array.isArray(texts) ? texts : [texts])
+    .map(t => String(t || '').trim())
+    .filter(Boolean)
+    .slice(0, 32)
+  if (items.length === 0) return {ok: true, embeddings: []}
+
+  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/ai/run/@cf/baai/bge-small-en-v1.5`
+  const signal =
+    typeof AbortSignal?.timeout === 'function'
+      ? AbortSignal.timeout(timeoutMs)
+      : undefined
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiToken}`,
+      },
+      body: JSON.stringify({text: items}),
+      signal,
+    })
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: res.status,
+        error: `Cloudflare embedding HTTP ${res.status}`,
+      }
+    }
+    const data = await res.json()
+    const vectors = data?.result?.data
+    if (!Array.isArray(vectors)) {
+      return {ok: false, error: 'invalid_embedding_payload'}
+    }
+    return {ok: true, embeddings: vectors, count: vectors.length}
+  } catch (err) {
+    return {ok: false, error: err?.message || String(err)}
+  }
+}
+
+/**
+ * Computes exact cosine similarity between two normalized or raw dense float vectors.
+ */
+export function computeCosineSimilarity(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length || a.length === 0) {
+    return 0
+  }
+  let dot = 0
+  let normA = 0
+  let normB = 0
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i]
+    normA += a[i] * a[i]
+    normB += b[i] * b[i]
+  }
+  if (normA <= 0 || normB <= 0) return 0
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB))
+}
+
 // ---------------------------------------------------------------------------
 // Main Factory: createQuantyBridge(deps)
 // ---------------------------------------------------------------------------

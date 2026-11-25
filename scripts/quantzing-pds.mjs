@@ -785,6 +785,16 @@ export function signJwt(storeOrDb, {did, scope, ttlSeconds, tv}) {
   return `${signingInput}.${sig}`
 }
 
+function signLiveKitJwt(claims, secret) {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
+  const payload = Buffer.from(JSON.stringify(claims)).toString('base64url')
+  const sig = crypto
+    .createHmac('sha256', String(secret))
+    .update(`${header}.${payload}`)
+    .digest('base64url')
+  return `${header}.${payload}.${sig}`
+}
+
 function mintTokens(storeOrDb, did) {
   const store =
     typeof storeOrDb?.getAccountByDid === 'function'
@@ -5664,7 +5674,7 @@ export async function handleQuantZingPds(req, res) {
     }
 
     const spaceActionMatch = pathname.match(
-      /^\/api\/quantzing\/spaces\/([^/]+)(?:\/(join|leave|hand|react|events|events-ticket|mute|signal))?$/,
+      /^\/api\/quantzing\/spaces\/([^/]+)(?:\/(join|leave|hand|react|events|events-ticket|livekit-token|mute|signal))?$/,
     )
     if (spaceActionMatch) {
       const slug = decodeURIComponent(spaceActionMatch[1])
@@ -5806,6 +5816,76 @@ export async function handleQuantZingPds(req, res) {
           slug: existing.slug,
           clientId,
           expiresInSec: 30,
+        })
+        return true
+      }
+
+      // LiveKit SFU Token Generator for 100,000+ Listener Spaces
+      if (subAction === 'livekit-token' && (method === 'GET' || method === 'POST')) {
+        const auth = getAuthedContext(req, store)
+        if (auth.error) {
+          sendXrpcError(
+            req,
+            res,
+            auth.status,
+            auth.error,
+            'Authentication required',
+          )
+          return true
+        }
+        const existing = store.getSpaceBySlug(slug)
+        if (!existing) {
+          sendXrpcError(req, res, 404, 'NotFound', 'ZingSpace not found')
+          return true
+        }
+        const livekitApiKey = process.env.LIVEKIT_API_KEY || 'quantzing_lk_key'
+        const livekitApiSecret =
+          process.env.LIVEKIT_API_SECRET || 'quantzing_lk_secret_sovereign'
+        const livekitWsUrl =
+          process.env.LIVEKIT_WS_URL || 'wss://livekit.quantrinity.in'
+
+        const isHost = existing.hostDid === auth.did
+        const participant = (existing.participants || []).find(
+          p => p.did === auth.did,
+        )
+        const role = isHost
+          ? 'host'
+          : participant?.role === 'speaker'
+            ? 'speaker'
+            : 'listener'
+        const canSpeak = isHost || (role === 'speaker' && !participant?.muted)
+
+        const nowSec = Math.floor(Date.now() / 1000)
+        const ttlSec = 7200
+        const roomName = `space_${existing.slug}`
+
+        const claims = {
+          iss: livekitApiKey,
+          sub: auth.did,
+          name: auth.account.displayName || auth.account.handle || auth.did,
+          jti: `${existing.slug}_${auth.did}_${Date.now()}`,
+          nbf: nowSec,
+          exp: nowSec + ttlSec,
+          video: {
+            roomJoin: true,
+            room: roomName,
+            roomAdmin: isHost,
+            canPublish: canSpeak,
+            canSubscribe: true,
+            canPublishData: true,
+            canPublishSources: canSpeak ? ['microphone'] : [],
+          },
+        }
+
+        const token = signLiveKitJwt(claims, livekitApiSecret)
+        sendJson(req, res, 200, {
+          ok: true,
+          livekitEnabled: Boolean(process.env.LIVEKIT_WS_URL),
+          wsUrl: livekitWsUrl,
+          roomName,
+          token,
+          role,
+          canSpeak,
         })
         return true
       }
