@@ -67,12 +67,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK Platform 36 & NDK 27
-        uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: '13.0'
-
-      - name: Install Android Build Tools & NDK
+      - name: Accept Android SDK licenses & install components
         run: |
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
           sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "ndk;27.0.12077973"
