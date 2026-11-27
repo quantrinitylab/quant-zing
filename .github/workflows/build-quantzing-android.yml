@@ -1,0 +1,169 @@
+name: Build & Deploy QuantZing Android Release APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      abi_target:
+        description: 'Target ABI (arm64-v8a for ~35MB flagship or universal for dual-ABI)'
+        required: true
+        default: 'arm64-v8a'
+        type: choice
+        options:
+          - arm64-v8a
+          - universal
+      deploy_live:
+        description: 'Automatically deploy built APK to live OCI production VM (quantzing.quantrinity.in)'
+        required: true
+        default: true
+        type: boolean
+  push:
+    branches:
+      - main
+    paths:
+      - 'android/**'
+      - 'scripts/build-android-apk.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPO_PUBLIC_ENV: production
+  EXPO_PUBLIC_QUANTZING_URL: https://quantzing.quantrinity.in
+  EXPO_PUBLIC_QUANTZING_DOMAIN: quantzing.com
+  DISABLE_UPDATES: '1'
+  NODE_ENV: production
+  EXPO_NO_GIT_STATUS: '1'
+  VM_IP: ${{ vars.QUANTZING_VM_IP || '130.210.86.242' }}
+  SSH_USER: ${{ vars.QUANTZING_SSH_USER || 'ubuntu' }}
+
+jobs:
+  build-apk:
+    name: QuantZing Android Release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm 10.28.1
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.28.1'
+
+      - name: Setup Node.js 24 & pnpm cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK Platform 36 & NDK 27
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '13.0'
+
+      - name: Install Android Build Tools & NDK
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "ndk;27.0.12077973"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Restore persistent release keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.QUANTZING_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p ../.secrets
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > ../.secrets/quantzing-release.keystore
+            echo "Restored release keystore from GitHub secrets."
+          else
+            echo "No keystore secret found; build script will generate one."
+          fi
+
+      - name: Compile locales & run Android typecheck
+        run: |
+          pnpm intl:compile
+          pnpm run typecheck:android
+
+      - name: Build signed release APK
+        id: build_apk
+        env:
+          QUANTZING_KEYSTORE_PASSWORD: 'QuantZingSovereignRelease2026'
+          QUANTZING_KEY_PASSWORD: 'QuantZingSovereignRelease2026'
+        run: |
+          ABI_FLAG="--arm64-only"
+          if [ "${{ inputs.abi_target }}" = "universal" ]; then
+            ABI_FLAG="--abi arm64-v8a,armeabi-v7a"
+          fi
+          node ./scripts/build-android-apk.mjs $ABI_FLAG --skip-typecheck
+          APK_PATH=$(find .quantzing-data/releases -name "*.apk" | head -n 1)
+          if [ ! -f "$APK_PATH" ]; then
+            APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          fi
+          echo "Built APK: $APK_PATH ($(du -h $APK_PATH | cut -f1))"
+          echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: quantzing-android-release-apk
+          path: |
+            ${{ steps.build_apk.outputs.apk_path }}
+            .quantzing-data/releases/*.meta.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Deploy APK to live OCI production VM (quantzing.quantrinity.in)
+        if: ${{ inputs.deploy_live != false }}
+        env:
+          SSH_KEY: ${{ secrets.QUANTZING_OCI_SSH_KEY }}
+          APK_PATH: ${{ steps.build_apk.outputs.apk_path }}
+        run: |
+          if [ -z "$SSH_KEY" ]; then
+            echo "Skipping OCI deployment (QUANTZING_OCI_SSH_KEY is not configured)."
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/quantzing_oci
+          chmod 600 ~/.ssh/quantzing_oci
+
+          echo "Uploading slim release APK to OCI production VM..."
+          scp -i ~/.ssh/quantzing_oci -o StrictHostKeyChecking=no \
+            "$APK_PATH" \
+            "$SSH_USER@$VM_IP:/tmp/quantzing-android.apk"
+
+          if [ -f ".quantzing-data/releases/quantzing-android.apk.meta.json" ]; then
+            scp -i ~/.ssh/quantzing_oci -o StrictHostKeyChecking=no \
+              ".quantzing-data/releases/quantzing-android.apk.meta.json" \
+              "$SSH_USER@$VM_IP:/tmp/quantzing-android.apk.meta.json"
+          fi
+
+          ssh -i ~/.ssh/quantzing_oci -o StrictHostKeyChecking=no "$SSH_USER@$VM_IP" "
+            set -euo pipefail
+            sudo mkdir -p /var/lib/quantzing/releases /opt/quantzing/releases
+            sudo mv /tmp/quantzing-android.apk /var/lib/quantzing/releases/quantzing-android.apk
+            sudo cp /var/lib/quantzing/releases/quantzing-android.apk /opt/quantzing/releases/quantzing-android.apk
+            if [ -f /tmp/quantzing-android.apk.meta.json ]; then
+              sudo mv /tmp/quantzing-android.apk.meta.json /var/lib/quantzing/releases/quantzing-android.apk.meta.json
+              sudo cp /var/lib/quantzing/releases/quantzing-android.apk.meta.json /opt/quantzing/releases/quantzing-android.apk.meta.json
+            fi
+            sudo chown -R $SSH_USER:$SSH_USER /var/lib/quantzing/releases /opt/quantzing/releases
+            sudo chmod 644 /var/lib/quantzing/releases/quantzing-android.apk /opt/quantzing/releases/quantzing-android.apk
+            sudo systemctl restart quantzing
+            sleep 2
+            echo '=== VERIFYING LIVE APP RELEASE API ==='
+            curl -fsS http://127.0.0.1:3008/api/quantzing/app-release
+            echo ''
+          "
