@@ -40,10 +40,15 @@ env:
 jobs:
   build-ios:
     name: QuantZing iOS (${{ inputs.build_mode || 'simulator' }})
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 90
 
     steps:
+      - name: Print Xcode & Swift versions
+        run: |
+          ls -d /Applications/Xcode*.app || true
+          xcodebuild -version
+          swift --version
       - name: Checkout QuantZing repository
         uses: actions/checkout@v4
 
