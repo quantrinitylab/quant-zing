@@ -69,8 +69,13 @@ jobs:
 
       - name: Accept Android SDK licenses & install components
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "ndk;27.0.12077973"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER=$(find "$ANDROID_HOME" -name "sdkmanager" -executable 2>/dev/null | head -n 1)
+          fi
+          echo "Using sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "ndk;27.0.12077973"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
