@@ -365,3 +365,42 @@ input[type='range'][orient='vertical']::-moz-range-thumb {
     opacity: 0;
   }
 }
+
+/*
+ * Feed & ScrollView scrollbar overrides for mobile/tablet web (<1024px)
+ */
+@media (max-width: 1024px) {
+  html,
+  body,
+  #root,
+  [data-testid*='feed'],
+  [data-testid*='flatlist'],
+  div[style*='overflow'] {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar,
+  #root::-webkit-scrollbar,
+  [data-testid*='feed']::-webkit-scrollbar,
+  [data-testid*='flatlist']::-webkit-scrollbar,
+  div[style*='overflow']::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+}
+
+.no-scrollbar,
+[data-no-scrollbar='1'] {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+.no-scrollbar::-webkit-scrollbar,
+[data-no-scrollbar='1']::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+

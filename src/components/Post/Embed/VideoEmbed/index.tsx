@@ -18,7 +18,6 @@ import {ErrorBoundary} from '#/view/com/util/ErrorBoundary'
 import {atoms as a, platform} from '#/alf'
 import {Button} from '#/components/Button'
 import {useThrottledValue} from '#/components/hooks/useThrottledValue'
-import {ArrowsDiagonalOut_Stroke2_Corner0_Rounded as ExpandReelsIcon} from '#/components/icons/ArrowsDiagonal'
 import {ConstrainedImage} from '#/components/images/AutoSizedImage'
 import {PlayButtonIcon} from '#/components/video/PlayButtonIcon'
 import {useAnalytics} from '#/analytics'
@@ -132,8 +131,34 @@ function InnerWrapper({embed, post}: Props) {
     setStatus('pending')
   }
 
+  const onVideoPress = useCallback(
+    (evt?: {stopPropagation?: () => void}) => {
+      evt?.stopPropagation?.()
+      if (embed.presentation !== 'gif' && post?.uri) {
+        navigation.navigate('VideoFeed', {
+          type: 'feedgen',
+          uri: VIDEO_FEED_URI,
+          sourceInterstitial: 'none',
+          initialPostUri: post.uri,
+        })
+      } else {
+        ref.current?.togglePlayback()
+      }
+    },
+    [embed.presentation, post?.uri, navigation],
+  )
+
   return (
-    <>
+    <View style={[a.flex_1, a.relative]}>
+      {embed.presentation !== 'gif' && post?.uri && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={embed.alt ? _(msg`Video: ${embed.alt}`) : _(msg`Video`)}
+          accessibilityHint=""
+          onPress={onVideoPress}
+          style={[a.absolute, a.inset_0, {zIndex: 10}]}
+        />
+      )}
       <VideoEmbedInnerNative
         embed={embed}
         setStatus={s => {
@@ -231,9 +256,7 @@ function InnerWrapper({embed, post}: Props) {
           ) : (
             <Button
               style={[a.flex_1, a.align_center, a.justify_center]}
-              onPress={() => {
-                ref.current?.togglePlayback()
-              }}
+              onPress={onVideoPress}
               label={_(msg`Play video`)}>
               {showSpinner ? (
                 <View style={[a.align_center, a.justify_center]}>
@@ -245,42 +268,7 @@ function InnerWrapper({embed, post}: Props) {
             </Button>
           ))}
       </ImageBackground>
-      {embed.presentation !== 'gif' && post?.uri && (
-        <Pressable
-          testID="openVideoInReelsBtn"
-          onPress={evt => {
-            evt.stopPropagation()
-            navigation.navigate('VideoFeed', {
-              type: 'feedgen',
-              uri: VIDEO_FEED_URI,
-              sourceInterstitial: 'none',
-              initialPostUri: post.uri,
-            })
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="Open in full screen Reels"
-          accessibilityHint=""
-          style={({pressed}) => [
-            a.absolute,
-            a.align_center,
-            a.justify_center,
-            a.rounded_full,
-            {
-              top: 10,
-              right: 10,
-              zIndex: 15,
-              width: 32,
-              height: 32,
-              backgroundColor: 'rgba(15, 20, 25, 0.72)',
-              borderWidth: 1,
-              borderColor: 'rgba(255, 255, 255, 0.22)',
-              opacity: pressed ? 0.75 : 1,
-            },
-          ]}>
-          <ExpandReelsIcon width={14} fill="#FFFFFF" />
-        </Pressable>
-      )}
-    </>
+    </View>
   )
 }
 

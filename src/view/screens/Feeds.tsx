@@ -36,10 +36,10 @@ import {FeedCardListSkeleton} from '#/components/FeedCardSkeleton'
 import {SearchInput} from '#/components/forms/SearchInput'
 import {IconCircle} from '#/components/IconCircle'
 import {ChevronRight_Stroke2_Corner0_Rounded as ChevronRight} from '#/components/icons/Chevron'
-import {EditBig_Stroke2_Corner2_Rounded as EditBigIcon} from '#/components/icons/EditBig'
 import {FilterTimeline_Stroke2_Corner0_Rounded as FilterTimeline} from '#/components/icons/FilterTimeline'
 import {ListMagnifyingGlass_Stroke2_Corner0_Rounded} from '#/components/icons/ListMagnifyingGlass'
 import {ListSparkle_Stroke2_Corner0_Rounded} from '#/components/icons/ListSparkle'
+import {PlusLarge_Stroke2_Corner0_Rounded} from '#/components/icons/Plus'
 import {SettingsGear2_Stroke2_Corner0_Rounded as Gear} from '#/components/icons/SettingsGear2'
 import * as Layout from '#/components/Layout'
 import {Link} from '#/components/Link'
@@ -541,7 +541,7 @@ export function FeedsScreen(_props: Props) {
         <FAB
           testID="composeFAB"
           onPress={onPressCompose}
-          icon={<EditBigIcon size="lg" fill={t.palette.white} />}
+          icon={<PlusLarge_Stroke2_Corner0_Rounded size="lg" fill={t.palette.white} />}
           accessibilityRole="button"
           accessibilityLabel={_(msg`New post`)}
           accessibilityHint=""

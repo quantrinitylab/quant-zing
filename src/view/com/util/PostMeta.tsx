@@ -34,6 +34,7 @@ interface PostMetaOpts {
   avatarSize?: number
   onOpenAuthor?: () => void
   style?: StyleProp<ViewStyle>
+  rightSlot?: React.ReactNode
 }
 
 let PostMeta = (opts: PostMetaOpts): React.ReactNode => {
@@ -65,13 +66,14 @@ let PostMeta = (opts: PostMetaOpts): React.ReactNode => {
         a.flex_1,
         a.flex_row,
         a.align_center,
+        a.justify_between,
         a.pb_xs,
         a.gap_xs,
         a.z_20,
         opts.style,
       ]}>
       {opts.showAvatar && (
-        <View style={[a.self_center, a.mr_2xs]}>
+        <View style={[a.self_center, a.mr_2xs, {flexShrink: 0}]}>
           <PreviewableUserAvatar
             size={opts.avatarSize || 16}
             profile={author}
@@ -83,7 +85,7 @@ let PostMeta = (opts: PostMetaOpts): React.ReactNode => {
           />
         </View>
       )}
-      <View style={[a.flex_row, a.align_end, a.flex_shrink]}>
+      <View style={[a.flex_row, a.align_center, a.flex_1, {minWidth: 0}]}>
         <ProfileHoverCard did={author.did}>
           <View style={[a.flex_row, a.align_end, a.flex_shrink]}>
             <MaybeLinkText
@@ -169,6 +171,11 @@ let PostMeta = (opts: PostMetaOpts): React.ReactNode => {
           )}
         </TimeElapsed>
       </View>
+      {opts.rightSlot && (
+        <View style={[a.flex_row, a.align_center, a.gap_2xs, {flexShrink: 0}]}>
+          {opts.rightSlot}
+        </View>
+      )}
     </View>
   )
 }

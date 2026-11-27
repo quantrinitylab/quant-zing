@@ -1507,6 +1507,94 @@ const SOVEREIGN_FEED_GENERATORS = [
     category: 'Media',
     tags: [],
   },
+  {
+    rkey: 'soccer',
+    displayName: 'Soccer',
+    description: 'Football, Premier League, Champions League, and World Cup Zings.',
+    category: 'Sports',
+    tags: ['soccer', 'football', 'epl', 'ucl', 'fifa'],
+    keywords: ['soccer', 'football', 'goal', 'premier league', 'champions league', 'fifa', 'messi', 'ronaldo'],
+  },
+  {
+    rkey: 'stocks',
+    displayName: 'Stocks & Economy',
+    description: 'Equities, macroeconomics, Nifty, S&P 500, and market moves.',
+    category: 'Finance',
+    tags: ['stocks', 'economy', 'finance', 'markets', 'nifty', 'sp500'],
+    keywords: ['stock', 'stocks', 'economy', 'market', 'markets', 'finance', 'earnings', 'fed', 'rbi', 'inflation'],
+  },
+  {
+    rkey: 'politics',
+    displayName: 'Politics',
+    description: 'Global policy, governance, elections, and public affairs.',
+    category: 'Politics',
+    tags: ['politics', 'policy', 'election', 'government'],
+    keywords: ['politics', 'policy', 'government', 'election', 'parliament', 'senate', 'minister', 'geopolitics'],
+  },
+  {
+    rkey: 'technology',
+    displayName: 'Technology',
+    description: 'Software engineering, hardware, cloud systems, and frontier tech.',
+    category: 'Technology',
+    tags: ['tech', 'technology', 'software', 'cloud', 'ai'],
+    keywords: ['tech', 'technology', 'software', 'hardware', 'code', 'developer', 'typescript', 'cloud', 'chip'],
+  },
+  {
+    rkey: 'art',
+    displayName: 'Art',
+    description: 'Illustration, visual art, architecture, and creative design.',
+    category: 'Art',
+    tags: ['art', 'design', 'illustration', 'creative'],
+    keywords: ['art', 'design', 'painting', 'illustration', 'typography', 'ui', 'ux', 'creative'],
+  },
+  {
+    rkey: 'movies-tv',
+    displayName: 'Movies & TV',
+    description: 'Cinema, streaming releases, trailers, and reviews.',
+    category: 'Entertainment',
+    tags: ['movies', 'tv', 'cinema', 'film', 'series'],
+    keywords: ['movie', 'movies', 'film', 'cinema', 'series', 'trailer', 'show', 'netflix'],
+  },
+  {
+    rkey: 'ai-agents',
+    displayName: 'AI & Agents',
+    description: 'Autonomous agents, LLMs, Quanty updates, and AI research.',
+    category: 'AI',
+    tags: ['ai', 'agents', 'llm', 'quanty', 'quantyai'],
+    keywords: ['ai', 'agent', 'agents', 'llm', 'quanty', 'model', 'inference', 'gemini', 'claude', 'gpt'],
+  },
+  {
+    rkey: 'sports',
+    displayName: 'Sports',
+    description: 'Cricket, football, F1, tennis, and live match reactions.',
+    category: 'Sports',
+    tags: ['sports', 'cricket', 'f1', 'soccer', 'nba'],
+    keywords: ['sports', 'cricket', 'match', 'tournament', 'championship', 'f1', 'nba', 'tennis'],
+  },
+  {
+    rkey: 'music',
+    displayName: 'Music',
+    description: 'New tracks, albums, live concerts, and audio production.',
+    category: 'Music',
+    tags: ['music', 'album', 'song', 'concert'],
+    keywords: ['music', 'song', 'album', 'track', 'concert', 'spotify', 'audio'],
+  },
+  {
+    rkey: 'gaming',
+    displayName: 'Gaming',
+    description: 'PC, console, indie games, esports, and game dev.',
+    category: 'Gaming',
+    tags: ['gaming', 'games', 'esports', 'gamedev'],
+    keywords: ['gaming', 'game', 'games', 'esports', 'playstation', 'xbox', 'nintendo', 'steam'],
+  },
+  {
+    rkey: 'crypto',
+    displayName: 'Crypto',
+    description: 'Bitcoin, Ethereum, L2 scaling, and decentralized protocols.',
+    category: 'Crypto',
+    tags: ['crypto', 'bitcoin', 'btc', 'eth', 'web3'],
+    keywords: ['crypto', 'bitcoin', 'btc', 'ethereum', 'eth', 'blockchain', 'defi', 'solana'],
+  },
 ]
 
 const PRO_PLANS = [
@@ -2436,7 +2524,7 @@ function putLocalRecord(storeOrDb, did, collection, rkey, recordValue) {
         })
         const replyText = String(replyObj?.replyText || replyObj?.text || '').slice(
           0,
-          280,
+          4000,
         )
         if (!replyText) return
         const replyRkey = generateTid()
@@ -5455,7 +5543,7 @@ export async function handleQuantZingPds(req, res) {
       })
       const replyText = String(built?.replyText || built?.text || '').slice(
         0,
-        280,
+        4000,
       )
       const replyRkey = generateTid()
       const createdAt = new Date().toISOString()
@@ -5622,7 +5710,7 @@ export async function handleQuantZingPds(req, res) {
         if (body.shareToFeed && status === 'published') {
           const teaser = `Published a Sovereign Article: "${title}"${body.subtitle ? ` — ${body.subtitle}` : ''}`.slice(
             0,
-            290,
+            4000,
           )
           const postEntry = putLocalRecord(
             store,
@@ -9360,13 +9448,36 @@ export async function handleQuantZingPds(req, res) {
         includeReplies: false,
         filterTags: isVideoFeed
           ? null
-          : spec?.tags?.length
+          : spec?.tags?.length && !spec?.keywords?.length
             ? spec.tags
             : null,
         onlyVideo: isVideoFeed,
         rankReels: isVideoFeed,
-        limit: Math.max(limit * 2, 60),
+        limit: Math.max(limit * 4, 120),
       })
+      if (!isVideoFeed && (spec?.keywords?.length || spec?.tags?.length)) {
+        const terms = new Set(
+          [...(spec.keywords || []), ...(spec.tags || [])].map(s =>
+            String(s).toLowerCase(),
+          ),
+        )
+        const matched = items.filter(it => {
+          const text = String(it.post?.record?.text || '').toLowerCase()
+          const tags = Array.isArray(it.post?.record?.tags)
+            ? it.post.record.tags.map(t => String(t).toLowerCase())
+            : []
+          for (const t of tags) {
+            if (terms.has(t)) return true
+          }
+          for (const term of terms) {
+            if (term.length >= 2 && text.includes(term)) return true
+          }
+          return false
+        })
+        if (matched.length > 0) {
+          items = matched
+        }
+      }
       if (items.length === 0 && !isVideoFeed) {
         items = getLocalFeedItems(store, viewerDid, origin, {
           includeReplies: false,

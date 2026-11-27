@@ -9,6 +9,7 @@ import {useNavigation} from '@react-navigation/native'
 import {CountWheel} from '#/lib/custom-animations/CountWheel'
 import {AnimatedLikeIcon} from '#/lib/custom-animations/LikeIcon'
 import {useOpenComposer} from '#/lib/hooks/useOpenComposer'
+import {requestOpenQuantyDock} from '#/lib/quantos/quantyBridge'
 import {type NavigationProp} from '#/lib/routes/types'
 import {type Shadow} from '#/state/cache/types'
 import {
@@ -20,6 +21,7 @@ import {
   ProgressGuideAction,
   useProgressGuideControls,
 } from '#/state/shell/progress-guide'
+import {EventStopper} from '#/view/com/util/EventStopper'
 import {atoms as a, useBreakpoints, useTheme} from '#/alf'
 import {Reply_Stroke2_Corner0_Rounded as Bubble} from '#/components/icons/Reply'
 import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
@@ -27,9 +29,8 @@ import {useFormatPostStatCount} from '#/components/PostControls/util'
 import * as Skele from '#/components/Skeleton'
 import * as Toast from '#/components/Toast'
 import {Text} from '#/components/Typography'
-import {requestOpenQuantyDock} from '#/lib/quantos/quantyBridge'
-import {IS_WEB} from '#/env'
 import {useAnalytics} from '#/analytics'
+import {IS_WEB} from '#/env'
 import {useFeedItemFeedback} from '#/features/feedFeedback'
 import {app} from '#/lexicons'
 import * as bsky from '#/types/bsky'
@@ -42,6 +43,8 @@ import {
 import {PostMenuButton} from './PostMenu'
 import {RepostButton} from './RepostButton'
 import {ShareMenuButton} from './ShareMenu'
+
+export {PostMenuButton} from './PostMenu'
 
 let PostControls = ({
   big,
@@ -56,6 +59,8 @@ let PostControls = ({
   onShowLess,
   variant,
   forceGoogleTranslate = false,
+  hidePostMenu = false,
+  hideTopRightControls = false,
 }: {
   big?: boolean
   post: Shadow<app.bsky.feed.defs.PostView>
@@ -69,11 +74,12 @@ let PostControls = ({
   onShowLess?: (interaction: app.bsky.feed.defs.Interaction) => void
   variant?: 'compact' | 'normal' | 'large'
   forceGoogleTranslate?: boolean
+  hidePostMenu?: boolean
+  hideTopRightControls?: boolean
 }): React.ReactNode => {
   const ax = useAnalytics()
   const t = useTheme()
   const {t: l} = useLingui()
-  const navigation = useNavigation<NavigationProp>()
   const {openComposer} = useOpenComposer()
   const feedItem = useFeedItemFeedback()
   const {feedDescriptor} = feedItem
@@ -97,7 +103,7 @@ let PostControls = ({
     post.author.viewer?.blockingByList,
   )
   const replyDisabled = post.viewer?.replyDisabled
-  const {gtPhone, gtMobile} = useBreakpoints()
+  const {gtPhone} = useBreakpoints()
   const formatPostStatCount = useFormatPostStatCount()
 
   const [hasLikeIconBeenToggled, setHasLikeIconBeenToggled] = useState(false)
@@ -178,29 +184,6 @@ let PostControls = ({
 
   const onShare = () => {
     feedItem.send('app.bsky.feed.defs#interactionShare')
-  }
-
-  const onAskQuanty = () => {
-    const richContext = extractRichZingContext(post, record)
-    const promptText = `Explain, fact-check, and summarize the context behind @${post.author.handle}'s Zing`
-    if (IS_WEB && gtMobile) {
-      requestOpenQuantyDock({
-        postContext: {
-          uri: post.uri,
-          text: richContext,
-          authorHandle: post.author.handle,
-        },
-        prompt: promptText,
-      })
-    } else {
-      navigation.navigate('Quanty', {
-        postUri: post.uri,
-        postText: richContext,
-        authorHandle: post.author.handle,
-        prompt: promptText,
-        triggerId: Date.now(),
-      })
-    }
   }
 
   const secondaryControlSpacingStyles = useSecondaryControlSpacingStyles({
@@ -322,19 +305,6 @@ let PostControls = ({
         />
       </View>
       <View style={[a.flex_row, a.justify_end, secondaryControlSpacingStyles]}>
-        <PostControlButton
-          testID="askQuantyBtn"
-          big={big}
-          onPress={onAskQuanty}
-          label="Ask Quanty about this Zing"
-          hitSlop={{
-            right: secondaryControlSpacingStyles.gap / 2,
-          }}>
-          <PostControlButtonIcon
-            icon={SparkleIcon}
-            style={{color: '#1D9BF0'}}
-          />
-        </PostControlButton>
         <BookmarkButton
           post={post}
           big={big}
@@ -359,21 +329,23 @@ let PostControls = ({
           }}
           logContext={logContext}
         />
-        <PostMenuButton
-          testID="postDropdownBtn"
-          post={post}
-          big={big}
-          record={record}
-          richText={richText}
-          timestamp={post.indexedAt}
-          threadgateRecord={threadgateRecord}
-          onShowLess={onShowLess}
-          hitSlop={{
-            left: secondaryControlSpacingStyles.gap / 2,
-          }}
-          logContext={logContext}
-          forceGoogleTranslate={forceGoogleTranslate}
-        />
+        {!hidePostMenu && !hideTopRightControls && (
+          <PostMenuButton
+            testID="postDropdownBtn"
+            post={post}
+            big={big}
+            record={record}
+            richText={richText}
+            timestamp={post.indexedAt}
+            threadgateRecord={threadgateRecord}
+            onShowLess={onShowLess}
+            hitSlop={{
+              left: secondaryControlSpacingStyles.gap / 2,
+            }}
+            logContext={logContext}
+            forceGoogleTranslate={forceGoogleTranslate}
+          />
+        )}
       </View>
     </View>
   )
@@ -385,10 +357,12 @@ export function PostControlsSkeleton({
   big,
   style,
   variant,
+  hidePostMenu,
 }: {
   big?: boolean
   style?: StyleProp<ViewStyle>
   variant?: 'compact' | 'normal' | 'large'
+  hidePostMenu?: boolean
 }) {
   const {gtPhone} = useBreakpoints()
 
@@ -434,12 +408,11 @@ export function PostControlsSkeleton({
         <View style={itemStyles}>
           <Skele.Circle blend size={size} />
         </View>
-        <View style={itemStyles}>
-          <Skele.Circle blend size={size} />
-        </View>
-        <View style={itemStyles}>
-          <Skele.Circle blend size={size} />
-        </View>
+        {!hidePostMenu && (
+          <View style={itemStyles}>
+            <Skele.Circle blend size={size} />
+          </View>
+        )}
       </View>
     </Skele.Row>
   )
@@ -487,9 +460,7 @@ function collectParsedEmbedLines(
     }
     if (depth < 1 && parsed.view.embeds && parsed.view.embeds.length > 0) {
       for (const nested of parsed.view.embeds.slice(0, 2)) {
-        const nestedParsed = bsky.post.parseEmbed(
-          nested as app.bsky.feed.defs.PostView['embed'],
-        )
+        const nestedParsed = bsky.post.parseEmbed(nested)
         collectParsedEmbedLines(nestedParsed, lines, depth + 1)
       }
     }
@@ -575,12 +546,15 @@ function collectParsedEmbedLines(
   }
 }
 
-function extractRichZingContext(
-  post: Shadow<app.bsky.feed.defs.PostView>,
-  record: app.bsky.feed.post.Main,
+export function extractRichZingContext(
+  post: Shadow<app.bsky.feed.defs.PostView> | app.bsky.feed.defs.PostView,
+  record?: app.bsky.feed.post.Main,
 ): string {
   const lines: string[] = []
-  const primaryText = record.text?.trim()
+  const postRecord =
+    record ||
+    (bsky.isType(app.bsky.feed.post, post.record) ? post.record : undefined)
+  const primaryText = postRecord?.text?.trim()
   if (primaryText) {
     lines.push(primaryText)
   }
@@ -595,6 +569,62 @@ function extractRichZingContext(
   }
 
   return lines.join('\n').slice(0, 1400)
+}
+
+export function AskQuantyButton({
+  post,
+  record,
+  big,
+  style,
+}: {
+  post: Shadow<app.bsky.feed.defs.PostView> | app.bsky.feed.defs.PostView
+  record?: app.bsky.feed.post.Main
+  big?: boolean
+  style?: StyleProp<ViewStyle>
+}) {
+  const navigation = useNavigation<NavigationProp>()
+  const {gtMobile} = useBreakpoints()
+
+  const onAskQuanty = (e?: {stopPropagation?: () => void}) => {
+    e?.stopPropagation?.()
+    const richContext = extractRichZingContext(post, record)
+    const promptText = `Explain, fact-check, and summarize the context behind @${post.author.handle}'s Zing`
+    if (IS_WEB && gtMobile) {
+      requestOpenQuantyDock({
+        postContext: {
+          uri: post.uri,
+          text: richContext,
+          authorHandle: post.author.handle,
+        },
+        prompt: promptText,
+      })
+    } else {
+      navigation.navigate('Quanty', {
+        postUri: post.uri,
+        postText: richContext,
+        authorHandle: post.author.handle,
+        prompt: promptText,
+        triggerId: Date.now(),
+      })
+    }
+  }
+
+  return (
+    <EventStopper onKeyDown={false}>
+      <PostControlButton
+        testID="askQuantyBtn"
+        big={big}
+        onPress={onAskQuanty}
+        label="Ask Quanty about this Zing"
+        accessibilityHint=""
+        style={style}>
+        <PostControlButtonIcon
+          icon={SparkleIcon}
+          style={{color: '#1D9BF0'}}
+        />
+      </PostControlButton>
+    </EventStopper>
+  )
 }
 
 function AnalyticsChartIcon({
@@ -644,6 +674,7 @@ function PostViewsCounter({
             ? `${formatPostStatCount(viewCount)} ${viewCount === 1 ? 'view' : 'views'}`
             : 'Views'
         }
+        accessibilityHint=""
         onHoverIn={() => setHovered(true)}
         onHoverOut={() => setHovered(false)}
         style={[

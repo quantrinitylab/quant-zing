@@ -44,7 +44,12 @@ import {type AppModerationCause} from '#/components/Pills'
 import {Embed, PostEmbedViewContext} from '#/components/Post/Embed'
 import {ShowMoreTextButton} from '#/components/Post/ShowMoreTextButton'
 import {TranslatedPost} from '#/components/Post/Translated'
-import {PostControls, PostControlsSkeleton} from '#/components/PostControls'
+import {
+  AskQuantyButton,
+  PostControls,
+  PostControlsSkeleton,
+  PostMenuButton,
+} from '#/components/PostControls'
 import {RichText} from '#/components/RichText'
 import * as Skele from '#/components/Skeleton'
 import {SubtleHover} from '#/components/SubtleHover'
@@ -315,6 +320,21 @@ const ThreadItemPostInner = memo(function ThreadItemPostInner({
                     additionalCauses: additionalPostAlerts,
                   }),
                 ]}
+                rightSlot={
+                  <View style={[a.flex_row, a.align_center, {gap: 2}]}>
+                    <AskQuantyButton post={postShadow} record={record} />
+                    <PostMenuButton
+                      testID="postDropdownBtn"
+                      post={postShadow}
+                      record={record}
+                      richText={richText}
+                      timestamp={post.indexedAt}
+                      threadgateRecord={threadgateRecord}
+                      logContext="PostThreadItem"
+                      forceGoogleTranslate={false}
+                    />
+                  </View>
+                }
               />
               <PostAlerts
                 post={post}
@@ -380,6 +400,7 @@ const ThreadItemPostInner = memo(function ThreadItemPostInner({
                 onPressReply={onPressReply}
                 logContext="PostThreadItem"
                 threadgateRecord={threadgateRecord}
+                hidePostMenu
               />
               <DebugFieldDisplay subject={post} />
             </View>
@@ -435,7 +456,7 @@ export function ThreadItemPostSkeleton({index}: {index: number}) {
             )}
           </Skele.Col>
 
-          <PostControlsSkeleton />
+          <PostControlsSkeleton hidePostMenu />
         </Skele.Col>
       </Skele.Row>
     </View>

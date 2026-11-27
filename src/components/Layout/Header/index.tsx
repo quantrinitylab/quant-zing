@@ -7,7 +7,10 @@ import {useNavigation} from '@react-navigation/native'
 
 import {getHomeNavigationAction} from '#/lib/routes/navigation'
 import {type NavigationProp} from '#/lib/routes/types'
+import {useCurrentAccountProfile} from '#/state/queries/useCurrentAccountProfile'
+import {useSession} from '#/state/session'
 import {useSetDrawerOpen} from '#/state/shell'
+import {UserAvatar} from '#/view/com/util/UserAvatar'
 import {useIsWithinSplitView} from '#/screens/Messages/components/splitView/context'
 import {
   atoms as a,
@@ -144,6 +147,7 @@ export function BackButton({onPress, style, ...props}: Partial<ButtonProps>) {
     <Slot>
       <Button
         label={_(msg`Go back`)}
+        accessibilityHint=""
         size="small"
         variant="ghost"
         color="secondary"
@@ -167,6 +171,8 @@ export function MenuButton() {
   const ax = useAnalytics()
   const setDrawerOpen = useSetDrawerOpen()
   const {gtMobile} = useBreakpoints()
+  const {currentAccount} = useSession()
+  const profile = useCurrentAccountProfile()
 
   const onPress = useCallback(() => {
     ax.metric('nav:click', {item: 'menu', surface: 'topBar'})
@@ -178,17 +184,26 @@ export function MenuButton() {
     <Slot>
       <Button
         label={_(msg`Open drawer menu`)}
+        accessibilityHint=""
         size="small"
         variant="ghost"
         color="secondary"
-        shape="square"
+        shape={currentAccount ? 'round' : 'square'}
         onPress={onPress}
         hitSlop={HEADER_BUTTON_HITSLOP}
         style={[
           {marginLeft: -BUTTON_VISUAL_ALIGNMENT_OFFSET},
           a.bg_transparent,
         ]}>
-        <ButtonIcon icon={Menu} size="lg" />
+        {currentAccount ? (
+          <UserAvatar
+            size={30}
+            avatar={profile?.avatar}
+            type={profile?.associated?.labeler ? 'labeler' : 'user'}
+          />
+        ) : (
+          <ButtonIcon icon={Menu} size="lg" />
+        )}
       </Button>
     </Slot>
   )

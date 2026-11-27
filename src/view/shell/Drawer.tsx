@@ -1,6 +1,7 @@
 import {type ComponentProps, type JSX, memo, useCallback} from 'react'
 import {Pressable, ScrollView, TouchableOpacity, View} from 'react-native'
 import {useSafeAreaInsets} from 'react-native-safe-area-context'
+import Svg, {Path} from 'react-native-svg'
 import {plural} from '@lingui/core/macro'
 import {Plural, Trans, useLingui} from '@lingui/react/macro'
 import {
@@ -10,7 +11,7 @@ import {
   useNavigationState,
 } from '@react-navigation/native'
 
-import {UNREAD_NOTIFICATION_CAP, VIDEO_FEED_URI} from '#/lib/constants'
+import {UNREAD_NOTIFICATION_CAP} from '#/lib/constants'
 import {type PressableScale} from '#/lib/custom-animations/PressableScale'
 import {useNavigationTabState} from '#/lib/hooks/useNavigationTabState'
 import {getCurrentRoute, getTabState, TabState} from '#/lib/routes/helpers'
@@ -25,35 +26,27 @@ import {sanitizeHandle} from '#/lib/strings/handles'
 import {isBrowserNonStandaloneWeb} from '#/platform/detection'
 import {emitSoftReset} from '#/state/events'
 import {useModerationInboxUnreadCountQuery} from '#/state/queries/moderation-inbox'
-import {useUnreadNotifications} from '#/state/queries/notifications/unread'
 import {useProfileQuery} from '#/state/queries/profile'
 import {type SessionAccount, useSession} from '#/state/session'
 import {useSetDrawerOpen} from '#/state/shell'
+import {useSetThemePrefs, useThemePrefs} from '#/state/shell/color-mode'
 import {formatCount} from '#/view/com/util/numeric/format'
 import {UserAvatar} from '#/view/com/util/UserAvatar'
 import {NavSignupCard} from '#/view/shell/NavSignupCard'
 import {atoms as a, tokens, useTheme, web} from '#/alf'
 import {BetaTag} from '#/components/BetaTag'
-import {Button, ButtonIcon, ButtonText} from '#/components/Button'
+import {Button, ButtonText} from '#/components/Button'
 import {useDialogControl} from '#/components/Dialog'
 import {Divider} from '#/components/Divider'
 import {ArrowShareRight_Stroke2_Corner2_Rounded as ArrowShareRightIcon} from '#/components/icons/Arrow'
-import {
-  Bell_Filled_Corner0_Rounded as BellFilledIcon,
-  Bell_Stroke2_Corner0_Rounded as BellIcon,
-} from '#/components/icons/Bell'
 import {
   Bookmark_Filled_Corner0_Rounded as BookmarkFilledIcon,
   Bookmark_Stroke2_Corner0_Rounded as BookmarkIcon,
 } from '#/components/icons/Bookmark'
 import {BulletList_Stroke2_Corner0_Rounded as ListIcon} from '#/components/icons/BulletList'
-import {Download_Stroke2_Corner0_Rounded as DownloadIcon} from '#/components/icons/Download'
-import {Earth_Stroke2_Corner0_Rounded as EarthIcon} from '#/components/icons/Earth'
+import {CircleQuestion_Stroke2_Corner2_Rounded as CircleQuestionIcon} from '#/components/icons/Circle'
+import {Group3_Stroke2_Corner0_Rounded as CommunitiesIcon} from '#/components/icons/Group3'
 import {Growth_Stroke2_Corner0_Rounded as GrowthIcon} from '#/components/icons/Growth'
-import {
-  Hashtag_Filled_Corner0_Rounded as HashtagFilledIcon,
-  Hashtag_Stroke2_Corner0_Rounded as HashtagIcon,
-} from '#/components/icons/Hashtag'
 import {
   HomeOpen_Filled_Corner0_Rounded as HomeFilledIcon,
   HomeOpen_Stroke2_Corner0_Rounded as HomeIcon,
@@ -62,11 +55,8 @@ import {
   MagnifyingGlass_Filled_Stroke2_Corner0_Rounded as MagnifyingGlassFilledIcon,
   MagnifyingGlass_Stroke2_Corner0_Rounded as MagnifyingGlassIcon,
 } from '#/components/icons/MagnifyingGlass'
-import {
-  Message_Stroke2_Corner0_Rounded as MessageIcon,
-  Message_Stroke2_Corner0_Rounded_Filled as MessageFilledIcon,
-} from '#/components/icons/Message'
-import {Newspaper_Stroke2_Corner2_Rounded as NewspaperIcon} from '#/components/icons/Newspaper'
+import {Moon_Stroke2_Corner0_Rounded as MoonIcon} from '#/components/icons/Moon'
+import {PersonCheck_Stroke2_Corner0_Rounded as PersonCheckIcon} from '#/components/icons/Person'
 import {SettingsGear2_Stroke2_Corner0_Rounded as SettingsIcon} from '#/components/icons/Settings'
 import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
 import {StreamingLive_Stroke2_Corner0_Rounded as StreamingLiveIcon} from '#/components/icons/StreamingLive'
@@ -75,7 +65,6 @@ import {
   UserCircle_Stroke2_Corner0_Rounded as UserCircleIcon,
 } from '#/components/icons/UserCircle'
 import {Verified_Stroke2_Corner2_Rounded as VerifiedIcon} from '#/components/icons/Verified'
-import {VideoClip_Stroke2_Corner0_Rounded as VideoClipIcon} from '#/components/icons/VideoClip'
 import {InlineLinkText} from '#/components/Link'
 import {OTAChannelNotice} from '#/components/OTAChannelNotice'
 import {ProfileBadges} from '#/components/ProfileBadges'
@@ -215,29 +204,27 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
   const {
     isAtHome,
     isAtSearch,
-    isAtAtmosphere,
     isAtFeeds,
     isAtBookmarks,
-    isAtNotifications,
     isAtMyProfile,
-    isAtMessages,
   } = useNavigationTabState()
   const {hasSession, currentAccount} = useSession()
   const inviteFriendsControl = useDialogControl()
-  const isAtmosphereEnabled = ax.features.enabled(
-    ax.features.AtmosphereScreenEnable,
-  )
   const currentRouteName = useNavigationState(state =>
     state ? getCurrentRoute(state).name : 'Home',
   )
-  const isAtReels = currentRouteName === 'VideoFeed'
   const isAtQuanty = currentRouteName === 'Quanty'
-  const isAtArticles = currentRouteName === 'Articles'
   const isAtSpaces = currentRouteName === 'ZingSpaces'
   const isAtStudio = currentRouteName === 'CreatorStudio'
   const isAtPro = currentRouteName === 'QuantZingPro'
-  const isAtDownload = currentRouteName === 'Download'
-  const showDownload = IS_WEB && isBrowserNonStandaloneWeb()
+  const unreadCountQuery = useModerationInboxUnreadCountQuery()
+  const unreadCount = unreadCountQuery.data?.unreadCounts.total ?? 0
+  const settingsCount =
+    unreadCount > 0
+      ? unreadCount >= UNREAD_NOTIFICATION_CAP
+        ? `${UNREAD_NOTIFICATION_CAP - 1}+`
+        : String(unreadCount)
+      : undefined
 
   // events
   // =
@@ -282,16 +269,6 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
 
   const onPressSearch = useCallback(() => onPressTab('Search'), [onPressTab])
 
-  const onPressMessages = useCallback(
-    () => onPressTab('Messages'),
-    [onPressTab],
-  )
-
-  const onPressNotifications = useCallback(
-    () => onPressTab('Notifications'),
-    [onPressTab],
-  )
-
   const onPressProfile = useCallback(() => {
     onPressTab('MyProfile')
   }, [onPressTab])
@@ -326,17 +303,17 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
     [navigation, setDrawerOpen],
   )
 
-  const onPressMyFeeds = useCallback(() => {
+  const onPressCommunities = useCallback(() => {
     ax.metric('nav:click', {item: 'feeds', surface: 'drawer'})
     if (IS_WEB) navigation.dispatch(getTabNavigationAction('Feeds'))
     else navigateToSecondaryTab('Feeds')
     if (IS_WEB) setDrawerOpen(false)
   }, [navigation, navigateToSecondaryTab, setDrawerOpen, ax])
 
-  const onPressAtmosphere = useCallback(() => {
-    ax.metric('nav:click', {item: 'atmosphere', surface: 'drawer'})
-    if (IS_WEB) navigation.dispatch(getTabNavigationAction('Atmosphere'))
-    else navigateToSecondaryTab('Atmosphere')
+  const onPressHistory = useCallback(() => {
+    ax.metric('nav:click', {item: 'saved', surface: 'drawer'})
+    if (IS_WEB) navigation.dispatch(getTabNavigationAction('Bookmarks'))
+    else navigateToSecondaryTab('Bookmarks')
     if (IS_WEB) setDrawerOpen(false)
   }, [navigation, navigateToSecondaryTab, setDrawerOpen, ax])
 
@@ -347,36 +324,19 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
     if (IS_WEB) setDrawerOpen(false)
   }, [navigation, navigateToSecondaryTab, setDrawerOpen, ax])
 
-  const onPressBookmarks = useCallback(() => {
-    ax.metric('nav:click', {item: 'saved', surface: 'drawer'})
-    if (IS_WEB) navigation.dispatch(getTabNavigationAction('Bookmarks'))
-    else navigateToSecondaryTab('Bookmarks')
-    if (IS_WEB) setDrawerOpen(false)
-  }, [navigation, navigateToSecondaryTab, setDrawerOpen, ax])
-
-  const onPressSettings = useCallback(() => {
-    ax.metric('nav:click', {item: 'settings', surface: 'drawer'})
-    if (IS_WEB) navigation.dispatch(getTabNavigationAction('Settings'))
-    else navigateToSecondaryTab('Settings')
-    if (IS_WEB) setDrawerOpen(false)
-  }, [navigation, navigateToSecondaryTab, setDrawerOpen, ax])
-
-  const onPressReels = useCallback(() => {
-    ax.metric('nav:click', {item: 'reels', surface: 'drawer'})
+  const onPressFollowRequests = useCallback(() => {
+    ax.metric('nav:click', {item: 'profile', surface: 'drawer'})
     setDrawerOpen(false)
-    navigation.dispatch(
-      getCommonNavigationAction(
-        {
-          name: 'VideoFeed',
-          params: {
-            type: 'feedgen',
-            uri: VIDEO_FEED_URI,
-            sourceInterstitial: 'none',
-          },
-        },
-        navigation.getState(),
-      ),
-    )
+    if (IS_NATIVE) {
+      navigation.dispatch(
+        getCommonNavigationAction(
+          {name: 'FindContactsFlow', params: undefined},
+          navigation.getState(),
+        ),
+      )
+    } else {
+      navigation.dispatch(getTabNavigationAction('Search'))
+    }
   }, [navigation, setDrawerOpen, ax])
 
   const onPressQuanty = useCallback(() => {
@@ -385,17 +345,6 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
     navigation.dispatch(
       getCommonNavigationAction(
         {name: 'Quanty', params: undefined},
-        navigation.getState(),
-      ),
-    )
-  }, [navigation, setDrawerOpen, ax])
-
-  const onPressArticles = useCallback(() => {
-    ax.metric('nav:click', {item: 'articles', surface: 'drawer'})
-    setDrawerOpen(false)
-    navigation.dispatch(
-      getCommonNavigationAction(
-        {name: 'Articles', params: undefined},
         navigation.getState(),
       ),
     )
@@ -434,16 +383,12 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
     )
   }, [navigation, setDrawerOpen, ax])
 
-  const onPressDownload = useCallback(() => {
-    ax.metric('nav:click', {item: 'download', surface: 'drawer'})
-    setDrawerOpen(false)
-    navigation.dispatch(
-      getCommonNavigationAction(
-        {name: 'Download', params: undefined},
-        navigation.getState(),
-      ),
-    )
-  }, [navigation, setDrawerOpen, ax])
+  const onPressSettings = useCallback(() => {
+    ax.metric('nav:click', {item: 'settings', surface: 'drawer'})
+    if (IS_WEB) navigation.dispatch(getTabNavigationAction('Settings'))
+    else navigateToSecondaryTab('Settings')
+    if (IS_WEB) setDrawerOpen(false)
+  }, [navigation, navigateToSecondaryTab, setDrawerOpen, ax])
 
   const onPressFeedback = useCallback(() => {
     setDrawerOpen(false)
@@ -510,73 +455,76 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
 
         {hasSession ? (
           <>
-            <HomeMenuItem isActive={isAtHome} onPress={onPressHome} />
-            <MenuItem
-              icon={<VideoClipIcon style={[t.atoms.text]} width={iconWidth} />}
-              label="Reels"
-              bold={isAtReels}
-              onPress={onPressReels}
-            />
-            <QuantyMenuItem isActive={isAtQuanty} onPress={onPressQuanty} />
-            <SearchMenuItem isActive={isAtSearch} onPress={onPressSearch} />
-            <ChatMenuItem isActive={isAtMessages} onPress={onPressMessages} />
-            <NotificationsMenuItem
-              isActive={isAtNotifications}
-              onPress={onPressNotifications}
-            />
-            {isAtmosphereEnabled && (
-              <AtmosphereMenuItem
-                isActive={isAtAtmosphere}
-                onPress={onPressAtmosphere}
-              />
-            )}
-            <FeedsMenuItem isActive={isAtFeeds} onPress={onPressMyFeeds} />
-            <ListsMenuItem onPress={onPressLists} />
-            <BookmarksMenuItem
-              isActive={isAtBookmarks}
-              onPress={onPressBookmarks}
-            />
-            <ArticlesMenuItem
-              isActive={isAtArticles}
-              onPress={onPressArticles}
-            />
-            <ZingSpacesMenuItem
-              isActive={isAtSpaces}
-              onPress={onPressZingSpaces}
-            />
-            <CreatorStudioMenuItem
-              isActive={isAtStudio}
-              onPress={onPressCreatorStudio}
-            />
-            <QuantZingProMenuItem
-              isActive={isAtPro}
-              onPress={onPressQuantZingPro}
-            />
             <ProfileMenuItem
               isActive={isAtMyProfile}
               onPress={onPressProfile}
             />
-            <SettingsMenuItem onPress={onPressSettings} />
-            {showDownload && (
-              <MenuItem
-                icon={<DownloadIcon style={[t.atoms.text]} width={iconWidth} />}
-                label="Download App"
-                bold={isAtDownload}
-                onPress={onPressDownload}
-              />
-            )}
+            <PremiumMenuItem
+              isActive={isAtPro}
+              onPress={onPressQuantZingPro}
+            />
+            <CommunitiesMenuItem
+              isActive={isAtFeeds}
+              onPress={onPressCommunities}
+            />
+            <HistoryMenuItem
+              isActive={isAtBookmarks}
+              onPress={onPressHistory}
+            />
+            <ListsMenuItem onPress={onPressLists} />
+            <SpacesMenuItem
+              isActive={isAtSpaces}
+              onPress={onPressZingSpaces}
+            />
+            <FollowRequestsMenuItem onPress={onPressFollowRequests} />
+            <CreatorStudioMenuItem
+              isActive={isAtStudio}
+              onPress={onPressCreatorStudio}
+            />
+
+            <View style={[a.px_xl]}>
+              <Divider style={[a.my_md]} />
+            </View>
+
+            <SecondaryMenuItem
+              icon={<SparkleIcon style={[t.atoms.text]} width={20} />}
+              label="Autonomous Work"
+              bold={isAtQuanty}
+              onPress={onPressQuanty}
+            />
+            <SecondaryMenuItem
+              icon={<SettingsIcon style={[t.atoms.text]} width={20} />}
+              label="Settings and privacy"
+              count={settingsCount}
+              accessibilityHint={
+                unreadCount > 0
+                  ? plural(unreadCount, {
+                      one: '# unread update',
+                      other: '# unread updates',
+                    })
+                  : ''
+              }
+              onPress={onPressSettings}
+            />
+            <SecondaryMenuItem
+              icon={<CircleQuestionIcon style={[t.atoms.text]} width={20} />}
+              label="Help Center"
+              onPress={onPressHelp}
+            />
           </>
         ) : (
           <>
             <HomeMenuItem isActive={isAtHome} onPress={onPressHome} />
-            <QuantyMenuItem isActive={isAtQuanty} onPress={onPressQuanty} />
-            <FeedsMenuItem isActive={isAtFeeds} onPress={onPressMyFeeds} />
-            <SearchMenuItem isActive={isAtSearch} onPress={onPressSearch} />
-            <ArticlesMenuItem
-              isActive={isAtArticles}
-              onPress={onPressArticles}
+            <PremiumMenuItem
+              isActive={isAtPro}
+              onPress={onPressQuantZingPro}
             />
-            <ZingSpacesMenuItem
+            <CommunitiesMenuItem
+              isActive={isAtFeeds}
+              onPress={onPressCommunities}
+            />
+            <SearchMenuItem isActive={isAtSearch} onPress={onPressSearch} />
+            <SpacesMenuItem
               isActive={isAtSpaces}
               onPress={onPressZingSpaces}
             />
@@ -584,18 +532,27 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
               isActive={isAtStudio}
               onPress={onPressCreatorStudio}
             />
-            <QuantZingProMenuItem
-              isActive={isAtPro}
-              onPress={onPressQuantZingPro}
+
+            <View style={[a.px_xl]}>
+              <Divider style={[a.my_md]} />
+            </View>
+
+            <SecondaryMenuItem
+              icon={<SparkleIcon style={[t.atoms.text]} width={20} />}
+              label="Autonomous Work"
+              bold={isAtQuanty}
+              onPress={onPressQuanty}
             />
-            {showDownload && (
-              <MenuItem
-                icon={<DownloadIcon style={[t.atoms.text]} width={iconWidth} />}
-                label="Download App"
-                bold={isAtDownload}
-                onPress={onPressDownload}
-              />
-            )}
+            <SecondaryMenuItem
+              icon={<SettingsIcon style={[t.atoms.text]} width={20} />}
+              label="Settings and privacy"
+              onPress={onPressSettings}
+            />
+            <SecondaryMenuItem
+              icon={<CircleQuestionIcon style={[t.atoms.text]} width={20} />}
+              label="Help Center"
+              onPress={onPressHelp}
+            />
           </>
         )}
 
@@ -616,6 +573,17 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
 DrawerContent = memo(DrawerContent)
 export {DrawerContent}
 
+function SunIcon({size = 16, fill}: {size?: number; fill?: string}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12ZM11 1h2v3h-2V1Zm0 19h2v3h-2v-3ZM3.515 4.929l1.414-1.414L7.05 5.636 5.636 7.05 3.515 4.93Zm13.435 13.435 1.414-1.414 2.121 2.121-1.414 1.415-2.121-2.122ZM1 11h3v2H1v-2Zm19 0h3v2h-3v-2ZM5.636 16.95l1.414 1.414-2.121 2.121-1.414-1.414 2.121-2.121Zm13.435-13.435 1.414 1.414-2.121 2.121-1.414-1.414 2.121-2.121Z"
+        fill={fill || 'currentColor'}
+      />
+    </Svg>
+  )
+}
+
 let DrawerFooter = ({
   onPressFeedback,
   onPressHelp,
@@ -625,45 +593,94 @@ let DrawerFooter = ({
 }): React.ReactNode => {
   const {t: l} = useLingui()
   const insets = useSafeAreaInsets()
+  const t = useTheme()
+  const {colorMode, darkTheme} = useThemePrefs()
+  const {setColorMode, setDarkTheme} = useSetThemePrefs()
+
+  const currentModeLabel =
+    t.name === 'dark' ? 'Dark' : t.name === 'dim' ? 'Dim' : 'Light'
+
+  const cycleTheme = useCallback(() => {
+    const isLight =
+      colorMode === 'light' || (colorMode === 'system' && t.name === 'light')
+    if (isLight) {
+      setColorMode('dark')
+      setDarkTheme('dim')
+    } else if (darkTheme === 'dim' || t.name === 'dim') {
+      setColorMode('dark')
+      setDarkTheme('dark')
+    } else {
+      setColorMode('light')
+    }
+  }, [colorMode, darkTheme, t.name, setColorMode, setDarkTheme])
+
   return (
     <View
       style={[
         a.flex_row,
-        a.gap_sm,
-        a.flex_wrap,
-        a.pl_xl,
+        a.align_center,
+        a.justify_between,
+        a.px_xl,
         a.pt_md,
+        a.border_t,
+        t.atoms.border_contrast_low,
         {
           paddingBottom: Math.max(
             insets.bottom + tokens.space.xs,
-            tokens.space.xl,
+            tokens.space.md,
           ),
         },
       ]}>
-      <Button
-        label={l`Send feedback`}
-        size="small"
-        variant="solid"
-        color="secondary"
-        onPress={onPressFeedback}>
-        <ButtonIcon icon={MessageIcon} position="left" />
-        <ButtonText>
-          <Trans>Feedback</Trans>
-        </ButtonText>
-      </Button>
-      <Button
-        label={l`Get help`}
-        size="small"
-        variant="outline"
-        color="secondary"
-        onPress={onPressHelp}
-        style={{
-          backgroundColor: 'transparent',
-        }}>
-        <ButtonText>
-          <Trans>Help</Trans>
-        </ButtonText>
-      </Button>
+      {/* Theme Toggle Button on bottom-left */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Theme: ${currentModeLabel}. Tap to change theme.`}
+        accessibilityHint="Cycles between Light, Dim, and Dark themes"
+        onPress={cycleTheme}
+        style={({pressed}) => [
+          a.flex_row,
+          a.align_center,
+          a.gap_xs,
+          a.px_md,
+          a.py_xs,
+          a.rounded_full,
+          pressed ? t.atoms.bg_contrast_50 : t.atoms.bg_contrast_25,
+          web({cursor: 'pointer'}),
+        ]}>
+        {t.name === 'light' ? (
+          <SunIcon size={16} fill={t.palette.contrast_700} />
+        ) : (
+          <MoonIcon width={16} style={[t.atoms.text]} />
+        )}
+        <Text style={[a.text_sm, a.font_semi_bold, t.atoms.text]}>
+          {currentModeLabel}
+        </Text>
+      </Pressable>
+
+      <View style={[a.flex_row, a.align_center, a.gap_xs]}>
+        <Button
+          label={l`Send feedback`}
+          size="small"
+          variant="ghost"
+          color="secondary"
+          accessibilityHint=""
+          onPress={onPressFeedback}>
+          <ButtonText style={[a.text_xs]}>
+            <Trans>Feedback</Trans>
+          </ButtonText>
+        </Button>
+        <Button
+          label={l`Get help`}
+          size="small"
+          variant="ghost"
+          color="secondary"
+          accessibilityHint=""
+          onPress={onPressHelp}>
+          <ButtonText style={[a.text_xs]}>
+            <Trans>Help</Trans>
+          </ButtonText>
+        </Button>
+      </View>
     </View>
   )
 }
@@ -729,115 +746,13 @@ let HomeMenuItem = ({
 }
 HomeMenuItem = memo(HomeMenuItem)
 
-let ChatMenuItem = ({
+let ListsMenuItem = ({
   isActive,
   onPress,
 }: {
-  isActive: boolean
+  isActive?: boolean
   onPress: () => void
 }): React.ReactNode => {
-  const {t: l} = useLingui()
-  const t = useTheme()
-  return (
-    <MenuItem
-      icon={
-        isActive ? (
-          <MessageFilledIcon style={[t.atoms.text]} width={iconWidth} />
-        ) : (
-          <MessageIcon style={[t.atoms.text]} width={iconWidth} />
-        )
-      }
-      label={l`Chat`}
-      bold={isActive}
-      onPress={onPress}
-    />
-  )
-}
-ChatMenuItem = memo(ChatMenuItem)
-
-let NotificationsMenuItem = ({
-  isActive,
-  onPress,
-}: {
-  isActive: boolean
-  onPress: () => void
-}): React.ReactNode => {
-  const {t: l} = useLingui()
-  const t = useTheme()
-  const numUnreadNotifications = useUnreadNotifications()
-  return (
-    <MenuItem
-      icon={
-        isActive ? (
-          <BellFilledIcon style={[t.atoms.text]} width={iconWidth} />
-        ) : (
-          <BellIcon style={[t.atoms.text]} width={iconWidth} />
-        )
-      }
-      label={l`Notifications`}
-      accessibilityHint={
-        numUnreadNotifications === ''
-          ? ''
-          : plural(numUnreadNotifications ?? 0, {
-              one: '# unread item',
-              other: '# unread items',
-            })
-      }
-      count={numUnreadNotifications}
-      bold={isActive}
-      onPress={onPress}
-    />
-  )
-}
-NotificationsMenuItem = memo(NotificationsMenuItem)
-
-function AtmosphereMenuItem({
-  isActive,
-  onPress,
-}: {
-  isActive: boolean
-  onPress: () => void
-}) {
-  const {t: l} = useLingui()
-  const t = useTheme()
-  return (
-    <MenuItem
-      icon={<EarthIcon width={iconWidth} style={[t.atoms.text]} />}
-      label={l`Atmosphere`}
-      beta
-      bold={isActive}
-      onPress={onPress}
-    />
-  )
-}
-
-let FeedsMenuItem = ({
-  isActive,
-  onPress,
-}: {
-  isActive: boolean
-  onPress: () => void
-}): React.ReactNode => {
-  const {t: l} = useLingui()
-  const t = useTheme()
-  return (
-    <MenuItem
-      icon={
-        isActive ? (
-          <HashtagFilledIcon width={iconWidth} style={[t.atoms.text]} />
-        ) : (
-          <HashtagIcon width={iconWidth} style={[t.atoms.text]} />
-        )
-      }
-      label={l`Feeds`}
-      bold={isActive}
-      onPress={onPress}
-    />
-  )
-}
-FeedsMenuItem = memo(FeedsMenuItem)
-
-let ListsMenuItem = ({onPress}: {onPress: () => void}): React.ReactNode => {
   const {t: l} = useLingui()
   const t = useTheme()
 
@@ -845,20 +760,20 @@ let ListsMenuItem = ({onPress}: {onPress: () => void}): React.ReactNode => {
     <MenuItem
       icon={<ListIcon style={[t.atoms.text]} width={iconWidth} />}
       label={l`Lists`}
+      bold={isActive}
       onPress={onPress}
     />
   )
 }
 ListsMenuItem = memo(ListsMenuItem)
 
-let BookmarksMenuItem = ({
+let HistoryMenuItem = ({
   isActive,
   onPress,
 }: {
-  isActive: boolean
+  isActive?: boolean
   onPress: () => void
 }): React.ReactNode => {
-  const {t: l} = useLingui()
   const t = useTheme()
 
   return (
@@ -870,12 +785,13 @@ let BookmarksMenuItem = ({
           <BookmarkIcon style={[t.atoms.text]} width={iconWidth} />
         )
       }
-      label={l({message: 'Saved', context: 'link to bookmarks screen'})}
+      label="History"
+      bold={isActive}
       onPress={onPress}
     />
   )
 }
-BookmarksMenuItem = memo(BookmarksMenuItem)
+HistoryMenuItem = memo(HistoryMenuItem)
 
 let ProfileMenuItem = ({
   isActive,
@@ -896,48 +812,14 @@ let ProfileMenuItem = ({
         )
       }
       label={l`Profile`}
+      bold={isActive}
       onPress={onPress}
     />
   )
 }
 ProfileMenuItem = memo(ProfileMenuItem)
 
-let SettingsMenuItem = ({onPress}: {onPress: () => void}): React.ReactNode => {
-  const {i18n, t: l} = useLingui()
-  const t = useTheme()
-  const unreadCountQuery = useModerationInboxUnreadCountQuery()
-  const unreadCount = unreadCountQuery.data?.unreadCounts.total ?? 0
-  const count =
-    unreadCount > 0
-      ? unreadCount >= UNREAD_NOTIFICATION_CAP
-        ? l({
-            message: `${i18n.number(UNREAD_NOTIFICATION_CAP - 1)}+`,
-            comment:
-              'Displayed when the number of notifications exceeds the cap – for example, 99+',
-          })
-        : i18n.number(unreadCount)
-      : undefined
-
-  return (
-    <MenuItem
-      icon={<SettingsIcon style={[t.atoms.text]} width={iconWidth} />}
-      label={l`Settings`}
-      count={count}
-      accessibilityHint={
-        unreadCount > 0
-          ? plural(unreadCount, {
-              one: '# unread update',
-              other: '# unread updates',
-            })
-          : ''
-      }
-      onPress={onPress}
-    />
-  )
-}
-SettingsMenuItem = memo(SettingsMenuItem)
-
-let QuantyMenuItem = ({
+let CommunitiesMenuItem = ({
   isActive,
   onPress,
 }: {
@@ -947,40 +829,16 @@ let QuantyMenuItem = ({
   const t = useTheme()
   return (
     <MenuItem
-      icon={
-        <SparkleIcon
-          style={[isActive ? {color: t.palette.primary_500} : t.atoms.text]}
-          width={iconWidth}
-        />
-      }
-      label="Quanty"
+      icon={<CommunitiesIcon style={[t.atoms.text]} width={iconWidth} />}
+      label="Communities"
       bold={isActive}
       onPress={onPress}
     />
   )
 }
-QuantyMenuItem = memo(QuantyMenuItem)
+CommunitiesMenuItem = memo(CommunitiesMenuItem)
 
-let ArticlesMenuItem = ({
-  isActive,
-  onPress,
-}: {
-  isActive?: boolean
-  onPress: () => void
-}): React.ReactNode => {
-  const t = useTheme()
-  return (
-    <MenuItem
-      icon={<NewspaperIcon style={[t.atoms.text]} width={iconWidth} />}
-      label="Articles"
-      bold={isActive}
-      onPress={onPress}
-    />
-  )
-}
-ArticlesMenuItem = memo(ArticlesMenuItem)
-
-let ZingSpacesMenuItem = ({
+let SpacesMenuItem = ({
   isActive,
   onPress,
 }: {
@@ -991,13 +849,29 @@ let ZingSpacesMenuItem = ({
   return (
     <MenuItem
       icon={<StreamingLiveIcon style={[t.atoms.text]} width={iconWidth} />}
-      label="ZingSpaces"
+      label="Spaces"
       bold={isActive}
       onPress={onPress}
     />
   )
 }
-ZingSpacesMenuItem = memo(ZingSpacesMenuItem)
+SpacesMenuItem = memo(SpacesMenuItem)
+
+let FollowRequestsMenuItem = ({
+  onPress,
+}: {
+  onPress: () => void
+}): React.ReactNode => {
+  const t = useTheme()
+  return (
+    <MenuItem
+      icon={<PersonCheckIcon style={[t.atoms.text]} width={iconWidth} />}
+      label="Follow Requests"
+      onPress={onPress}
+    />
+  )
+}
+FollowRequestsMenuItem = memo(FollowRequestsMenuItem)
 
 let CreatorStudioMenuItem = ({
   isActive,
@@ -1018,7 +892,7 @@ let CreatorStudioMenuItem = ({
 }
 CreatorStudioMenuItem = memo(CreatorStudioMenuItem)
 
-let QuantZingProMenuItem = ({
+let PremiumMenuItem = ({
   isActive,
   onPress,
 }: {
@@ -1029,13 +903,13 @@ let QuantZingProMenuItem = ({
   return (
     <MenuItem
       icon={<VerifiedIcon style={[t.atoms.text]} width={iconWidth} />}
-      label="QuantZing Pro"
+      label="Premium"
       bold={isActive}
       onPress={onPress}
     />
   )
 }
-QuantZingProMenuItem = memo(QuantZingProMenuItem)
+PremiumMenuItem = memo(PremiumMenuItem)
 
 function MenuItem({
   beta,
@@ -1044,7 +918,7 @@ function MenuItem({
   count,
   bold,
   onPress,
-  accessibilityHint,
+  accessibilityHint = '',
 }: MenuItemProps) {
   const t = useTheme()
   const {t: l} = useLingui()
@@ -1123,6 +997,89 @@ function MenuItem({
   )
 }
 
+function SecondaryMenuItem({
+  icon,
+  label,
+  onPress,
+  bold,
+  count,
+  accessibilityHint = '',
+}: {
+  icon: JSX.Element
+  label: string
+  onPress: () => void
+  bold?: boolean
+  count?: string
+  accessibilityHint?: string
+}) {
+  const t = useTheme()
+  return (
+    <Button
+      testID={`secondaryMenuItemButton-${label}`}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint={accessibilityHint}
+      label={label}>
+      {({hovered, pressed}) => (
+        <View
+          style={[
+            a.flex_1,
+            a.flex_row,
+            a.align_center,
+            a.gap_md,
+            a.py_sm,
+            a.px_xl,
+            (hovered || pressed) && t.atoms.bg_contrast_25,
+          ]}>
+          <View
+            style={[
+              {width: 22, alignItems: 'center', justifyContent: 'center'},
+            ]}>
+            {icon}
+          </View>
+          <Text
+            style={[
+              a.flex_1,
+              a.text_md,
+              bold ? a.font_bold : a.font_medium,
+              t.atoms.text,
+              web(a.leading_snug),
+            ]}
+            numberOfLines={1}>
+            {label}
+          </Text>
+          {count ? (
+            <View
+              style={[
+                a.rounded_full,
+                {
+                  paddingHorizontal: 6,
+                  paddingVertical: 1,
+                  backgroundColor: t.palette.primary_500,
+                },
+              ]}>
+              <Text
+                style={[
+                  a.text_xs,
+                  a.leading_tight,
+                  a.font_semi_bold,
+                  {
+                    fontVariant: ['tabular-nums'],
+                    color: t.palette.white,
+                  },
+                ]}
+                numberOfLines={1}>
+                {count}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      )}
+    </Button>
+  )
+}
+
 function ExtraLinks() {
   const {t: l} = useLingui()
   const setDrawerOpen = useSetDrawerOpen()
@@ -1152,13 +1109,6 @@ function ExtraLinks() {
         label={l`Privacy Policy`}
         onPress={() => setDrawerOpen(false)}>
         <Trans>Privacy Policy</Trans>
-      </InlineLinkText>
-      <InlineLinkText
-        style={[a.text_md]}
-        to="/help"
-        label="Help Center"
-        onPress={() => setDrawerOpen(false)}>
-        Help Center
       </InlineLinkText>
     </View>
   )

@@ -48,7 +48,7 @@ import {type ImagePickerAsset} from 'expo-image-picker'
 import {type Client, type UriString} from '@atproto/lex'
 import {AtUri, type AtUriString} from '@atproto/syntax'
 import {BottomSheetPortalProvider} from '@bsky.app/bottom-sheet'
-import {type RichText} from '@bsky/sdk/richtext'
+import {RichText} from '@bsky/sdk/richtext'
 import {plural} from '@lingui/core/macro'
 import {Trans, useLingui} from '@lingui/react/macro'
 import {useNavigation} from '@react-navigation/native'
@@ -126,11 +126,15 @@ import {atoms as a, native, useBreakpoints, useTheme, web} from '#/alf'
 import {Admonition} from '#/components/Admonition'
 import {Button, ButtonIcon, ButtonText} from '#/components/Button'
 import * as EmojiPicker from '#/components/EmojiPicker'
+import {Bot_Stroke2_Corner0_Rounded as BotIcon} from '#/components/icons/Bot'
 import {BulletList_Stroke2_Corner0_Rounded as PollIcon} from '#/components/icons/BulletList'
 import {CircleCheck_Stroke2_Corner0_Rounded as CircleCheckIcon} from '#/components/icons/CircleCheck'
 import {CircleInfo_Stroke2_Corner0_Rounded as CircleInfoIcon} from '#/components/icons/CircleInfo'
 import {EmojiArc_Stroke2_Corner0_Rounded as EmojiSmileIcon} from '#/components/icons/Emoji'
+import {Live_Stroke2_Corner0_Rounded as LiveIcon} from '#/components/icons/Live'
+import {PinLocation_Stroke2_Corner0_Rounded as LocationIcon} from '#/components/icons/PinLocation'
 import {PlusLarge_Stroke2_Corner0_Rounded as PlusIcon} from '#/components/icons/Plus'
+import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
 import {TimesLarge_Stroke2_Corner0_Rounded as XIcon} from '#/components/icons/Times'
 import {LazyQuoteEmbed} from '#/components/Post/Embed/LazyQuoteEmbed'
 import * as Prompt from '#/components/Prompt'
@@ -1389,6 +1393,11 @@ export const ComposePost = ({
 
   const keyboardVerticalOffset = useKeyboardVerticalOffset()
 
+  const onPressCreateSpace = useCallback(() => {
+    closeComposer()
+    navigation.navigate('ZingSpaces')
+  }, [closeComposer, navigation])
+
   const footer = (
     <>
       <SuggestedLanguage
@@ -1423,6 +1432,7 @@ export const ComposePost = ({
         languageNudgeAt={languageNudgeAt}
         openGallery={openGallery}
         textInputRef={textInputRef}
+        onPressCreateSpace={onPressCreateSpace}
       />
     </>
   )
@@ -1840,6 +1850,9 @@ function ComposerTopBar({
 }) {
   const t = useTheme()
   const {t: l} = useLingui()
+  const isDark = t.scheme === 'dark'
+  const ctaBg = isDark ? '#EFF3F4' : '#1D9BF0'
+  const ctaText = isDark ? '#0F1419' : '#FFFFFF'
 
   return (
     <Animated.View style={topBarAnimatedStyle}>
@@ -1850,29 +1863,33 @@ function ComposerTopBar({
           a.gap_xs,
           IS_LIQUID_GLASS ? [a.px_lg, a.pt_lg, a.pb_md] : [a.p_sm],
         ]}>
-        <Button
-          label={l`Cancel`}
-          variant="ghost"
-          color="primary"
-          shape="default"
-          size="small"
-          style={[{paddingLeft: 7, paddingRight: 7}]}
-          hoverStyle={[a.bg_transparent, {opacity: 0.5}]}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={l`Cancel`}
+          accessibilityHint={l`Closes post composer and discards post draft`}
           onPress={onCancel}
           disabled={isSavingDraft}
-          accessibilityHint={l`Closes post composer and discards post draft`}>
-          <ButtonText style={[a.text_md]} maxFontSizeMultiplier={2}>
+          style={({pressed}) => [
+            a.py_xs,
+            a.px_sm,
+            {borderRadius: 9999, opacity: isSavingDraft ? 0.4 : pressed ? 0.6 : 1},
+          ]}>
+          <Text style={[a.text_md, {color: t.atoms.text.color, fontWeight: '600'}]}>
             <Trans>Cancel</Trans>
-          </ButtonText>
-        </Button>
+          </Text>
+        </Pressable>
         <View style={a.flex_1} />
         {isPublishing ? (
           <>
             <Text style={[t.atoms.text_contrast_medium]}>
               {publishingStage}
             </Text>
-            <View style={styles.postBtn}>
-              <ActivityIndicator />
+            <View
+              style={[
+                styles.postBtn,
+                {backgroundColor: ctaBg, opacity: 0.85, borderRadius: 9999, paddingHorizontal: 18, paddingVertical: 7},
+              ]}>
+              <ActivityIndicator color={ctaText} />
             </View>
           </>
         ) : (
@@ -1890,9 +1907,10 @@ function ComposerTopBar({
                 textLength={textLength}
               />
             )}
-            <Button
+            <Pressable
               testID="composerPublishBtn"
-              label={
+              accessibilityRole="button"
+              accessibilityLabel={
                 isReply
                   ? isThread
                     ? l({
@@ -1917,20 +1935,40 @@ function ComposerTopBar({
                           'Accessibility label for button to publish a single post',
                       })
               }
-              color="primary"
-              size="small"
+              accessibilityHint={l`Publishes your Zing to the network`}
               onPress={onPublish}
-              disabled={!canPost || isPublishQueued || isSavingDraft}>
-              <ButtonText style={[a.text_md]} maxFontSizeMultiplier={2}>
+              disabled={!canPost || isPublishQueued || isSavingDraft}
+              style={({pressed}) => [
+                {
+                  backgroundColor: ctaBg,
+                  borderRadius: 9999,
+                  paddingHorizontal: 18,
+                  paddingVertical: 7,
+                  opacity:
+                    !canPost || isPublishQueued || isSavingDraft
+                      ? 0.45
+                      : pressed
+                      ? 0.85
+                      : 1,
+                },
+              ]}>
+              <Text
+                style={{
+                  color: ctaText,
+                  fontWeight: '700',
+                  fontSize: 15,
+                  lineHeight: 18,
+                }}
+                maxFontSizeMultiplier={2}>
                 {isReply ? (
                   <Trans context="action">Reply</Trans>
                 ) : isThread ? (
-                  <Trans context="action">Post All</Trans>
+                  <Trans context="action">Zing All</Trans>
                 ) : (
-                  <Trans context="action">Post</Trans>
+                  <Trans context="action">Zing</Trans>
                 )}
-              </ButtonText>
-            </Button>
+              </Text>
+            </Pressable>
           </>
         )}
       </View>
@@ -2248,9 +2286,9 @@ function ComposerPills({
 
   return (
     <Animated.View
-      style={[a.flex_row, a.p_sm, t.atoms.bg, bottomBarAnimatedStyle]}>
+      style={[a.flex_row, a.px_md, a.py_xs, t.atoms.bg, bottomBarAnimatedStyle]}>
       <ScrollView
-        contentContainerStyle={[a.gap_sm]}
+        contentContainerStyle={[a.gap_sm, a.align_center]}
         horizontal={true}
         bounces={false}
         keyboardShouldPersistTaps="always"
@@ -2302,6 +2340,7 @@ function ComposerFooter({
   languageNudgeAt,
   openGallery,
   textInputRef,
+  onPressCreateSpace,
 }: {
   post: PostDraft
   dispatch: (action: PostAction) => void
@@ -2317,6 +2356,7 @@ function ComposerFooter({
   languageNudgeAt: number
   openGallery?: boolean
   textInputRef: React.RefObject<TextInputRef | null>
+  onPressCreateSpace: () => void
 }) {
   const t = useTheme()
   const {t: l} = useLingui()
@@ -2328,6 +2368,61 @@ function ComposerFooter({
   const [selectedAssetsType, setSelectedAssetsType] = useState<
     AssetType | undefined
   >(undefined)
+
+  const isAiDisclosed =
+    post.richtext.text.includes('#MadeWithAI') ||
+    post.richtext.text.includes('[Made with AI]')
+
+  const onToggleAiDisclosure = useCallback(() => {
+    const text = post.richtext.text
+    let newText = text
+    if (isAiDisclosed) {
+      newText = text
+        .replace(/\s*(?:\[Made with AI\]|#MadeWithAI)/gi, '')
+        .trim()
+      Toast.show('AI disclosure removed', {type: 'default'})
+    } else {
+      newText = text ? `${text.trim()} #MadeWithAI` : '#MadeWithAI'
+      Toast.show('AI disclosure added: Made with AI', {type: 'success'})
+    }
+    const rt = new RichText({text: newText})
+    rt.detectFacetsWithoutResolution()
+    dispatch({type: 'update_richtext', richtext: rt})
+  }, [post.richtext.text, isAiDisclosed, dispatch])
+
+  const onPressQuantyDraft = useCallback(() => {
+    const text = post.richtext.text
+    let newText = text
+    if (/(?:^|\s)@quanty\b/i.test(text)) {
+      newText = text.replace(/(?:^|\s)@quanty\b/gi, '').trim()
+      Toast.show('Quanty tag removed', {type: 'default'})
+    } else {
+      const trimmed = text.trim()
+      newText = trimmed ? `@quanty ${trimmed}` : '@quanty '
+      Toast.show('Quanty draft assistant tagged', {type: 'success'})
+    }
+    const rt = new RichText({text: newText})
+    rt.detectFacetsWithoutResolution()
+    dispatch({type: 'update_richtext', richtext: rt})
+  }, [post.richtext.text, dispatch])
+
+  const hasLocation = /\[Location:\s*[^\]]+\]/i.test(post.richtext.text)
+
+  const onToggleLocation = useCallback(() => {
+    const text = post.richtext.text
+    let newText = text
+    if (hasLocation) {
+      newText = text.replace(/\s*\[Location:\s*[^\]]+\]/gi, '').trim()
+      Toast.show('Location tag removed', {type: 'default'})
+    } else {
+      const defaultLoc = 'Global'
+      newText = text ? `${text.trim()} [Location: ${defaultLoc}]` : `[Location: ${defaultLoc}]`
+      Toast.show(`Location tag added: ${defaultLoc}`, {type: 'success'})
+    }
+    const rt = new RichText({text: newText})
+    rt.detectFacetsWithoutResolution()
+    dispatch({type: 'update_richtext', richtext: rt})
+  }, [post.richtext.text, hasLocation, dispatch])
 
   const media = post.embed.media
   const images =
@@ -2418,12 +2513,12 @@ function ComposerFooter({
         t.atoms.border_contrast_medium,
         a.justify_between,
       ]}>
-      <View style={[a.flex_row, a.align_center]}>
+      <View style={[a.flex_row, a.align_center, a.flex_1, {flexWrap: 'wrap', gap: 2}]}>
         <LayoutAnimationConfig skipEntering skipExiting>
           {video && video.status !== 'done' ? (
             <VideoUploadToolbar state={video} />
           ) : (
-            <ToolbarWrapper style={[a.flex_row, a.align_center, a.gap_xs]}>
+            <ToolbarWrapper style={[a.flex_row, a.align_center, {flexWrap: 'wrap', gap: 2}]}>
               <SelectMediaButton
                 disabled={isMediaSelectionDisabled}
                 allowedAssetTypes={selectedAssetsType}
@@ -2454,7 +2549,7 @@ function ComposerFooter({
                     color:
                       media?.type === 'poll'
                         ? t.palette.primary_500
-                        : undefined,
+                        : '#1D9BF0',
                   }}
                 />
               </Button>
@@ -2469,18 +2564,101 @@ function ComposerFooter({
                         shape="round"
                         color="primary"
                         {...props}>
-                        <EmojiSmileIcon size="lg" />
+                        <EmojiSmileIcon size="lg" style={{color: '#1D9BF0'}} />
                       </Button>
                     )}
                   </EmojiPicker.Trigger>
                   <EmojiPicker.Picker />
                 </EmojiPicker.Root>
               ) : null}
+              <Button
+                testID="composerAiDisclosureBtn"
+                style={[
+                  a.p_sm,
+                  isAiDisclosed && {
+                    backgroundColor: 'rgba(29, 155, 240, 0.15)',
+                  },
+                ]}
+                label={l`AI disclosure`}
+                accessibilityHint={l`Toggle Made with AI disclosure badge on post`}
+                variant="ghost"
+                shape="round"
+                color="primary"
+                onPress={onToggleAiDisclosure}>
+                <BotIcon
+                  size="lg"
+                  style={{
+                    color: '#1D9BF0',
+                  }}
+                />
+              </Button>
+              <Button
+                testID="composerQuantyDraftBtn"
+                style={a.p_sm}
+                label={l`Draft with Quanty AI`}
+                accessibilityHint={l`Tag Quanty to draft or fact-check this Zing`}
+                variant="ghost"
+                shape="round"
+                color="primary"
+                onPress={onPressQuantyDraft}>
+                <SparkleIcon
+                  size="lg"
+                  style={{
+                    color: '#1D9BF0',
+                  }}
+                />
+              </Button>
+              <Button
+                testID="composerCreateSpaceBtn"
+                style={a.p_sm}
+                label={l`Create ZingSpace`}
+                accessibilityHint={l`Opens ZingSpaces to host a live audio room`}
+                variant="ghost"
+                shape="round"
+                color="primary"
+                onPress={onPressCreateSpace}>
+                <LiveIcon
+                  size="lg"
+                  style={{
+                    color: '#1D9BF0',
+                  }}
+                />
+              </Button>
+              <Button
+                testID="composerLocationBtn"
+                style={[
+                  a.p_sm,
+                  hasLocation && {
+                    backgroundColor: 'rgba(29, 155, 240, 0.15)',
+                  },
+                ]}
+                label={l`Location tag`}
+                accessibilityHint={l`Appends or removes location badge from post`}
+                variant="ghost"
+                shape="round"
+                color="primary"
+                onPress={onToggleLocation}>
+                <LocationIcon
+                  size="lg"
+                  style={{
+                    color: '#1D9BF0',
+                  }}
+                />
+              </Button>
+              <LabelsBtn
+                labels={post.labels}
+                onChange={nextLabels => {
+                  dispatch({
+                    type: 'update_labels',
+                    labels: nextLabels,
+                  })
+                }}
+              />
             </ToolbarWrapper>
           )}
         </LayoutAnimationConfig>
       </View>
-      <View style={[a.flex_row, a.align_center, a.justify_between]}>
+      <View style={[a.flex_row, a.align_center, a.justify_between, a.flex_shrink]}>
         {showAddButton && (
           <Button
             label={l`Add another post to thread`}
@@ -2489,7 +2667,7 @@ function ComposerFooter({
             variant="ghost"
             shape="round"
             color="primary">
-            <PlusIcon size="lg" />
+            <PlusIcon size="lg" style={{color: '#1D9BF0'}} />
           </Button>
         )}
         <PostLanguageSelect
@@ -2848,7 +3026,7 @@ function ToolbarWrapper({
   style: StyleProp<ViewStyle>
   children: React.ReactNode
 }) {
-  if (IS_WEB) return children
+  if (IS_WEB) return <View style={style}>{children}</View>
   return (
     <Animated.View
       style={style}

@@ -25,7 +25,7 @@ import {
 } from '#/alf'
 import {Button, ButtonIcon} from '#/components/Button'
 import * as Dialog from '#/components/Dialog'
-import {PlusLarge_Stroke2_Corner0_Rounded as PlusIcon} from '#/components/icons/Plus'
+import {PersonPlus_Stroke2_Corner0_Rounded as PersonPlusIcon} from '#/components/icons/Person'
 import * as Layout from '#/components/Layout'
 import {useAnalytics} from '#/analytics'
 import {IS_DEV, IS_LIQUID_GLASS, IS_NATIVE} from '#/env'
@@ -60,7 +60,7 @@ export function HomeHeaderLayoutMobile({
     t.name === 'dim'
       ? 'rgba(21, 32, 43, 0.75)'
       : t.scheme === 'dark'
-        ? 'rgba(0, 0, 0, 0.72)'
+        ? 'rgba(0, 0, 0, 0.75)'
         : 'rgba(255, 255, 255, 0.85)'
 
   return (
@@ -83,8 +83,8 @@ export function HomeHeaderLayoutMobile({
           headerMinimalShellTransform,
           web({
             backgroundColor: frostedGlassBg,
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
           }),
         ]}
         onLayout={onLayout}>
@@ -96,26 +96,29 @@ export function HomeHeaderLayoutMobile({
           <View style={[a.flex_1, a.align_center]}>
             <PressableScale
               targetScale={0.9}
+              accessibilityRole="button"
+              accessibilityLabel="QuantZing"
+              accessibilityHint=""
               onPress={() => {
+                haptics.tap()
+                emitSoftReset()
+              }}
+              onLongPress={() => {
                 if (IS_DEV) {
+                  haptics.longPress()
                   navigate('Debug')
-                } else {
-                  haptics.tap()
-                  emitSoftReset()
                 }
               }}>
-              <Logo width={30} />
+              <Logo width={28} />
             </PressableScale>
           </View>
 
           <Layout.Header.Slot>
             <Button
               testID="viewHeaderDiscoverTopicsBtn"
-              label={_(msg`Discover topics and find people`)}
-              accessibilityLabel="Discover topics and find people"
-              accessibilityHint={_(
-                msg`Opens discover topics and find people modal`,
-              )}
+              label={_(msg`Follow hub`)}
+              accessibilityLabel="Follow hub"
+              accessibilityHint=""
               size="small"
               variant="ghost"
               color="secondary"
@@ -130,7 +133,7 @@ export function HomeHeaderLayoutMobile({
                 {marginRight: -Layout.BUTTON_VISUAL_ALIGNMENT_OFFSET},
                 a.bg_transparent,
               ]}>
-              <ButtonIcon icon={PlusIcon} size="lg" />
+              <ButtonIcon icon={PersonPlusIcon} size="lg" />
             </Button>
           </Layout.Header.Slot>
         </Layout.Header.Outer>

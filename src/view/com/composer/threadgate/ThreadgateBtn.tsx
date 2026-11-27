@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useState} from 'react'
-import {Keyboard, type StyleProp, type ViewStyle} from 'react-native'
+import {Keyboard, Pressable, type StyleProp, type ViewStyle} from 'react-native'
 import {type AnimatedStyle} from 'react-native-reanimated'
 import {type AtUriString, toDatetimeString} from '@atproto/syntax'
 import {Trans, useLingui} from '@lingui/react/macro'
@@ -15,13 +15,14 @@ import {
   threadgateAllowUISettingToAllowRecordValue,
   threadgateRecordToAllowUISetting,
 } from '#/state/queries/threadgate'
-import {Button, ButtonIcon, ButtonText} from '#/components/Button'
+import {atoms as a} from '#/alf'
 import * as Dialog from '#/components/Dialog'
 import {PostInteractionSettingsControlledDialog} from '#/components/dialogs/PostInteractionSettingsDialog'
 import {TinyChevronBottom_Stroke2_Corner0_Rounded as TinyChevronIcon} from '#/components/icons/Chevron'
 import {Earth_Stroke2_Corner0_Rounded as EarthIcon} from '#/components/icons/Globe'
 import {Group3_Stroke2_Corner0_Rounded as GroupIcon} from '#/components/icons/Group'
 import * as Tooltip from '#/components/Tooltip'
+import {Text} from '#/components/Typography'
 import {useAnalytics} from '#/analytics'
 import {IS_NATIVE} from '#/env'
 import {type app} from '#/lexicons'
@@ -66,6 +67,8 @@ export function ThreadgateBtn({
 
   const {data: preferences} = usePreferencesQuery()
   const [persist, setPersist] = useState(false)
+  const [isHovered, setIsHovered] = useState(false)
+  const [isPressed, setIsPressed] = useState(false)
 
   const onPress = () => {
     ax.metric('composer:threadgate:open', {
@@ -133,7 +136,7 @@ export function ThreadgateBtn({
     !postgate.embeddingRules || postgate.embeddingRules.length === 0
   const anyoneCanInteract = anyoneCanReply && anyoneCanQuote
   const label = anyoneCanInteract
-    ? l`Anyone can interact`
+    ? l`Everyone can reply`
     : l`Interaction limited`
 
   return (
@@ -143,19 +146,50 @@ export function ThreadgateBtn({
         onVisibleChange={onDismissTooltip}
         position="top">
         <Tooltip.Target>
-          <Button
-            color={showTooltip ? 'primary_subtle' : 'secondary'}
-            size="small"
+          <Pressable
             testID="openReplyGateButton"
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            accessibilityHint={l`Opens a dialog to choose who can interact with this post`}
             onPress={onPress}
-            label={label}
-            accessibilityHint={l`Opens a dialog to choose who can interact with this post`}>
-            <ButtonIcon icon={anyoneCanInteract ? EarthIcon : GroupIcon} />
-            <ButtonText numberOfLines={1} maxFontSizeMultiplier={2}>
+            onHoverIn={() => setIsHovered(true)}
+            onHoverOut={() => setIsHovered(false)}
+            onPressIn={() => setIsPressed(true)}
+            onPressOut={() => setIsPressed(false)}
+            style={[
+              a.flex_row,
+              a.align_center,
+              a.gap_xs,
+              {
+                backgroundColor: isPressed
+                  ? 'rgba(29, 155, 240, 0.22)'
+                  : isHovered
+                  ? 'rgba(29, 155, 240, 0.18)'
+                  : 'rgba(29, 155, 240, 0.12)',
+                borderRadius: 9999,
+                paddingHorizontal: 12,
+                paddingVertical: 5,
+                alignSelf: 'flex-start',
+              },
+            ]}>
+            {anyoneCanInteract ? (
+              <EarthIcon size="sm" style={{color: '#1D9BF0'}} />
+            ) : (
+              <GroupIcon size="sm" style={{color: '#1D9BF0'}} />
+            )}
+            <Text
+              style={{
+                color: '#1D9BF0',
+                fontWeight: '600',
+                fontSize: 13,
+                lineHeight: 16,
+              }}
+              numberOfLines={1}
+              maxFontSizeMultiplier={2}>
               {label}
-            </ButtonText>
-            <ButtonIcon icon={TinyChevronIcon} size="2xs" />
-          </Button>
+            </Text>
+            <TinyChevronIcon size="2xs" style={{color: '#1D9BF0'}} />
+          </Pressable>
         </Tooltip.Target>
         <Tooltip.BubbleText
           label={l`Psst! You can edit who can interact with this post.`}>

@@ -8,11 +8,14 @@ import {
   Pressable,
   ScrollView,
   TextInput,
+  type TextInputKeyPressEvent,
   View,
 } from 'react-native'
+import {useSafeAreaInsets} from 'react-native-safe-area-context'
+import Svg, {Path} from 'react-native-svg'
+import {setStringAsync} from 'expo-clipboard'
 import {AtUri} from '@atproto/syntax'
 import {useNavigation, useRoute} from '@react-navigation/native'
-import {setStringAsync} from 'expo-clipboard'
 
 import {useOpenComposer} from '#/lib/hooks/useOpenComposer'
 import {
@@ -45,7 +48,6 @@ import {
 import {type NavigationProp} from '#/lib/routes/types'
 import {useGetTrendsQuery} from '#/state/queries/trending/useGetTrendsQuery'
 import {useRequireAuth, useSession} from '#/state/session'
-import Svg, {Path} from 'react-native-svg'
 import {atoms as a, useBreakpoints, useTheme, web} from '#/alf'
 import {
   ArrowRotateClockwise_Stroke2_Corner0_Rounded as RefreshIcon,
@@ -320,8 +322,28 @@ function GrokThinkingIndicator({
   )
 }
 
+interface SpeechRecognitionResultLike {
+  0?: {transcript: string}
+}
+interface SpeechRecognitionEventLike {
+  results: SpeechRecognitionResultLike[]
+}
+interface SpeechRecognitionInstance {
+  continuous?: boolean
+  interimResults?: boolean
+  lang?: string
+  onstart?: () => void
+  onresult?: (event: SpeechRecognitionEventLike) => void
+  onerror?: () => void
+  onend?: () => void
+  start?: () => void
+  stop?: () => void
+}
+type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance
+
 export function QuantyScreen() {
   const t = useTheme()
+  const insets = useSafeAreaInsets()
   const {gtMobile} = useBreakpoints()
   const colors = useMemo(() => getQuantZingColors(t.name), [t.name])
   const navigation = useNavigation<NavigationProp>()
@@ -364,8 +386,10 @@ export function QuantyScreen() {
     'Auto' | 'Fast' | 'Think' | 'DeepSearch'
   >('Auto')
   const [isListening, setIsListening] = useState(false)
-  const recognitionRef = useRef<any>(null)
-  const [feedbackMap, setFeedbackMap] = useState<Record<string, 'up' | 'down'>>({})
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
+  const [feedbackMap, setFeedbackMap] = useState<
+    Record<string, 'up' | 'down' | undefined>
+  >({})
   const [input, setInput] = useState('')
   const [composerFocused, setComposerFocused] = useState(false)
   const [showActionsMenu, setShowActionsMenu] = useState(false)
@@ -949,11 +973,14 @@ export function QuantyScreen() {
       return
     }
 
-    const SpeechRec =
+    const win =
       IS_WEB && typeof window !== 'undefined'
-        ? (window as any).SpeechRecognition ||
-          (window as any).webkitSpeechRecognition
-        : null
+        ? (window as unknown as {
+            SpeechRecognition?: SpeechRecognitionConstructor
+            webkitSpeechRecognition?: SpeechRecognitionConstructor
+          })
+        : undefined
+    const SpeechRec = win?.SpeechRecognition || win?.webkitSpeechRecognition
 
     if (SpeechRec) {
       try {
@@ -962,15 +989,16 @@ export function QuantyScreen() {
         rec.interimResults = true
         rec.lang = 'en-US'
         rec.onstart = () => setIsListening(true)
-        rec.onresult = (evt: any) => {
+        rec.onresult = (evt: SpeechRecognitionEventLike) => {
           const transcript = Array.from(evt.results)
-            .map((r: any) => r[0]?.transcript)
+            .map(r => r[0]?.transcript)
+            .filter(Boolean)
             .join('')
           if (transcript) setInput(transcript)
         }
         rec.onerror = () => setIsListening(false)
         rec.onend = () => setIsListening(false)
-        rec.start()
+        rec.start?.()
         recognitionRef.current = rec
         Toast.show('Listening... Speak your prompt')
       } catch {
@@ -1090,6 +1118,7 @@ export function QuantyScreen() {
             key={hint.command}
             accessibilityRole="button"
             accessibilityLabel={`${hint.command} ${hint.title}`}
+            accessibilityHint=""
             onPress={() => handleSelectSlashCommand(hint)}
             style={[
               a.flex_row,
@@ -1144,7 +1173,7 @@ export function QuantyScreen() {
                   display: 'grid',
                   gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
                   gap: 6,
-                } as any)
+                })
               : [a.gap_xs],
           ]}>
           {QUICK_ACTIONS.map(action => (
@@ -1152,6 +1181,7 @@ export function QuantyScreen() {
               key={action.id}
               accessibilityRole="button"
               accessibilityLabel={action.label}
+              accessibilityHint=""
               onPress={() => handleSelectQuickAction(action)}
               style={[
                 a.flex_row,
@@ -1232,6 +1262,10 @@ export function QuantyScreen() {
             testID={
               variant === 'home' ? 'quantyPromptInput' : 'quantyFollowUpInput'
             }
+            accessibilityLabel={
+              variant === 'home' ? 'Ask anything' : 'Ask a follow-up'
+            }
+            accessibilityHint=""
             value={input}
             onChangeText={val => {
               setInput(val)
@@ -1245,14 +1279,24 @@ export function QuantyScreen() {
             placeholderTextColor={colors.muted}
             multiline={true}
             returnKeyType="send"
-            onKeyPress={(e: any) => {
+            onKeyPress={(e: TextInputKeyPressEvent) => {
               if (
                 IS_WEB &&
-                e?.nativeEvent?.key === 'Enter' &&
-                !e?.nativeEvent?.shiftKey &&
-                !e?.shiftKey
+                e.nativeEvent.key === 'Enter' &&
+                !(
+                  'shiftKey' in e.nativeEvent &&
+                  Boolean(
+                    (e.nativeEvent as unknown as {shiftKey?: boolean}).shiftKey,
+                  )
+                )
               ) {
-                e.preventDefault?.()
+                if (
+                  'preventDefault' in e &&
+                  typeof (e as unknown as {preventDefault?: () => void})
+                    .preventDefault === 'function'
+                ) {
+                  (e as unknown as {preventDefault: () => void}).preventDefault()
+                }
                 handleSubmitCurrent()
               }
             }}
@@ -1272,7 +1316,7 @@ export function QuantyScreen() {
                 paddingBottom: 2,
                 textAlignVertical: 'top',
               },
-              web({outlineStyle: 'none', resize: 'none'} as any),
+              web({outlineStyle: 'none'}),
             ]}
           />
 
@@ -1290,6 +1334,7 @@ export function QuantyScreen() {
                 testID="quantyDeepSearchToggle"
                 accessibilityRole="button"
                 accessibilityLabel="Toggle DeepSearch"
+                accessibilityHint=""
                 accessibilityState={{selected: isDeepSearch}}
                 onPress={() => {
                   setThinkActive(false)
@@ -1330,6 +1375,7 @@ export function QuantyScreen() {
                 testID="quantyThinkToggle"
                 accessibilityRole="button"
                 accessibilityLabel="Toggle Think"
+                accessibilityHint=""
                 accessibilityState={{selected: thinkActive}}
                 onPress={() => {
                   setThinkActive(prev => {
@@ -1373,6 +1419,7 @@ export function QuantyScreen() {
                 testID="quantyActionsToggle"
                 accessibilityRole="button"
                 accessibilityLabel="Actions"
+                accessibilityHint=""
                 accessibilityState={{expanded: showActionsMenu}}
                 onPress={() => setShowActionsMenu(prev => !prev)}
                 style={[
@@ -1412,6 +1459,7 @@ export function QuantyScreen() {
                     ? 'Stop listening'
                     : 'Speak'
               }
+              accessibilityHint=""
               disabled={isSending || (input.trim().length > 0 && !canSend)}
               onPress={input.trim() ? handleSubmitCurrent : handleToggleSpeak}
               style={[
@@ -1476,7 +1524,9 @@ export function QuantyScreen() {
   const isEmpty = messages.length === 0
 
   const screenContent = (
-    <Layout.Screen testID="quantyScreen" style={{backgroundColor: colors.bg}}>
+    <Layout.Screen
+      testID="quantyScreen"
+      style={[{flex: 1, backgroundColor: colors.bg}]}>
       {/* Minimalist 52px Grok Top Header */}
       <Layout.Header.Outer noBottomBorder={isEmpty}>
         <View style={[a.flex_row, a.align_center, {gap: 2, minWidth: 72}]}>
@@ -1486,6 +1536,7 @@ export function QuantyScreen() {
               testID="quantyThreadsDrawerToggle"
               accessibilityRole="button"
               accessibilityLabel="Chat history"
+              accessibilityHint=""
               onPress={() => setShowThreadsDrawer(prev => !prev)}
               hitSlop={8}
               style={[
@@ -1515,6 +1566,7 @@ export function QuantyScreen() {
             testID="quantyModeDropdownBtn"
             accessibilityRole="button"
             accessibilityLabel={`Model selector: Quanty 3 · ${currentModeDisplay}`}
+            accessibilityHint=""
             onPress={() => setShowModeSelector(prev => !prev)}
             style={[
               a.flex_row,
@@ -1608,6 +1660,8 @@ export function QuantyScreen() {
                   <Pressable
                     key={opt.id}
                     accessibilityRole="button"
+                    accessibilityLabel={opt.label}
+                    accessibilityHint=""
                     onPress={() => {
                       opt.onSelect()
                       setShowModeSelector(false)
@@ -1662,6 +1716,7 @@ export function QuantyScreen() {
             testID="quantyNewChatBtn"
             accessibilityRole="button"
             accessibilityLabel="New chat"
+            accessibilityHint=""
             onPress={handleNewChat}
             hitSlop={8}
             style={[
@@ -1681,10 +1736,13 @@ export function QuantyScreen() {
       </Layout.Header.Outer>
 
       <Layout.Content
-        style={{backgroundColor: colors.bg}}
+        style={{flex: 1, backgroundColor: colors.bg}}
         contentContainerStyle={[
           a.px_md,
-          {paddingTop: isEmpty ? (gtMobile ? 36 : 20) : 16, paddingBottom: 120},
+          {
+            paddingTop: isEmpty ? (gtMobile ? 36 : 20) : 16,
+            paddingBottom: isEmpty ? 120 : 20,
+          },
         ]}>
         <View
           style={[
@@ -1720,6 +1778,7 @@ export function QuantyScreen() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Close chat history"
+                  accessibilityHint=""
                   onPress={() => setShowThreadsDrawer(false)}
                   hitSlop={8}
                   style={[web({cursor: 'pointer'})]}>
@@ -1728,6 +1787,8 @@ export function QuantyScreen() {
               </View>
 
               <TextInput
+                accessibilityLabel="Search Quanty history"
+                accessibilityHint=""
                 value={historySearch}
                 onChangeText={setHistorySearch}
                 placeholder="Search Quanty history..."
@@ -1793,6 +1854,7 @@ export function QuantyScreen() {
                             <Pressable
                               accessibilityRole="button"
                               accessibilityLabel={thread.title}
+                              accessibilityHint=""
                               onPress={() => void handleSelectThread(thread)}
                               style={[a.flex_1, a.gap_2xs, web({cursor: 'pointer'})]}>
                               <Text
@@ -1812,6 +1874,7 @@ export function QuantyScreen() {
                             <Pressable
                               accessibilityRole="button"
                               accessibilityLabel={`Delete chat ${thread.title}`}
+                              accessibilityHint=""
                               onPress={() => void handleDeleteThread(thread.id)}
                               hitSlop={8}
                               style={[a.p_xs, web({cursor: 'pointer'})]}>
@@ -1862,6 +1925,7 @@ export function QuantyScreen() {
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel="Open original Zing"
+                      accessibilityHint=""
                       onPress={() =>
                         handleOpenPostUri(
                           attachedPost.uri,
@@ -1882,6 +1946,7 @@ export function QuantyScreen() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Remove Zing context"
+                    accessibilityHint=""
                     onPress={() => setAttachedPost(null)}
                     hitSlop={8}
                     style={[web({cursor: 'pointer'})]}>
@@ -1975,6 +2040,7 @@ export function QuantyScreen() {
                       key={pill.id}
                       accessibilityRole="button"
                       accessibilityLabel={pill.label}
+                      accessibilityHint=""
                       onPress={() => {
                         if (pill.signedInCommand && hasSession) {
                           setMode('control')
@@ -2035,6 +2101,7 @@ export function QuantyScreen() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Refresh Today's News"
+                    accessibilityHint=""
                     onPress={() => void loadBriefing(trendingTopics)}
                     hitSlop={8}
                     style={[
@@ -2076,7 +2143,7 @@ export function QuantyScreen() {
                             gridTemplateColumns:
                               'minmax(0, 1fr) minmax(0, 1fr)',
                             gap: 10,
-                          } as any)
+                          })
                         : [a.gap_sm],
                     ]}>
                     {topStories.map(story => {
@@ -2095,6 +2162,7 @@ export function QuantyScreen() {
                           key={story.id}
                           accessibilityRole="button"
                           accessibilityLabel={cleanHeadline}
+                          accessibilityHint=""
                           onPress={() => {
                             setMode('pulse')
                             void runQuery(story.prompt, 'pulse', null, {
@@ -2287,6 +2355,7 @@ export function QuantyScreen() {
                                 key={cite.uri}
                                 accessibilityRole="button"
                                 accessibilityLabel={`Open Zing by @${cite.handle}`}
+                                accessibilityHint=""
                                 onPress={() => handleOpenCitation(cite)}
                                 style={[
                                   a.p_sm,
@@ -2348,6 +2417,7 @@ export function QuantyScreen() {
                         <Pressable
                           accessibilityRole="button"
                           accessibilityLabel="Copy response"
+                          accessibilityHint=""
                           onPress={() => void handleCopy(msg.id, msg.content)}
                           style={[
                             a.flex_row,
@@ -2380,6 +2450,7 @@ export function QuantyScreen() {
                         <Pressable
                           accessibilityRole="button"
                           accessibilityLabel="Post as Zing"
+                          accessibilityHint=""
                           onPress={() => handleSendAsZing(msg)}
                           style={[
                             a.flex_row,
@@ -2406,6 +2477,7 @@ export function QuantyScreen() {
                         <Pressable
                           accessibilityRole="button"
                           accessibilityLabel="Retry response"
+                          accessibilityHint=""
                           disabled={isSending}
                           onPress={() => handleRetryAssistant(msgIdx)}
                           style={[
@@ -2435,11 +2507,13 @@ export function QuantyScreen() {
                         <Pressable
                           accessibilityRole="button"
                           accessibilityLabel="Good response"
+                          accessibilityHint=""
                           onPress={() => {
                             setFeedbackMap(prev => ({
                               ...prev,
-                              [msg.id]: prev[msg.id] === 'up' ? undefined : 'up',
-                            } as any))
+                              [msg.id]:
+                                prev[msg.id] === 'up' ? undefined : 'up',
+                            }))
                             Toast.show('Feedback recorded')
                           }}
                           style={[
@@ -2470,11 +2544,13 @@ export function QuantyScreen() {
                         <Pressable
                           accessibilityRole="button"
                           accessibilityLabel="Poor response"
+                          accessibilityHint=""
                           onPress={() => {
                             setFeedbackMap(prev => ({
                               ...prev,
-                              [msg.id]: prev[msg.id] === 'down' ? undefined : 'down',
-                            } as any))
+                              [msg.id]:
+                                prev[msg.id] === 'down' ? undefined : 'down',
+                            }))
                             Toast.show('Feedback recorded')
                           }}
                           style={[
@@ -2506,6 +2582,7 @@ export function QuantyScreen() {
                           testID="quantyThinkHarderBtn"
                           accessibilityRole="button"
                           accessibilityLabel="Think harder on this prompt"
+                          accessibilityHint=""
                           disabled={isSending}
                           onPress={() => handleThinkHarder(msgIdx)}
                           style={[
@@ -2556,6 +2633,8 @@ export function QuantyScreen() {
                             <Pressable
                               key={pill.label}
                               accessibilityRole="button"
+                              accessibilityLabel={pill.label}
+                              accessibilityHint=""
                               onPress={() => void runQuery(pill.prompt, mode, attachedPost)}
                               style={[
                                 a.px_sm,
@@ -2593,44 +2672,86 @@ export function QuantyScreen() {
                   />
                 )}
               </View>
-
-              {/* Elevated Grok Follow-Up Composer */}
-              <View style={{paddingTop: 4}}>
-                {attachedPost && (
-                  <View style={[a.flex_row, a.flex_wrap, {gap: 6, paddingBottom: 8}]}>
-                    {[
-                      {label: 'Fact-check claims', p: 'Fact-check claims in this post'},
-                      {label: '1-line summary', p: 'give me a 1-line summary of this'},
-                      {label: 'Counter-arguments', p: 'What are the counter-arguments to this?'},
-                      {label: 'Draft reply', p: 'Draft a smart reply to this Zing'},
-                      {label: 'Translate to Hindi', p: 'Translate this post to Hindi'},
-                    ].map(chip => (
-                      <Pressable
-                        key={chip.label}
-                        accessibilityRole="button"
-                        onPress={() => void runQuery(chip.p, 'deepsearch', attachedPost)}
-                        style={[
-                          a.px_sm,
-                          a.py_2xs,
-                          a.rounded_full,
-                          {
-                            backgroundColor: composerBg,
-                            borderWidth: 1,
-                            borderColor: colors.border,
-                          },
-                          web({cursor: 'pointer'}),
-                        ]}>
-                        <Text style={[a.text_xs, {color: colors.text}]}>{chip.label}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                )}
-                {renderGrokComposer('chat')}
-              </View>
             </View>
           )}
         </View>
       </Layout.Content>
+
+      {/* Fixed Bottom Docked Bar for Active Chat */}
+      {!isEmpty && (
+        <View
+          testID="quantyFixedBottomDock"
+          style={[
+            a.w_full,
+            a.border_t,
+            {
+              backgroundColor: colors.bg,
+              borderColor: colors.border,
+              paddingTop: 10,
+              paddingBottom: Math.max(insets.bottom, 12),
+              paddingHorizontal: 16,
+            },
+          ]}>
+          <View style={[{maxWidth: 680, width: '100%', alignSelf: 'center'}]}>
+            {attachedPost && (
+              <View
+                style={[
+                  a.flex_row,
+                  a.flex_wrap,
+                  {gap: 6, paddingBottom: 8},
+                ]}>
+                {[
+                  {
+                    label: 'Fact-check claims',
+                    p: 'Fact-check claims in this post',
+                  },
+                  {
+                    label: '1-line summary',
+                    p: 'give me a 1-line summary of this',
+                  },
+                  {
+                    label: 'Counter-arguments',
+                    p: 'What are the counter-arguments to this?',
+                  },
+                  {
+                    label: 'Draft reply',
+                    p: 'Draft a smart reply to this Zing',
+                  },
+                  {
+                    label: 'Translate to Hindi',
+                    p: 'Translate this post to Hindi',
+                  },
+                ].map(chip => (
+                  <Pressable
+                    key={chip.label}
+                    accessibilityRole="button"
+                    accessibilityLabel={chip.label}
+                    accessibilityHint=""
+                    onPress={() =>
+                      void runQuery(chip.p, 'deepsearch', attachedPost)
+                    }
+                    style={[
+                      a.px_sm,
+                      a.py_2xs,
+                      a.rounded_full,
+                      {
+                        backgroundColor: composerBg,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                      },
+                      web({cursor: 'pointer'}),
+                    ]}>
+                    <Text style={[a.text_xs, {color: colors.text}]}>
+                      {chip.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+            {renderGrokComposer('chat')}
+          </View>
+        </View>
+      )}
     </Layout.Screen>
   )
 

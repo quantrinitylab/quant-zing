@@ -2,7 +2,7 @@ import {type Insets, Platform} from 'react-native'
 import {type Service} from '@atproto/lex'
 import {api} from '@bsky/sdk'
 
-import {BLUESKY_PROXY_DID, CHAT_PROXY_DID, IS_DEV, MOD_PROXY_DID} from '#/env'
+import {BLUESKY_PROXY_DID, CHAT_PROXY_DID, MOD_PROXY_DID} from '#/env'
 import {type app} from '#/lexicons'
 
 export const QUANTZING_SERVICE =
@@ -55,9 +55,9 @@ export const MAX_DISPLAY_NAME = 64
 export const MAX_DESCRIPTION = 256
 export const MAX_PRONOUNS = 20
 
-export const MAX_GRAPHEME_LENGTH = 300
+export const MAX_GRAPHEME_LENGTH = 4000
 
-export const MAX_DRAFT_GRAPHEME_LENGTH = 1000
+export const MAX_DRAFT_GRAPHEME_LENGTH = 4000
 
 export const MAX_DM_GRAPHEME_LENGTH = 1000
 

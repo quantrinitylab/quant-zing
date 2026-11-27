@@ -53,7 +53,10 @@ import {
 import {atoms as a, useBreakpoints, useTheme, utils} from '#/alf'
 import {ButtonIcon} from '#/components/Button'
 import {useHeaderOffset} from '#/components/hooks/useHeaderOffset'
-import {EditBig_Stroke2_Corner2_Rounded as EditBigIcon} from '#/components/icons/EditBig'
+import {At_Stroke2_Corner0_Rounded as AtIcon} from '#/components/icons/At'
+import {Bell_Filled_Corner0_Rounded as BellIcon} from '#/components/icons/Bell'
+import {VerifiedCheck} from '#/components/icons/brands/VerifiedCheck'
+import {PlusLarge_Stroke2_Corner0_Rounded as PlusIcon} from '#/components/icons/Plus'
 import {SettingsGear2_Stroke2_Corner0_Rounded as SettingsIcon} from '#/components/icons/SettingsGear2'
 import * as Layout from '#/components/Layout'
 import {Link} from '#/components/Link'
@@ -80,7 +83,7 @@ export function NotificationsScreen({}: Props) {
       <FAB
         testID="composeFAB"
         onPress={() => openComposer({logContext: 'Fab'})}
-        icon={<EditBigIcon size="lg" fill={t.palette.white} />}
+        icon={<PlusIcon size="lg" fill={t.palette.white} />}
         accessibilityRole="button"
         accessibilityLabel={l({message: 'New Zing', context: 'action'})}
         accessibilityHint=""
@@ -107,7 +110,7 @@ function NotificationsScreenInner() {
     },
     {
       key: 'people-i-follow',
-      label: 'Following',
+      label: 'Verified',
     },
     {
       key: 'conversations',
@@ -494,6 +497,29 @@ function XNotificationsTabBar({
   const t = useTheme()
   const [containerWidth, setContainerWidth] = useState(0)
 
+  const renderActiveTabIcon = (feedKey: GroupedNotificationsFeed) => {
+    switch (feedKey) {
+      case 'all':
+        return (
+          <BellIcon
+            size="xs"
+            fill={t.atoms.text.color || (t.scheme === 'dark' ? '#F7F9F9' : '#0F1419')}
+          />
+        )
+      case 'people-i-follow':
+        return <VerifiedCheck size="xs" fill="#1D9BF0" />
+      case 'conversations':
+        return (
+          <AtIcon
+            size="xs"
+            fill={t.atoms.text.color || (t.scheme === 'dark' ? '#F7F9F9' : '#0F1419')}
+          />
+        )
+      default:
+        return null
+    }
+  }
+
   const indicatorStyle = useAnimatedStyle(() => {
     if (containerWidth === 0) {
       return {opacity: 0}
@@ -534,17 +560,22 @@ function XNotificationsTabBar({
             testID={`notifications-tab-${tab.key}`}
             accessibilityRole="tab"
             accessibilityState={{selected: isActive}}
+            accessibilityLabel={tab.label}
+            accessibilityHint=""
             onPress={() => onSelectTab(index)}
             style={[a.flex_1, a.align_center, a.justify_center, {height: 48}]}
             hoverStyle={t.atoms.bg_contrast_25}>
-            <Text
-              style={[
-                a.text_md,
-                isActive ? a.font_bold : a.font_medium,
-                isActive ? t.atoms.text : t.atoms.text_contrast_medium,
-              ]}>
-              {tab.label}
-            </Text>
+            <View style={[a.flex_row, a.align_center, a.gap_xs]}>
+              {isActive && renderActiveTabIcon(tab.key)}
+              <Text
+                style={[
+                  a.text_md,
+                  isActive ? a.font_bold : a.font_medium,
+                  isActive ? t.atoms.text : t.atoms.text_contrast_medium,
+                ]}>
+                {tab.label}
+              </Text>
+            </View>
           </PressableWithHover>
         )
       })}

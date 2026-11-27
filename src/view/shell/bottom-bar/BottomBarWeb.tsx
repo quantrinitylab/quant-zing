@@ -1,5 +1,5 @@
 import {useCallback} from 'react'
-import {useWindowDimensions, View} from 'react-native'
+import {StyleSheet, useWindowDimensions, View} from 'react-native'
 import Animated from 'react-native-reanimated'
 import {msg, plural} from '@lingui/core/macro'
 import {useLingui} from '@lingui/react'
@@ -22,7 +22,7 @@ import {useCloseAllActiveElements} from '#/state/util'
 import {Link} from '#/view/com/util/Link'
 import {Logo} from '#/view/icons/Logo'
 import {Logotype} from '#/view/icons/Logotype'
-import {atoms as a, useTheme} from '#/alf'
+import {atoms as a, useTheme, web} from '#/alf'
 import {Button, ButtonText} from '#/components/Button'
 import {
   Bell_Filled_Corner0_Rounded as BellFilled,
@@ -82,6 +82,20 @@ export function BottomBarWeb() {
   const hideBorder = useHideBottomBarBorder()
   const iconWidth = 24
 
+  const frostedGlassBg =
+    t.name === 'dim'
+      ? 'rgba(21, 32, 43, 0.82)'
+      : t.name === 'dark' || t.scheme === 'dark'
+        ? 'rgba(0, 0, 0, 0.78)'
+        : 'rgba(255, 255, 255, 0.85)'
+
+  const frostedBorderColor =
+    t.name === 'dim'
+      ? '#38444D'
+      : t.name === 'dark' || t.scheme === 'dark'
+        ? '#2F3336'
+        : t.atoms.border_contrast_low.borderColor || '#EFF3F4'
+
   const unreadMessageCount = useUnreadMessageCount()
   const notificationCountStr = useUnreadNotifications()
   const hasHomeBadge = useHomeBadge()
@@ -107,11 +121,21 @@ export function BottomBarWeb() {
             styles.bottomBar,
             styles.bottomBarWeb,
             a.overflow_hidden,
-            t.atoms.bg,
-            {zIndex: 30, width: '100%', maxWidth: '100%'},
-            hideBorder && hasSession
-              ? {borderColor: t.atoms.bg.backgroundColor}
-              : t.atoms.border_contrast_low,
+            {
+              backgroundColor: frostedGlassBg,
+              borderTopColor:
+                hideBorder && hasSession
+                  ? 'transparent'
+                  : frostedBorderColor,
+              borderTopWidth: StyleSheet.hairlineWidth,
+              zIndex: 30,
+              width: '100%',
+              maxWidth: '100%',
+            },
+            web({
+              backdropFilter: 'blur(18px)',
+              WebkitBackdropFilter: 'blur(18px)',
+            }),
             footerMinimalShellTransform,
           ]}
           onLayout={event => footerHeight.set(event.nativeEvent.layout.height)}>

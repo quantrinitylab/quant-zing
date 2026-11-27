@@ -35,6 +35,9 @@ export interface TabBarProps {
   dragProgress: SharedValue<number>
   dragState: SharedValue<'idle' | 'dragging' | 'settling'>
   transparent?: boolean
+  trailingSlot?: React.ReactNode
+  renderItemPrefix?: (index: number, isActive: boolean) => React.ReactNode
+  renderItemSuffix?: (index: number, isActive: boolean) => React.ReactNode
 }
 
 const ITEM_PADDING = 10
@@ -54,6 +57,9 @@ export function TabBar({
   dragProgress,
   dragState,
   transparent,
+  trailingSlot,
+  renderItemPrefix,
+  renderItemSuffix,
 }: TabBarProps) {
   const t = useTheme()
   const scrollElRef = useAnimatedRef<ScrollView>()
@@ -362,9 +368,14 @@ export function TabBar({
                   onItemLayout={onItemLayout}
                   onTextLayout={onTextLayout}
                   align={align}
+                  prefix={renderItemPrefix?.(i, selectedPage === i)}
+                  suffix={renderItemSuffix?.(i, selectedPage === i)}
                 />
               )
             })}
+            {trailingSlot && (
+              <View style={styles.trailingSlot}>{trailingSlot}</View>
+            )}
             <Animated.View
               style={[
                 indicatorStyle,
@@ -397,6 +408,8 @@ function TabBarItem({
   onItemLayout,
   onTextLayout,
   align,
+  prefix,
+  suffix,
 }: {
   index: number
   testID: string | undefined
@@ -407,6 +420,8 @@ function TabBarItem({
   onItemLayout: (index: number, layout: {x: number; width: number}) => void
   onTextLayout: (index: number, layout: {width: number}) => void
   align: 'center' | 'left'
+  prefix?: React.ReactNode
+  suffix?: React.ReactNode
 }) {
   const t = useTheme()
   const {t: l} = useLingui()
@@ -454,7 +469,15 @@ function TabBarItem({
         accessibilityHint=""
         accessibilityRole="tab">
         <Animated.View style={[style, styles.itemInner]}>
-          <View style={unread !== undefined && {paddingHorizontal: 12}}>
+          <View
+            style={[
+              a.flex_row,
+              a.align_center,
+              a.gap_xs,
+              unread !== undefined && {paddingHorizontal: 12},
+            ]}
+            onLayout={handleTextLayout}>
+            {prefix}
             <Text
               emoji
               testID={testID ? `${testID}-${item}` : undefined}
@@ -463,10 +486,10 @@ function TabBarItem({
                 t.atoms.text,
                 a.text_md,
                 a.font_bold,
-              ]}
-              onLayout={handleTextLayout}>
+              ]}>
               {item}
             </Text>
+            {suffix}
             {unread && (
               <View
                 aria-hidden
@@ -532,5 +555,11 @@ const styles = StyleSheet.create({
     right: 0,
     top: '100%',
     height: StyleSheet.hairlineWidth,
+  },
+  trailingSlot: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingLeft: 4,
+    paddingRight: 10,
   },
 })

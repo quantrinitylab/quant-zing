@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useMemo, useState} from 'react'
-import {Pressable, StyleSheet, View} from 'react-native'
+import {ActivityIndicator, type GestureResponderEvent, Pressable, StyleSheet, View} from 'react-native'
 import {useSafeAreaInsets} from 'react-native-safe-area-context'
 import {currentDatetimeString} from '@atproto/syntax'
 import {setInterestsPref} from '@bsky/sdk'
@@ -7,31 +7,38 @@ import {useNavigation} from '@react-navigation/native'
 import {useQueryClient} from '@tanstack/react-query'
 
 import {type NavigationProp} from '#/lib/routes/types'
+import {sanitizeDisplayName} from '#/lib/strings/display-names'
+import {sanitizeHandle} from '#/lib/strings/handles'
 import {logger} from '#/logger'
+import {useProfileShadow} from '#/state/cache/profile-shadow'
 import {
   preferencesQueryKey,
   usePreferencesQuery,
 } from '#/state/queries/preferences'
 import {type UsePreferencesQueryResponse} from '#/state/queries/preferences/types'
+import {useProfileFollowMutationQueue} from '#/state/queries/profile'
 import {createGetSuggestedFeedsQueryKey} from '#/state/queries/trending/useGetSuggestedFeedsQuery'
 import {createGetSuggestedUsersForDiscoverQueryKey} from '#/state/queries/trending/useGetSuggestedUsersForDiscoverQuery'
-import {createGetSuggestedUsersForExploreQueryKey} from '#/state/queries/trending/useGetSuggestedUsersForExploreQuery'
+import {createGetSuggestedUsersForExploreQueryKey, useGetSuggestedUsersForExploreQuery} from '#/state/queries/trending/useGetSuggestedUsersForExploreQuery'
 import {createGetSuggestedUsersForSeeMoreQueryKey} from '#/state/queries/trending/useGetSuggestedUsersForSeeMoreQuery'
 import {createSuggestedStarterPacksQueryKey} from '#/state/queries/useSuggestedStarterPacksQuery'
 import {usePdsClient, useSession} from '#/state/session'
+import {UserAvatar} from '#/view/com/util/UserAvatar'
 import {atoms as a, web} from '#/alf'
 import {Button, ButtonText} from '#/components/Button'
 import * as Dialog from '#/components/Dialog'
 import {Check_Stroke2_Corner0_Rounded as CheckIcon} from '#/components/icons/Check'
 import {ChevronRight_Stroke2_Corner0_Rounded as ChevronRightIcon} from '#/components/icons/Chevron'
-import {Hashtag_Stroke2_Corner0_Rounded as HashtagIcon} from '#/components/icons/Hashtag'
 import {MagnifyingGlass_Stroke2_Corner0_Rounded as SearchIcon} from '#/components/icons/MagnifyingGlass'
+import {Phone_Stroke2_Corner0_Rounded as PhoneIcon} from '#/components/icons/Phone'
 import {PlusLarge_Stroke2_Corner0_Rounded as PlusIcon} from '#/components/icons/Plus'
 import {TimesLarge_Stroke2_Corner0_Rounded as TimesIcon} from '#/components/icons/Times'
 import {UserCircle_Stroke2_Corner0_Rounded as UserCircleIcon} from '#/components/icons/UserCircle'
+import * as Toast from '#/components/Toast'
 import {Text} from '#/components/Typography'
 import {useAnalytics} from '#/analytics'
 import {IS_NATIVE} from '#/env'
+import {type app} from '#/lexicons'
 
 export type TopicItem = {
   id: string
@@ -40,25 +47,44 @@ export type TopicItem = {
   query: string
 }
 
-export const DISCOVER_TOPICS: TopicItem[] = [
+export const FOLLOW_HUB_TOPICS: TopicItem[] = [
   {id: 'politics', label: 'Politics', prefTag: 'politics', query: 'politics'},
+  {id: 'sports', label: 'Sports', prefTag: 'sports', query: 'sports'},
+  {id: 'business', label: 'Business', prefTag: 'business', query: 'business'},
+  {id: 'finance', label: 'Finance', prefTag: 'finance', query: 'finance'},
+  {
+    id: 'science-tech',
+    label: 'Science & Technology',
+    prefTag: 'science',
+    query: 'science technology',
+  },
+  {
+    id: 'entertainment-arts',
+    label: 'Entertainment & Arts',
+    prefTag: 'entertainment',
+    query: 'entertainment arts',
+  },
+  {
+    id: 'ai',
+    label: 'Artificial Intelligence',
+    prefTag: 'ai',
+    query: 'artificial intelligence AI',
+  },
+  {id: 'gaming', label: 'Gaming', prefTag: 'gaming', query: 'gaming'},
+  {id: 'crypto', label: 'Crypto', prefTag: 'crypto', query: 'crypto'},
   {id: 'soccer', label: 'Soccer', prefTag: 'sports', query: 'soccer'},
-  {id: 'technology', label: 'Technology', prefTag: 'tech', query: 'technology'},
-  {id: 'art', label: 'Art', prefTag: 'art', query: 'art'},
   {
     id: 'movies-tv',
     label: 'Movies & TV',
     prefTag: 'movies',
     query: 'movies TV',
   },
-  {id: 'ai-agents', label: 'AI & Agents', prefTag: 'dev', query: 'AI agents'},
-  {id: 'sports', label: 'Sports', prefTag: 'sports', query: 'sports'},
   {id: 'music', label: 'Music', prefTag: 'music', query: 'music'},
-  {id: 'finance', label: 'Finance', prefTag: 'finance', query: 'finance'},
-  {id: 'gaming', label: 'Gaming', prefTag: 'gaming', query: 'gaming'},
-  {id: 'science', label: 'Science', prefTag: 'science', query: 'science'},
-  {id: 'news', label: 'News', prefTag: 'news', query: 'news'},
 ]
+
+export const DISCOVER_TOPICS = FOLLOW_HUB_TOPICS
+
+type TabType = 'topics' | 'contacts' | 'suggested'
 
 export function DiscoverTopicsModal({
   control,
@@ -72,6 +98,7 @@ export function DiscoverTopicsModal({
   const pdsClient = usePdsClient()
   const qc = useQueryClient()
   const {data: preferences} = usePreferencesQuery()
+  const [activeTab, setActiveTab] = useState<TabType>('topics')
 
   const savedTags = useMemo(
     () => preferences?.interests.tags || [],
@@ -156,20 +183,14 @@ export function DiscoverTopicsModal({
     }
   }, [control, navigation, ax])
 
-  const onPressManageFeeds = useCallback(() => {
-    ax.metric('nav:click', {item: 'feeds', surface: 'topBar'})
-    control.close()
-    navigation.navigate('Feeds')
-  }, [control, navigation, ax])
-
   return (
     <Dialog.Outer control={control} nativeOptions={{preventExpansion: true}}>
       <Dialog.Handle />
       <Dialog.ScrollableInner
-        label="Discover topics and find people"
+        label="Follow hub"
         style={[
           styles.dialogOuter,
-          web({maxWidth: 520, marginHorizontal: 'auto'}),
+          web({maxWidth: 560, marginHorizontal: 'auto'}),
         ]}
         contentContainerStyle={[
           styles.dialogContent,
@@ -177,9 +198,9 @@ export function DiscoverTopicsModal({
         ]}>
         <View style={styles.modalHeader}>
           <View style={a.flex_1}>
-            <Text style={styles.modalTitle}>Discover</Text>
+            <Text style={styles.modalTitle}>Follow</Text>
             <Text style={styles.modalSubtitle}>
-              Follow topics and find people to personalize your feed
+              Personalize what you see and connect with creators
             </Text>
           </View>
           <Pressable
@@ -196,164 +217,402 @@ export function DiscoverTopicsModal({
           </Pressable>
         </View>
 
-        <View style={styles.divider} />
-
-        <View style={styles.sectionWrap}>
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionHeader}>Follow Topics</Text>
-            <Text style={styles.sectionHelper}>Tap to explore or follow</Text>
-          </View>
-
-          <View style={styles.topicsGrid}>
-            {DISCOVER_TOPICS.map(topic => {
-              const isSelected =
-                localInterests.includes(topic.prefTag) ||
-                localInterests.includes(topic.id)
-              return (
-                <View
-                  key={topic.id}
-                  style={[
-                    styles.pillContainer,
-                    isSelected
-                      ? styles.pillContainerSelected
-                      : styles.pillContainerUnselected,
-                  ]}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={`Explore ${topic.label}`}
-                    accessibilityHint=""
-                    onPress={() => onExploreTopic(topic)}
-                    style={({pressed}) => [
-                      styles.pillExploreBtn,
-                      pressed && styles.pressedOpacity,
-                    ]}>
-                    <SearchIcon
-                      width={13}
-                      height={13}
-                      style={{color: isSelected ? '#1D9BF0' : '#71767B'}}
-                    />
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        styles.pillLabel,
-                        isSelected
-                          ? styles.pillLabelSelected
-                          : styles.pillLabelUnselected,
-                      ]}>
-                      {topic.label}
-                    </Text>
-                  </Pressable>
-
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      isSelected
-                        ? `Unfollow ${topic.label}`
-                        : `Follow ${topic.label}`
-                    }
-                    accessibilityHint=""
-                    onPress={() => onToggleTopic(topic)}
-                    hitSlop={6}
-                    style={({pressed}) => [
-                      styles.pillToggleBtn,
-                      isSelected
-                        ? styles.pillToggleBtnSelected
-                        : styles.pillToggleBtnUnselected,
-                      pressed && styles.pressedOpacity,
-                    ]}>
-                    {isSelected ? (
-                      <CheckIcon
-                        width={14}
-                        height={14}
-                        style={{color: '#FFFFFF'}}
-                      />
-                    ) : (
-                      <PlusIcon
-                        width={14}
-                        height={14}
-                        style={{color: '#71767B'}}
-                      />
-                    )}
-                  </Pressable>
-                </View>
-              )
-            })}
-          </View>
-        </View>
-
-        <View style={styles.divider} />
-
-        <View style={styles.sectionWrap}>
-          <Text style={styles.sectionHeader}>Find People</Text>
-          <View style={styles.findPeopleCard}>
-            <View style={styles.findPeopleHeader}>
-              <View style={styles.findPeopleIconWrap}>
-                <UserCircleIcon
-                  width={24}
-                  height={24}
-                  style={{color: '#1D9BF0'}}
-                />
-              </View>
-              <View style={a.flex_1}>
-                <Text style={styles.findPeopleTitle}>Find people you know</Text>
-                <Text style={styles.findPeopleSubtitle}>
-                  Sync contacts to find friends and connect with people you know
-                  on QuantZing.
-                </Text>
-              </View>
-            </View>
-            <Button
-              testID="discoverFindPeopleBtn"
-              label="Allow Contacts / Find People"
-              size="small"
-              variant="solid"
-              color="primary"
-              onPress={onPressFindPeople}
-              style={styles.findPeopleCta}>
-              <ButtonText style={styles.findPeopleCtaText}>
-                Allow Contacts / Find People
-              </ButtonText>
-            </Button>
-          </View>
-        </View>
-
-        <View style={styles.divider} />
-
-        <View style={styles.sectionWrap}>
-          <Text style={styles.sectionHeader}>Feeds</Text>
+        {/* 3 crisp X-style tabs */}
+        <View style={styles.tabBar} accessibilityRole="tablist">
           <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Manage Feeds"
+            accessibilityRole="tab"
+            accessibilityLabel="Topics"
             accessibilityHint=""
-            onPress={onPressManageFeeds}
-            style={({pressed}) => [
-              styles.manageFeedsRow,
-              pressed && {backgroundColor: '#202327'},
+            onPress={() => setActiveTab('topics')}
+            style={[
+              styles.tabBtn,
+              activeTab === 'topics' && styles.tabBtnActive,
             ]}>
-            <View style={styles.manageFeedsLeft}>
-              <View style={styles.manageFeedsIconWrap}>
-                <HashtagIcon
-                  width={20}
-                  height={20}
-                  style={{color: '#1D9BF0'}}
-                />
-              </View>
-              <View style={a.flex_1}>
-                <Text style={styles.manageFeedsTitle}>Manage Feeds</Text>
-                <Text style={styles.manageFeedsSubtitle}>
-                  Browse, pin, and organize custom feeds and algorithms
-                </Text>
-              </View>
-            </View>
-            <ChevronRightIcon
-              width={18}
-              height={18}
-              style={{color: '#71767B'}}
-            />
+            <Text
+              style={[
+                styles.tabLabel,
+                activeTab === 'topics'
+                  ? styles.tabLabelActive
+                  : styles.tabLabelInactive,
+              ]}>
+              Topics
+            </Text>
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="tab"
+            accessibilityLabel="You may know"
+            accessibilityHint=""
+            onPress={() => setActiveTab('contacts')}
+            style={[
+              styles.tabBtn,
+              activeTab === 'contacts' && styles.tabBtnActive,
+            ]}>
+            <Text
+              style={[
+                styles.tabLabel,
+                activeTab === 'contacts'
+                  ? styles.tabLabelActive
+                  : styles.tabLabelInactive,
+              ]}>
+              You may know
+            </Text>
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="tab"
+            accessibilityLabel="Suggested"
+            accessibilityHint=""
+            onPress={() => setActiveTab('suggested')}
+            style={[
+              styles.tabBtn,
+              activeTab === 'suggested' && styles.tabBtnActive,
+            ]}>
+            <Text
+              style={[
+                styles.tabLabel,
+                activeTab === 'suggested'
+                  ? styles.tabLabelActive
+                  : styles.tabLabelInactive,
+              ]}>
+              Suggested
+            </Text>
           </Pressable>
         </View>
+
+        {activeTab === 'topics' && (
+          <View style={styles.tabContentWrap}>
+            <View style={styles.sectionTitleRow}>
+              <Text style={styles.sectionHeader}>Topics</Text>
+              <Text style={styles.sectionHelper}>Tap to explore or follow</Text>
+            </View>
+
+            <View style={styles.topicsGrid}>
+              {FOLLOW_HUB_TOPICS.map(topic => {
+                const isSelected =
+                  localInterests.includes(topic.prefTag) ||
+                  localInterests.includes(topic.id)
+                return (
+                  <View
+                    key={topic.id}
+                    style={[
+                      styles.pillContainer,
+                      isSelected
+                        ? styles.pillContainerSelected
+                        : styles.pillContainerUnselected,
+                    ]}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Explore ${topic.label}`}
+                      accessibilityHint=""
+                      onPress={() => onExploreTopic(topic)}
+                      style={({pressed}) => [
+                        styles.pillExploreBtn,
+                        pressed && styles.pressedOpacity,
+                      ]}>
+                      <SearchIcon
+                        width={13}
+                        height={13}
+                        style={{color: isSelected ? '#1D9BF0' : '#71767B'}}
+                      />
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.pillLabel,
+                          isSelected
+                            ? styles.pillLabelSelected
+                            : styles.pillLabelUnselected,
+                        ]}>
+                        {topic.label}
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        isSelected
+                          ? `Unfollow ${topic.label}`
+                          : `Follow ${topic.label}`
+                      }
+                      accessibilityHint=""
+                      onPress={() => onToggleTopic(topic)}
+                      hitSlop={6}
+                      style={({pressed}) => [
+                        styles.pillToggleBtn,
+                        isSelected
+                          ? styles.pillToggleBtnSelected
+                          : styles.pillToggleBtnUnselected,
+                        pressed && styles.pressedOpacity,
+                      ]}>
+                      {isSelected ? (
+                        <CheckIcon
+                          width={14}
+                          height={14}
+                          style={{color: '#FFFFFF'}}
+                        />
+                      ) : (
+                        <PlusIcon
+                          width={14}
+                          height={14}
+                          style={{color: '#71767B'}}
+                        />
+                      )}
+                    </Pressable>
+                  </View>
+                )
+              })}
+            </View>
+
+            <View style={styles.topicCreatorsPrompt}>
+              <View style={a.flex_1}>
+                <Text style={styles.topicCreatorsTitle}>
+                  Looking for creators?
+                </Text>
+                <Text style={styles.topicCreatorsSubtitle}>
+                  Browse suggested accounts curated based on your preferences
+                </Text>
+              </View>
+              <Button
+                label="View creators"
+                accessibilityLabel="View creators"
+                accessibilityHint=""
+                size="small"
+                variant="solid"
+                color="secondary"
+                onPress={() => setActiveTab('suggested')}>
+                <ButtonText>View creators</ButtonText>
+              </Button>
+            </View>
+          </View>
+        )}
+
+        {activeTab === 'contacts' && (
+          <View style={styles.tabContentWrap}>
+            <View style={styles.findPeopleCard}>
+              <View style={styles.findPeopleHeader}>
+                <View style={styles.findPeopleIconWrap}>
+                  <PhoneIcon
+                    width={22}
+                    height={22}
+                    style={{color: '#1D9BF0'}}
+                  />
+                </View>
+                <View style={a.flex_1}>
+                  <Text style={styles.findPeopleTitle}>Find your friends</Text>
+                  <Text style={styles.findPeopleSubtitle}>
+                    Sync your address book to discover people you already know
+                    on QuantZing.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.buttonStack}>
+                <Button
+                  testID="followHubFindFriendsBtn"
+                  label="Find your friends"
+                  accessibilityLabel="Find your friends"
+                  accessibilityHint=""
+                  size="small"
+                  variant="solid"
+                  color="primary"
+                  onPress={onPressFindPeople}
+                  style={styles.findPeopleCta}>
+                  <ButtonText style={styles.findPeopleCtaText}>
+                    Find your friends
+                  </ButtonText>
+                </Button>
+
+                <Button
+                  testID="followHubAddPhoneBtn"
+                  label="Add phone number"
+                  accessibilityLabel="Add phone number"
+                  accessibilityHint=""
+                  size="small"
+                  variant="outline"
+                  color="secondary"
+                  onPress={onPressFindPeople}
+                  style={styles.secondaryCta}>
+                  <ButtonText style={styles.secondaryCtaText}>
+                    Add phone number
+                  </ButtonText>
+                </Button>
+              </View>
+            </View>
+
+            <View style={styles.syncPreviewCard}>
+              <Text style={styles.syncPreviewTitle}>Contact sync preview</Text>
+              <View style={styles.syncFeatureRow}>
+                <UserCircleIcon
+                  width={18}
+                  height={18}
+                  style={{color: '#71767B', marginTop: 2}}
+                />
+                <View style={a.flex_1}>
+                  <Text style={styles.syncFeatureText}>
+                    Match with people from your phone contacts automatically
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.syncFeatureRow}>
+                <CheckIcon
+                  width={18}
+                  height={18}
+                  style={{color: '#71767B', marginTop: 2}}
+                />
+                <View style={a.flex_1}>
+                  <Text style={styles.syncFeatureText}>
+                    Receive alerts when friends join QuantZing
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.syncFeatureRow}>
+                <ChevronRightIcon
+                  width={18}
+                  height={18}
+                  style={{color: '#71767B', marginTop: 2}}
+                />
+                <View style={a.flex_1}>
+                  <Text style={styles.syncFeatureText}>
+                    Manage contact permissions and remove uploaded data anytime
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {activeTab === 'suggested' && (
+          <View style={styles.tabContentWrap}>
+            <SuggestedCreatorsList onClose={() => control.close()} />
+          </View>
+        )}
       </Dialog.ScrollableInner>
     </Dialog.Outer>
+  )
+}
+
+function SuggestedCreatorsList({onClose}: {onClose: () => void}) {
+  const {data, isLoading, error} = useGetSuggestedUsersForExploreQuery({
+    limit: 15,
+  })
+
+  if (isLoading) {
+    return (
+      <View style={styles.loaderWrap}>
+        <ActivityIndicator size="small" color="#1D9BF0" />
+      </View>
+    )
+  }
+
+  const actors = data?.actors ?? []
+  if (error || actors.length === 0) {
+    return (
+      <View style={styles.emptyStateWrap}>
+        <Text style={styles.emptyStateTitle}>No suggestions available</Text>
+        <Text style={styles.emptyStateSubtitle}>
+          Check back later for newly suggested accounts
+        </Text>
+      </View>
+    )
+  }
+
+  return (
+    <View style={styles.creatorsList}>
+      {actors.map((actor, idx) => (
+        <CreatorRow key={actor.did} actor={actor} index={idx} onClose={onClose} />
+      ))}
+    </View>
+  )
+}
+
+function CreatorRow({
+  actor,
+  index,
+  onClose,
+}: {
+  actor: app.bsky.actor.defs.ProfileView
+  index: number
+  onClose: () => void
+}) {
+  const navigation = useNavigation<NavigationProp>()
+  const profile = useProfileShadow(actor)
+  const [queueFollow, queueUnfollow] = useProfileFollowMutationQueue(
+    profile,
+    'ExploreSuggestedAccounts',
+    index,
+  )
+  const isFollowing = Boolean(profile.viewer?.following)
+  const displayName = sanitizeDisplayName(
+    profile.displayName || sanitizeHandle(profile.handle, '@'),
+  )
+
+  const onPressProfile = useCallback(() => {
+    onClose()
+    navigation.navigate('Profile', {name: profile.did})
+  }, [navigation, profile.did, onClose])
+
+  const onToggleFollow = async (e: GestureResponderEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    try {
+      if (isFollowing) {
+        await queueUnfollow()
+        Toast.show(`No longer following ${displayName}`)
+      } else {
+        await queueFollow()
+        Toast.show(`Following ${displayName}`)
+      }
+    } catch (err) {
+      if ((err as Error)?.name !== 'AbortError') {
+        Toast.show('An issue occurred, please try again.', {type: 'error'})
+      }
+    }
+  }
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`View ${displayName}'s profile`}
+      accessibilityHint=""
+      onPress={onPressProfile}
+      style={({pressed}) => [
+        styles.creatorRow,
+        pressed && styles.creatorRowPressed,
+      ]}>
+      <UserAvatar
+        avatar={profile.avatar}
+        size={40}
+        type={profile.associated?.labeler ? 'labeler' : 'user'}
+      />
+      <View style={[a.flex_1, a.gap_2xs]}>
+        <Text style={styles.creatorDisplayName} numberOfLines={1}>
+          {displayName}
+        </Text>
+        <Text style={styles.creatorHandle} numberOfLines={1}>
+          {sanitizeHandle(profile.handle, '@')}
+        </Text>
+        {profile.description ? (
+          <Text style={styles.creatorBio} numberOfLines={2}>
+            {profile.description}
+          </Text>
+        ) : null}
+      </View>
+      <Button
+        label={isFollowing ? `Unfollow ${displayName}` : `Follow ${displayName}`}
+        accessibilityLabel={
+          isFollowing ? `Unfollow ${displayName}` : `Follow ${displayName}`
+        }
+        accessibilityHint=""
+        size="small"
+        variant="solid"
+        color={isFollowing ? 'secondary' : 'primary'}
+        onPress={onToggleFollow}
+        style={styles.followActionBtn}>
+        <ButtonText style={isFollowing ? styles.followingText : styles.followText}>
+          {isFollowing ? 'Following' : 'Follow'}
+        </ButtonText>
+      </Button>
+    </Pressable>
   )
 }
 
@@ -370,7 +629,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingBottom: 14,
+    paddingBottom: 12,
   },
   modalTitle: {
     fontSize: 20,
@@ -393,13 +652,37 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginLeft: 12,
   },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: '#2F3336',
-    marginVertical: 14,
+  tabBar: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#2F3336',
+    marginBottom: 16,
   },
-  sectionWrap: {
-    gap: 12,
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderBottomWidth: 3,
+    borderBottomColor: 'transparent',
+  },
+  tabBtnActive: {
+    borderBottomColor: '#1D9BF0',
+  },
+  tabLabel: {
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  tabLabelActive: {
+    color: '#EFF3F4',
+    fontWeight: '700',
+  },
+  tabLabelInactive: {
+    color: '#71767B',
+    fontWeight: '500',
+  },
+  tabContentWrap: {
+    gap: 14,
   },
   sectionTitleRow: {
     flexDirection: 'row',
@@ -470,13 +753,34 @@ const styles = StyleSheet.create({
     backgroundColor: '#1D9BF0',
     borderLeftColor: '#1D9BF0',
   },
+  topicCreatorsPrompt: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#16181C',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#2F3336',
+    padding: 12,
+    gap: 12,
+    marginTop: 6,
+  },
+  topicCreatorsTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#EFF3F4',
+  },
+  topicCreatorsSubtitle: {
+    fontSize: 12,
+    color: '#71767B',
+    marginTop: 2,
+  },
   findPeopleCard: {
     backgroundColor: '#16181C',
     borderColor: '#2F3336',
     borderWidth: 1,
     borderRadius: 16,
-    padding: 14,
-    gap: 12,
+    padding: 16,
+    gap: 14,
   },
   findPeopleHeader: {
     flexDirection: 'row',
@@ -493,7 +797,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   findPeopleTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
     color: '#EFF3F4',
     lineHeight: 20,
@@ -502,53 +806,125 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#71767B',
     lineHeight: 18,
-    marginTop: 2,
+    marginTop: 3,
+  },
+  buttonStack: {
+    gap: 8,
   },
   findPeopleCta: {
     borderRadius: 9999,
     backgroundColor: '#1D9BF0',
     alignSelf: 'stretch',
     justifyContent: 'center',
-    height: 38,
+    height: 40,
   },
   findPeopleCtaText: {
     color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 14,
   },
-  manageFeedsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  secondaryCta: {
+    borderRadius: 9999,
+    borderColor: '#536471',
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    height: 38,
+  },
+  secondaryCtaText: {
+    color: '#EFF3F4',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  syncPreviewCard: {
     backgroundColor: '#16181C',
-    borderColor: '#2F3336',
-    borderWidth: 1,
     borderRadius: 14,
-    padding: 12,
-  },
-  manageFeedsLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#2F3336',
+    padding: 14,
     gap: 12,
-    flex: 1,
   },
-  manageFeedsIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(29, 155, 240, 0.12)',
+  syncPreviewTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#EFF3F4',
+    marginBottom: 2,
+  },
+  syncFeatureRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  syncFeatureText: {
+    fontSize: 13,
+    color: '#8B98A5',
+    lineHeight: 18,
+  },
+  loaderWrap: {
+    paddingVertical: 32,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  manageFeedsTitle: {
+  emptyStateWrap: {
+    paddingVertical: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  emptyStateTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#EFF3F4',
+  },
+  emptyStateSubtitle: {
+    fontSize: 13,
+    color: '#71767B',
+    textAlign: 'center',
+  },
+  creatorsList: {
+    gap: 12,
+  },
+  creatorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#16181C',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#2F3336',
+    gap: 12,
+  },
+  creatorRowPressed: {
+    backgroundColor: '#202327',
+  },
+  creatorDisplayName: {
     fontSize: 14,
     fontWeight: '700',
     color: '#EFF3F4',
   },
-  manageFeedsSubtitle: {
+  creatorHandle: {
     fontSize: 12,
     color: '#71767B',
-    marginTop: 1,
+  },
+  creatorBio: {
+    fontSize: 12,
+    color: '#8B98A5',
+    lineHeight: 16,
+  },
+  followActionBtn: {
+    borderRadius: 9999,
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+  },
+  followText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  followingText: {
+    color: '#EFF3F4',
+    fontWeight: '700',
+    fontSize: 13,
   },
   pressedOpacity: {
     opacity: 0.75,

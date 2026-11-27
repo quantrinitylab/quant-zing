@@ -28,6 +28,9 @@ export interface TabBarProps {
   dragProgress?: SharedValue<number> // Ignored on web.
   dragState?: SharedValue<'idle' | 'dragging' | 'settling'> // Ignored on web.
   transparent?: boolean
+  trailingSlot?: React.ReactNode
+  renderItemPrefix?: (index: number, isActive: boolean) => React.ReactNode
+  renderItemSuffix?: (index: number, isActive: boolean) => React.ReactNode
 }
 
 // How much of the previous/next item we're showing
@@ -43,6 +46,9 @@ export function TabBar({
   onSelect,
   onPressSelected,
   transparent,
+  trailingSlot,
+  renderItemPrefix,
+  renderItemSuffix,
 }: TabBarProps) {
   const t = useTheme()
   const {t: l} = useLingui()
@@ -144,8 +150,12 @@ export function TabBar({
                   <View
                     style={[
                       a.relative,
+                      a.flex_row,
+                      a.align_center,
+                      {gap: 4},
                       unread?.[i] !== undefined && {paddingHorizontal: 12},
                     ]}>
+                    {renderItemPrefix ? renderItemPrefix(i, selected) : null}
                     <Text
                       emoji
                       testID={testID ? `${testID}-${item}` : undefined}
@@ -159,6 +169,11 @@ export function TabBar({
                       ]}>
                       {item}
                     </Text>
+                    {renderItemSuffix ? (
+                      <View style={{paddingBottom: 14}}>
+                        {renderItemSuffix(i, selected)}
+                      </View>
+                    ) : null}
                     {unread?.[i] && (
                       <View
                         aria-hidden
@@ -188,6 +203,16 @@ export function TabBar({
             </PressableWithHover>
           )
         })}
+        {trailingSlot ? (
+          <View
+            style={[
+              a.justify_center,
+              a.align_center,
+              {paddingHorizontal: 8, paddingBottom: 6},
+            ]}>
+            {trailingSlot}
+          </View>
+        ) : null}
       </DraggableScrollView>
       <View style={[t.atoms.border_contrast_low, styles.outerBottomBorder]} />
     </View>

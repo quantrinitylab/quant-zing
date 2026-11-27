@@ -30,6 +30,11 @@ import {isNetworkError} from '#/lib/strings/errors'
 import {logger} from '#/logger'
 import {usePostAuthorShadowFilter} from '#/state/cache/profile-shadow'
 import {listenPostCreated} from '#/state/events'
+import {
+  getTopicById,
+  SNOOZE_TOPICS,
+  useSnoozedTopics,
+} from '#/state/preferences/snoozed-topics'
 import {useTrendingSettings} from '#/state/preferences/trending'
 import {STALE} from '#/state/queries'
 import {
@@ -49,7 +54,7 @@ import {useSelectedFeed} from '#/state/shell/selected-feed'
 import {List, type ListRef} from '#/view/com/util/List'
 import {LoadMoreRetryBtn} from '#/view/com/util/LoadMoreRetryBtn'
 import {type VideoFeedSourceContext} from '#/screens/VideoFeed/types'
-import {atoms as a, useLayoutBreakpoints, useTheme} from '#/alf'
+import {atoms as a, useBreakpoints, useLayoutBreakpoints, useTheme} from '#/alf'
 import {
   AgeAssuranceDismissibleFeedBanner,
   useInternalState as useAgeAssuranceBannerState,
@@ -257,6 +262,7 @@ let PostFeed = ({
   const t = useTheme()
   const {t: l} = useLingui()
   const queryClient = useQueryClient()
+  const {gtMobile} = useBreakpoints()
   const {currentAccount, hasSession} = useSession()
   const initialNumToRender = useInitialNumToRender()
   const feedFeedback = useFeedFeedbackContext()
@@ -422,6 +428,22 @@ let PostFeed = ({
     // author feeds have their own handling
     feed.startsWith('author|') ? undefined : data?.pages,
   )
+  const {snoozedTopics} = useSnoozedTopics()
+
+  const activeSnoozedTerms = useMemo(() => {
+    const now = Date.now()
+    const terms: string[] = []
+    for (const [topicId, expiresAt] of Object.entries(snoozedTopics)) {
+      if (expiresAt > now) {
+        const cfg = getTopicById(topicId)
+        const meta = SNOOZE_TOPICS.find(t => t.id === topicId)
+        if (cfg?.query) terms.push(...cfg.query.toLowerCase().split(/\s+/))
+        if (meta?.prefTag) terms.push(meta.prefTag.toLowerCase())
+        terms.push(topicId.toLowerCase())
+      }
+    }
+    return Array.from(new Set(terms.filter(t => t.length >= 2)))
+  }, [snoozedTopics])
 
   const feedItems: FeedRow[] = useMemo(() => {
     // wraps a slice item, and replaces it with a showLessFollowup item
@@ -561,8 +583,9 @@ let PostFeed = ({
                       type: 'liveEventFeedsAndTrendingBanner',
                       key: 'liveEventFeedsAndTrendingBanner-' + sliceIndex,
                     })
-                    // Show composer prompt for Discover and Following feeds
+                    // Show composer prompt for Discover and Following feeds only on tablet/desktop web
                     if (
+                      gtMobile &&
                       hasSession &&
                       (feedUriOrActorDid === DISCOVER_FEED_URI ||
                         feed === 'following')
@@ -593,8 +616,8 @@ let PostFeed = ({
                   }
                 } else if (feedKind === 'following') {
                   if (sliceIndex === 0) {
-                    // Show composer prompt for Following feed
-                    if (hasSession) {
+                    // Show composer prompt for Following feed only on tablet/desktop web
+                    if (gtMobile && hasSession) {
                       arr.push({
                         type: 'composerPrompt',
                         key: 'composerPrompt-' + sliceIndex,
@@ -623,6 +646,7 @@ let PostFeed = ({
               }
 
               if (
+                gtMobile &&
                 !hasSession &&
                 IS_WEB &&
                 feedKind === 'discover' &&
@@ -646,6 +670,23 @@ let PostFeed = ({
                 )
               ) {
                 // skip
+              } else if (
+                feedKind === 'discover' &&
+                activeSnoozedTerms.length > 0 &&
+                slice.items.some(item => {
+                  const rec = item.post.record as {text?: string; tags?: string[]} | undefined
+                  const txt = String(rec?.text || '').toLowerCase()
+                  const tags = Array.isArray(rec?.tags)
+                    ? rec.tags.map(t => String(t).toLowerCase())
+                    : []
+                  return activeSnoozedTerms.some(
+                    term =>
+                      tags.includes(term) ||
+                      new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(txt),
+                  )
+                })
+              ) {
+                // snoozed topic hidden for 24h
               } else if (slice.isIncompleteThread && slice.items.length >= 3) {
                 const beforeLast = slice.items.length - 2
                 const last = slice.items.length - 1
@@ -750,6 +791,8 @@ let PostFeed = ({
     ageAssuranceBannerState,
     isCurrentFeedAtStartupSelected,
     blockedOrMutedAuthors,
+    activeSnoozedTerms,
+    gtMobile,
     trendingIndices,
   ])
 
@@ -1174,6 +1217,7 @@ let PostFeed = ({
         testID={testID ? `${testID}-flatlist` : undefined}
         ref={scrollElRef}
         data={feedItems}
+        showsVerticalScrollIndicator={false}
         keyExtractor={(item: FeedRow) => item.key}
         renderItem={renderItem}
         ListFooterComponent={FeedFooter}

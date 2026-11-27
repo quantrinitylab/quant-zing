@@ -13,7 +13,7 @@ export function useMinimalShellFooterTransform() {
     const footerModeValue = footerMode.get()
     return {
       pointerEvents: footerModeValue === 0 ? 'auto' : 'none',
-      opacity: Math.pow(1 - footerModeValue, 2),
+      opacity: Math.max(0, 1 - footerModeValue * 1.15),
       transform: [
         {
           translateY: interpolate(

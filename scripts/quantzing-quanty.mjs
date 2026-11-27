@@ -280,7 +280,7 @@ export const QUANTY_TOOLS = [
     name: 'quantzing_publish_zing',
     title: 'Publish Zing',
     description:
-      'Publish a new Sovereign Zing post (up to 300 characters) on behalf of the signed-in account.',
+      'Publish a new Sovereign Zing post (up to 4000 characters) on behalf of the signed-in account.',
     category: 'write',
     requiresAuth: true,
     approvalRequired: true,
@@ -290,7 +290,7 @@ export const QUANTY_TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        text: {type: 'string', minLength: 1, maxLength: 300},
+        text: {type: 'string', minLength: 1, maxLength: 4000},
         langs: {type: 'array', items: {type: 'string'}},
         quoteUri: {type: 'string', maxLength: 300},
       },
@@ -313,7 +313,7 @@ export const QUANTY_TOOLS = [
       type: 'object',
       properties: {
         postUri: {type: 'string', minLength: 5, maxLength: 300},
-        text: {type: 'string', minLength: 1, maxLength: 300},
+        text: {type: 'string', minLength: 1, maxLength: 4000},
       },
       required: ['postUri', 'text'],
       additionalProperties: false,
@@ -380,7 +380,7 @@ export const QUANTY_TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        text: {type: 'string', minLength: 2, maxLength: 300},
+        text: {type: 'string', minLength: 2, maxLength: 4000},
         options: {
           type: 'array',
           minItems: 2,
@@ -3665,7 +3665,7 @@ function createThreadPersistence(deps) {
           ? msg.proposedActions.slice(0, 6)
           : [],
         suggestedZingDraft: msg.suggestedZingDraft
-          ? stripEmojis(msg.suggestedZingDraft).slice(0, 300)
+          ? stripEmojis(msg.suggestedZingDraft).slice(0, 4000)
           : undefined,
         createdAt: now,
       }
@@ -4374,12 +4374,12 @@ export function createQuantyBridge(deps = {}) {
         if (!text) {
           return {ok: false, status: 400, error: 'InvalidRequest', message: 'Zing text is required.'}
         }
-        if (text.length > 300) {
+        if (text.length > 4000) {
           return {
             ok: false,
             status: 400,
             error: 'InvalidRequest',
-            message: 'Zing text must be 300 characters or fewer.',
+            message: 'Zing text must be 4000 characters or fewer.',
           }
         }
         const langs =
@@ -4408,12 +4408,12 @@ export function createQuantyBridge(deps = {}) {
             message: 'Target postUri is required to reply.',
           }
         }
-        if (!text || text.length > 300) {
+        if (!text || text.length > 4000) {
           return {
             ok: false,
             status: 400,
             error: 'InvalidRequest',
-            message: 'Reply text must be between 1 and 300 characters.',
+            message: 'Reply text must be between 1 and 4000 characters.',
           }
         }
         const resolved = helpers.resolveAtUri?.(postUri)
@@ -4546,12 +4546,12 @@ export function createQuantyBridge(deps = {}) {
           .filter(Boolean)
           .slice(0, 4)
         const durationHours = clampInt(a.durationHours, 1, 168, 24)
-        if (text.length < 2 || text.length > 300) {
+        if (text.length < 2 || text.length > 4000) {
           return {
             ok: false,
             status: 400,
             error: 'InvalidRequest',
-            message: 'Poll question must be between 2 and 300 characters.',
+            message: 'Poll question must be between 2 and 4000 characters.',
           }
         }
         if (options.length < 2) {
@@ -6425,7 +6425,7 @@ export function createQuantyBridge(deps = {}) {
           if (rest) {
             writeProposals.push({
               toolName: 'quantzing_publish_zing',
-              arguments: {text: rest.slice(0, 300)},
+              arguments: {text: rest.slice(0, 4000)},
             })
           }
           break
@@ -6436,7 +6436,7 @@ export function createQuantyBridge(deps = {}) {
           if (postUri && replyText) {
             writeProposals.push({
               toolName: 'quantzing_reply_to_zing',
-              arguments: {postUri, text: replyText.slice(0, 300)},
+              arguments: {postUri, text: replyText.slice(0, 4000)},
             })
           }
           break
@@ -6483,7 +6483,7 @@ export function createQuantyBridge(deps = {}) {
             writeProposals.push({
               toolName: 'quantzing_create_poll',
               arguments: {
-                text: parts[0].slice(0, 300),
+                text: parts[0].slice(0, 4000),
                 options: parts.slice(1, 5),
                 durationHours: 24,
               },
@@ -6492,7 +6492,7 @@ export function createQuantyBridge(deps = {}) {
             writeProposals.push({
               toolName: 'quantzing_create_poll',
               arguments: {
-                text: parts[0].slice(0, 300),
+                text: parts[0].slice(0, 4000),
                 options: ['Yes', 'No'],
                 durationHours: 24,
               },
@@ -6617,7 +6617,7 @@ export function createQuantyBridge(deps = {}) {
     if (zingMatch) {
       writeProposals.push({
         toolName: 'quantzing_publish_zing',
-        arguments: {text: zingMatch[1].trim().replace(/^["']|["']$/g, '').slice(0, 300)},
+        arguments: {text: zingMatch[1].trim().replace(/^["']|["']$/g, '').slice(0, 4000)},
       })
     }
 
@@ -6629,7 +6629,7 @@ export function createQuantyBridge(deps = {}) {
         toolName: 'quantzing_reply_to_zing',
         arguments: {
           postUri: postContext.uri,
-          text: replyMatch[1].trim().replace(/^["']|["']$/g, '').slice(0, 300),
+          text: replyMatch[1].trim().replace(/^["']|["']$/g, '').slice(0, 4000),
         },
       })
     }
@@ -6685,7 +6685,7 @@ export function createQuantyBridge(deps = {}) {
       writeProposals.push({
         toolName: 'quantzing_create_poll',
         arguments: {
-          text: (parts[0] || pollMatch[1]).slice(0, 300),
+          text: (parts[0] || pollMatch[1]).slice(0, 4000),
           options: parts.length >= 3 ? parts.slice(1, 5) : ['Agree', 'Disagree'],
           durationHours: 24,
         },

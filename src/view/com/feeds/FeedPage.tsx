@@ -29,18 +29,14 @@ import {useSession} from '#/state/session'
 import {PostFeed} from '#/view/com/posts/PostFeed'
 import {FAB} from '#/view/com/util/fab/FAB'
 import {type ListMethods} from '#/view/com/util/List'
-import {LoadLatestBtn} from '#/view/com/util/load-latest/LoadLatestBtn'
 import {MainScrollProvider} from '#/view/com/util/MainScrollProvider'
-import {useBreakpoints, useTheme} from '#/alf'
+import {useTheme} from '#/alf'
 import {useHeaderOffset} from '#/components/hooks/useHeaderOffset'
-import {EditBig_Stroke2_Corner2_Rounded as EditBigIcon} from '#/components/icons/EditBig'
+import {PlusLarge_Stroke2_Corner0_Rounded} from '#/components/icons/Plus'
+import {NewPostsPill, type NewPostsPillAuthor} from '#/components/NewPostsPill'
 import {useAnalytics} from '#/analytics'
 import {IS_NATIVE} from '#/env'
 import {FeedFeedbackProvider, useFeedFeedback} from '#/features/feedFeedback'
-import {
-  isFollowingV2Eligible,
-  isFollowingV2HomeDotEnabled,
-} from '#/features/followingV2/eligibility'
 import {app} from '#/lexicons'
 
 const POLL_FREQ = 60e3 // 60sec
@@ -72,7 +68,7 @@ export function FeedPage({
   const navigation = useNavigation<NavigationProp<CommonNavigatorParams>>()
   const queryClient = useQueryClient()
   const {openComposer} = useOpenComposer()
-  const [isScrolledDown, setIsScrolledDown] = useState(false)
+  const [_isScrolledDown, setIsScrolledDown] = useState(false)
   const headerOffset = useHeaderOffset()
   const feedFeedback = useFeedFeedback(feedInfo, hasSession, 'feed')
   const scrollElRef = useRef<ListMethods>(null)
@@ -86,7 +82,55 @@ export function FeedPage({
     return IS_NATIVE && _isVideoFeed
   }, [feedInfo])
   const t = useTheme()
-  const {gtMobile} = useBreakpoints()
+
+  const latestAuthors = useMemo(() => {
+    if (!hasNew) return []
+    try {
+      type CachedFeedPages = {
+        pages?: Array<{
+          slices?: Array<{
+            items?: Array<{post?: {author?: {did: string; avatar?: string}}}>
+          }>
+          feed?: Array<{post?: {author?: {did: string; avatar?: string}}}>
+        }>
+      }
+      const cached = queryClient.getQueryData<CachedFeedPages>(
+        FEED_RQKEY(feed, feedParams),
+      )
+      const authors: NewPostsPillAuthor[] = []
+      const seen = new Set<string>()
+
+      const addAuthor = (author?: {did: string; avatar?: string}) => {
+        if (!author?.did || !author?.avatar || seen.has(author.did)) return
+        seen.add(author.did)
+        authors.push({did: author.did, avatar: author.avatar})
+      }
+
+      if (cached?.pages) {
+        for (const page of cached.pages) {
+          if (Array.isArray(page.slices)) {
+            for (const slice of page.slices) {
+              if (Array.isArray(slice.items)) {
+                for (const item of slice.items) {
+                  addAuthor(item.post?.author)
+                  if (authors.length >= 3) return authors
+                }
+              }
+            }
+          }
+          if (Array.isArray(page.feed)) {
+            for (const item of page.feed) {
+              addAuthor(item.post?.author)
+              if (authors.length >= 3) return authors
+            }
+          }
+        }
+      }
+      return authors
+    } catch {
+      return []
+    }
+  }, [hasNew, queryClient, feed, feedParams])
 
   useEffect(() => {
     if (isPageFocused) {
@@ -167,26 +211,35 @@ export function FeedPage({
           />
         </FeedFeedbackProvider>
       </MainScrollProvider>
-      {/*
-       * With Following v2, native replaces Load Latest with the new posts pill
-       * and mobile web relies on the Home tab dot. Tablet and desktop web have
-       * no pill, so they keep the button.
-       */}
-      {(isScrolledDown || hasNew) &&
-        !isFollowingV2Eligible(ax) &&
-        !(isFollowingV2HomeDotEnabled(ax) && !gtMobile) && (
-          <LoadLatestBtn
-            onPress={onPressLoadLatest}
-            label={_(msg`Load new posts`)}
-            showIndicator={hasNew}
-          />
-        )}
+      <View
+        pointerEvents="box-none"
+        style={{
+          position: 'absolute',
+          top: headerOffset + 10,
+          left: 0,
+          right: 0,
+          alignItems: 'center',
+          zIndex: 20,
+        }}>
+        <NewPostsPill
+          visible={hasNew}
+          variant="newPosts"
+          count={Math.max(4, latestAuthors.length)}
+          authors={latestAuthors}
+          onPress={onPressLoadLatest}
+        />
+      </View>
 
       {hasSession && (
         <FAB
           testID="composeFAB"
           onPress={onPressCompose}
-          icon={<EditBigIcon size="lg" fill={t.palette.white} />}
+          icon={
+            <PlusLarge_Stroke2_Corner0_Rounded
+              size="lg"
+              fill={t.palette.white}
+            />
+          }
           accessibilityRole="button"
           accessibilityLabel={_(msg({message: `New post`, context: 'action'}))}
           accessibilityHint=""

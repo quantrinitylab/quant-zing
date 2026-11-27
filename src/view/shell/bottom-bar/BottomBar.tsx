@@ -28,8 +28,9 @@ import {useShellLayout} from '#/state/shell/shell-layout'
 import {useCloseAllActiveElements} from '#/state/util'
 import {Logo} from '#/view/icons/Logo'
 import {Logotype} from '#/view/icons/Logotype'
-import {atoms as a, useTheme} from '#/alf'
+import {atoms as a, useTheme, web} from '#/alf'
 import {Button, ButtonText} from '#/components/Button'
+import {GlassView} from '#/components/GlassView'
 import {
   Bell_Filled_Corner0_Rounded as BellFilled,
   Bell_Stroke2_Corner0_Rounded as Bell,
@@ -87,6 +88,20 @@ export function BottomBar({navigation}: BottomTabBarProps) {
   const haptics = useHaptics()
   const hideBorder = useHideBottomBarBorder()
   const iconWidth = 24
+
+  const frostedGlassBg =
+    t.name === 'dim'
+      ? 'rgba(21, 32, 43, 0.82)'
+      : t.name === 'dark' || t.scheme === 'dark'
+        ? 'rgba(0, 0, 0, 0.78)'
+        : 'rgba(255, 255, 255, 0.85)'
+
+  const frostedBorderColor =
+    t.name === 'dim'
+      ? '#38444D'
+      : t.name === 'dark' || t.scheme === 'dark'
+        ? '#2F3336'
+        : t.atoms.border_contrast_low.borderColor || '#EFF3F4'
 
   const showSignIn = useCallback(() => {
     closeAllActiveElements()
@@ -174,16 +189,27 @@ export function BottomBar({navigation}: BottomTabBarProps) {
       <Animated.View
         style={[
           styles.bottomBar,
-          t.atoms.bg,
-          hideBorder
-            ? {borderColor: t.atoms.bg.backgroundColor}
-            : t.atoms.border_contrast_low,
+          {
+            backgroundColor: frostedGlassBg,
+            borderTopColor: hideBorder ? 'transparent' : frostedBorderColor,
+          },
+          web({
+            backdropFilter: 'blur(18px)',
+            WebkitBackdropFilter: 'blur(18px)',
+          }),
           {paddingBottom: clamp(safeAreaInsets.bottom, 15, 60)},
           footerMinimalShellTransform,
         ]}
         onLayout={e => {
           footerHeight.set(e.nativeEvent.layout.height)
         }}>
+        <GlassView
+          pointerEvents="none"
+          glassEffectStyle="regular"
+          tintColor={frostedGlassBg}
+          style={[a.absolute, a.inset_0]}
+          fallbackStyle={{backgroundColor: frostedGlassBg}}
+        />
         {hasSession ? (
           <>
             <Btn

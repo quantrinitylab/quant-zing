@@ -4,12 +4,14 @@ import {
   Reanimated3DefaultSpringConfig,
   withSpring,
 } from 'react-native-reanimated'
+import {RichText} from '@bsky/sdk/richtext'
 import {useLingui} from '@lingui/react/macro'
 import {useFocusEffect} from '@react-navigation/native'
 
 import {
   DISCOVER_FEED_URI,
   PROD_DEFAULT_FEED,
+  QUANTZING_OFFICIAL_DID,
   TIMELINE_SAVED_FEED,
 } from '#/lib/constants'
 import {useNonReactiveCallback} from '#/lib/hooks/useNonReactiveCallback'
@@ -22,6 +24,7 @@ import {
 } from '#/lib/routes/types'
 import {getLocalizedFeedName} from '#/lib/strings/feed-names'
 import {emitSoftReset} from '#/state/events'
+import {getTopicById, usePinnedTopics} from '#/state/preferences/snoozed-topics'
 import {
   type SavedFeedSourceInfo,
   usePinnedFeedsInfos,
@@ -122,9 +125,125 @@ function HomeScreenReady({
 }) {
   const {i18n} = useLingui()
   const ax = useAnalytics()
+  const {pinnedTopicIds} = usePinnedTopics()
+
+  const topicFeedInfos = useMemo<SavedFeedSourceInfo[]>(() => {
+    return pinnedTopicIds.map(topicId => {
+      const topicConfig = getTopicById(topicId)
+      const label = topicConfig ? topicConfig.label : topicId
+      const uri = PROD_DEFAULT_FEED(topicId)
+      const descriptor = `feedgen|${uri}` as FeedDescriptor
+      return {
+        type: 'feed',
+        displayName: label,
+        uri,
+        feedDescriptor: descriptor,
+        route: {
+          href: '/',
+          name: 'Home',
+          params: {},
+        },
+        cid: '',
+        avatar: '',
+        description: new RichText({text: label}),
+        creatorDid: QUANTZING_OFFICIAL_DID,
+        creatorHandle: 'quantzing.official',
+        likeCount: 0,
+        likeUri: '',
+        savedFeed: {
+          id: `topic-${topicId}`,
+          type: 'feed',
+          value: uri,
+          pinned: true,
+        },
+        contentMode: undefined,
+      }
+    })
+  }, [pinnedTopicIds])
+
+  const mergedFeedInfos = useMemo<SavedFeedSourceInfo[]>(() => {
+    let forYouFeed = pinnedFeedInfos.find(
+      f =>
+        f.displayName === 'Discover' ||
+        f.displayName === 'For you' ||
+        f.uri === DISCOVER_FEED_URI ||
+        f.feedDescriptor.includes('whats-hot'),
+    )
+    if (forYouFeed) {
+      forYouFeed = {...forYouFeed, displayName: 'For you'}
+    } else {
+      forYouFeed = {
+        type: 'feed',
+        displayName: 'For you',
+        uri: DISCOVER_FEED_URI,
+        feedDescriptor: `feedgen|${PROD_DEFAULT_FEED('whats-hot')}`,
+        route: {href: '/', name: 'Home', params: {}},
+        cid: '',
+        avatar: '',
+        description: new RichText({text: 'For you'}),
+        creatorDid: QUANTZING_OFFICIAL_DID,
+        creatorHandle: 'quantzing.official',
+        likeCount: 0,
+        likeUri: '',
+        savedFeed: {
+          id: 'for-you',
+          type: 'feed',
+          value: PROD_DEFAULT_FEED('whats-hot'),
+          pinned: true,
+        },
+        contentMode: undefined,
+      }
+    }
+
+    let followingFeed = pinnedFeedInfos.find(
+      f =>
+        f.feedDescriptor === 'following' ||
+        f.uri === TIMELINE_SAVED_FEED.value ||
+        f.displayName === 'Following',
+    )
+    if (followingFeed) {
+      followingFeed = {...followingFeed, displayName: 'Following'}
+    } else {
+      followingFeed = {
+        type: 'feed',
+        displayName: 'Following',
+        uri: TIMELINE_SAVED_FEED.value,
+        feedDescriptor: 'following',
+        route: {href: '/', name: 'Home', params: {}},
+        cid: '',
+        avatar: '',
+        description: new RichText({text: 'Following'}),
+        creatorDid: '',
+        creatorHandle: '',
+        likeCount: 0,
+        likeUri: '',
+        savedFeed: {
+          id: 'following',
+          type: 'timeline',
+          value: 'following',
+          pinned: true,
+        },
+        contentMode: undefined,
+      }
+    }
+
+    const otherFeeds = pinnedFeedInfos.filter(
+      f =>
+        f !== forYouFeed &&
+        f !== followingFeed &&
+        f.feedDescriptor !== 'following' &&
+        f.feedDescriptor !== forYouFeed?.feedDescriptor &&
+        f.displayName !== 'Discover' &&
+        f.displayName !== 'For you' &&
+        f.displayName !== 'Following',
+    )
+
+    return [forYouFeed, followingFeed, ...topicFeedInfos, ...otherFeeds]
+  }, [pinnedFeedInfos, topicFeedInfos])
+
   const allFeeds = useMemo(
-    () => pinnedFeedInfos.map(f => f.feedDescriptor),
-    [pinnedFeedInfos],
+    () => mergedFeedInfos.map(f => f.feedDescriptor),
+    [mergedFeedInfos],
   )
   const maybeRawSelectedFeed: FeedDescriptor | undefined =
     useSelectedFeed() ?? allFeeds[0]
@@ -132,7 +251,7 @@ function HomeScreenReady({
   const maybeFoundIndex = allFeeds.indexOf(maybeRawSelectedFeed)
   const selectedIndex = Math.max(0, maybeFoundIndex)
   const maybeSelectedFeed: FeedDescriptor | undefined = allFeeds[selectedIndex]
-  const selectedFeedInfo = pinnedFeedInfos[selectedIndex]
+  const selectedFeedInfo = mergedFeedInfos[selectedIndex]
   const requestNotificationsPermission = useRequestNotificationsPermission()
 
   useSetTitle(selectedFeedInfo && getLocalizedFeedName(selectedFeedInfo, i18n))
@@ -231,13 +350,7 @@ function HomeScreenReady({
             {...props}
             testID="homeScreenFeedTabs"
             onPressSelected={onPressSelected}
-            feeds={[
-              {
-                displayName: 'Following',
-                uri: TIMELINE_SAVED_FEED.value,
-              },
-              {displayName: 'Discover', uri: DISCOVER_FEED_URI},
-            ]}
+            feeds={mergedFeedInfos}
           />
         )
       }
@@ -247,11 +360,11 @@ function HomeScreenReady({
           {...props}
           testID="homeScreenFeedTabs"
           onPressSelected={onPressSelected}
-          feeds={pinnedFeedInfos}
+          feeds={mergedFeedInfos}
         />
       )
     },
-    [onPressSelected, pinnedFeedInfos, demoMode],
+    [onPressSelected, mergedFeedInfos, demoMode],
   )
 
   const renderFollowingEmptyState = useCallback(() => {
@@ -281,22 +394,37 @@ function HomeScreenReady({
         onPageSelected={onPageSelected}
         renderTabBar={renderTabBar}
         initialPage={selectedIndex}>
-        <FeedPage
-          testID="demoFeedPage"
-          isPageFocused
-          isPageAdjacent={false}
-          feed="demo"
-          renderEmptyState={renderCustomFeedEmptyState}
-          feedInfo={pinnedFeedInfos[0]}
-        />
-        <FeedPage
-          testID="customFeedPage"
-          isPageFocused
-          isPageAdjacent={false}
-          feed={`feedgen|${PROD_DEFAULT_FEED('whats-hot')}`}
-          renderEmptyState={renderCustomFeedEmptyState}
-          feedInfo={pinnedFeedInfos[0]}
-        />
+        {mergedFeedInfos.map((feedInfo, index) => {
+          const feed = feedInfo.feedDescriptor
+          if (feed === 'following') {
+            return (
+              <FeedPage
+                key={feed}
+                testID="followingFeedPage"
+                isPageFocused={maybeSelectedFeed === feed}
+                isPageAdjacent={Math.abs(selectedIndex - index) === 1}
+                feed={feed}
+                feedParams={homeFeedParams}
+                renderEmptyState={renderFollowingEmptyState}
+                renderEndOfFeed={FollowingEndOfFeed}
+                feedInfo={feedInfo}
+              />
+            )
+          }
+          const savedFeedConfig = feedInfo.savedFeed
+          return (
+            <FeedPage
+              key={feed}
+              testID="customFeedPage"
+              isPageFocused={maybeSelectedFeed === feed}
+              isPageAdjacent={Math.abs(selectedIndex - index) === 1}
+              feed={feed}
+              renderEmptyState={renderCustomFeedEmptyState}
+              savedFeedConfig={savedFeedConfig}
+              feedInfo={feedInfo}
+            />
+          )
+        })}
       </Pager>
     )
   }
@@ -310,8 +438,8 @@ function HomeScreenReady({
       onPageSelected={onPageSelected}
       onPageScrollStateChanged={onPageScrollStateChanged}
       renderTabBar={renderTabBar}>
-      {pinnedFeedInfos.length ? (
-        pinnedFeedInfos.map((feedInfo, index) => {
+      {mergedFeedInfos.length ? (
+        mergedFeedInfos.map((feedInfo, index) => {
           const feed = feedInfo.feedDescriptor
           if (feed === 'following') {
             return (
@@ -358,7 +486,7 @@ function HomeScreenReady({
         isPageAdjacent={false}
         feed={`feedgen|${PROD_DEFAULT_FEED('whats-hot')}`}
         renderEmptyState={renderCustomFeedEmptyState}
-        feedInfo={pinnedFeedInfos[0]}
+        feedInfo={mergedFeedInfos[0] || pinnedFeedInfos[0]}
       />
     </Pager>
   )

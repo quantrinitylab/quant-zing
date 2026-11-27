@@ -43,7 +43,11 @@ import {KnownLikers} from '#/components/Post/KnownLikers'
 import {PostRepliedTo} from '#/components/Post/PostRepliedTo'
 import {ShowMoreTextButton} from '#/components/Post/ShowMoreTextButton'
 import {TranslatedPost} from '#/components/Post/Translated'
-import {PostControls} from '#/components/PostControls'
+import {
+  AskQuantyButton,
+  PostControls,
+  PostMenuButton,
+} from '#/components/PostControls'
 import {DiscoverDebug} from '#/components/PostControls/DiscoverDebug'
 import {RichText} from '#/components/RichText'
 import {SubtleHover} from '#/components/SubtleHover'
@@ -423,6 +427,22 @@ let FeedItemInner = ({
               timestamp={post.indexedAt}
               postHref={href}
               onOpenAuthor={onOpenAuthor}
+              rightSlot={
+                <View style={[a.flex_row, a.align_center, {gap: 2}]}>
+                  <AskQuantyButton post={post} record={record} />
+                  <PostMenuButton
+                    testID="postDropdownBtn"
+                    post={post}
+                    record={record}
+                    richText={richText}
+                    timestamp={post.indexedAt}
+                    threadgateRecord={threadgateRecord}
+                    onShowLess={onShowLess}
+                    logContext="FeedItem"
+                    forceGoogleTranslate={false}
+                  />
+                </View>
+              }
             />
             {showReplyTo &&
               (parentAuthor || isParentBlocked || isParentNotFound) && (
@@ -451,6 +471,7 @@ let FeedItemInner = ({
               logContext="FeedItem"
               threadgateRecord={threadgateRecord}
               onShowLess={onShowLess}
+              hidePostMenu
             />
             <KnownLikers
               post={post}

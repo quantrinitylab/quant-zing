@@ -19,7 +19,6 @@ import {ErrorBoundary} from '#/view/com/util/ErrorBoundary'
 import {atoms as a, useTheme, web} from '#/alf'
 import {useIsWithinMessage} from '#/components/dms/MessageContext'
 import {useFullscreen} from '#/components/hooks/useFullscreen'
-import {ArrowsDiagonalOut_Stroke2_Corner0_Rounded as ExpandReelsIcon} from '#/components/icons/ArrowsDiagonal'
 import {ConstrainedImage} from '#/components/images/AutoSizedImage'
 import {MediaInsetBorder} from '#/components/MediaInsetBorder'
 import {
@@ -50,6 +49,7 @@ export function VideoEmbed({
   post?: app.bsky.feed.defs.PostView
 }) {
   const t = useTheme()
+  const {_} = useLingui()
   const navigation = useNavigation<NavigationProp>()
   const ref = useRef<HTMLDivElement>(null)
   const {
@@ -182,13 +182,28 @@ export function VideoEmbed({
     aspectRatio < 1 / 2 ||
     (containerWidth > 0 && cardWidth < MIN_CARD_WIDTH)
 
+  const handleVideoClick = useCallback(
+    (evt: React.MouseEvent) => {
+      evt.stopPropagation()
+      if (!isGif && post?.uri) {
+        navigation.navigate('VideoFeed', {
+          type: 'feedgen',
+          uri: VIDEO_FEED_URI,
+          sourceInterstitial: 'none',
+          initialPostUri: post.uri,
+        })
+      }
+    },
+    [isGif, post?.uri, navigation],
+  )
+
   const contents = (
     <div
       ref={ref}
       style={{
         display: 'flex',
         flex: 1,
-        cursor: 'default',
+        cursor: !isGif && post?.uri ? 'pointer' : 'default',
         position: 'relative',
         overflow: 'hidden',
         backgroundColor: t.palette.black,
@@ -199,12 +214,17 @@ export function VideoEmbed({
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',
       }}
-      onClick={evt => evt.stopPropagation()}>
+      onClick={handleVideoClick}>
       {fullBleed && embed.thumbnail && (
-        <>
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: 0,
+            overflow: 'hidden',
+          }}>
           {/* blurred backdrop fills the bars when the video is boxed */}
           <div
-            aria-hidden
             style={{
               position: 'absolute',
               inset: 0,
@@ -218,7 +238,6 @@ export function VideoEmbed({
           />
           {/* redraw the sharp thumbnail above the blur */}
           <div
-            aria-hidden
             style={{
               position: 'absolute',
               inset: 0,
@@ -228,7 +247,7 @@ export function VideoEmbed({
               backgroundRepeat: 'no-repeat',
             }}
           />
-        </>
+        </div>
       )}
       <ErrorBoundary
         renderError={renderError}
@@ -265,7 +284,11 @@ export function VideoEmbed({
       </ErrorBoundary>
       {!isGif && post?.uri && (
         <Pressable
-          testID="openVideoInReelsBtn"
+          accessibilityRole="button"
+          accessibilityLabel={
+            embed.alt ? _(msg`Video: ${embed.alt}`) : _(msg`Video`)
+          }
+          accessibilityHint=""
           onPress={evt => {
             evt.stopPropagation()
             navigation.navigate('VideoFeed', {
@@ -275,29 +298,13 @@ export function VideoEmbed({
               initialPostUri: post.uri,
             })
           }}
-          accessibilityRole="button"
-          accessibilityLabel="Open in full screen Reels"
-          accessibilityHint=""
-          style={({pressed}) => [
+          style={[
             a.absolute,
-            a.align_center,
-            a.justify_center,
-            a.rounded_full,
-            {
-              top: 10,
-              right: 10,
-              zIndex: 15,
-              width: 32,
-              height: 32,
-              backgroundColor: 'rgba(15, 20, 25, 0.72)',
-              borderWidth: 1,
-              borderColor: 'rgba(255, 255, 255, 0.22)',
-              opacity: pressed ? 0.75 : 1,
-            },
-            web({cursor: 'pointer', backdropFilter: 'blur(8px)'}),
-          ]}>
-          <ExpandReelsIcon width={14} fill="#FFFFFF" />
-        </Pressable>
+            a.inset_0,
+            {zIndex: 10},
+            web({cursor: 'pointer'}),
+          ]}
+        />
       )}
     </div>
   )

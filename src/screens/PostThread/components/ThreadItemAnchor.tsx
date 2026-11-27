@@ -48,7 +48,12 @@ import {type AppModerationCause} from '#/components/Pills'
 import {Embed, PostEmbedViewContext} from '#/components/Post/Embed'
 import {KnownLikers} from '#/components/Post/KnownLikers'
 import {TranslatedPost} from '#/components/Post/Translated'
-import {PostControls, PostControlsSkeleton} from '#/components/PostControls'
+import {
+  AskQuantyButton,
+  PostControls,
+  PostControlsSkeleton,
+  PostMenuButton,
+} from '#/components/PostControls'
 import {useFormatPostStatCount} from '#/components/PostControls/util'
 import {ProfileBadges} from '#/components/ProfileBadges'
 import {ProfileHoverCard} from '#/components/ProfileHoverCard'
@@ -345,10 +350,21 @@ const ThreadItemAnchorInner = memo(function ThreadItemAnchorInner({
                 </ProfileHoverCard>
               </View>
             </Link>
-            <View collapsable={false} style={[a.self_center]}>
+            <View collapsable={false} style={[a.self_center, a.flex_row, a.align_center, {gap: 4}]}>
               <ThreadItemAnchorFollowButton
                 did={post.author.did}
                 enabled={showFollowButton}
+              />
+              <AskQuantyButton post={postShadow} record={record} />
+              <PostMenuButton
+                testID="postDropdownBtn"
+                post={postShadow}
+                record={record}
+                richText={richText}
+                timestamp={post.indexedAt}
+                threadgateRecord={threadgateRecord}
+                logContext="PostThreadItem"
+                forceGoogleTranslate={false}
               />
             </View>
           </View>
@@ -500,6 +516,7 @@ const ThreadItemAnchorInner = memo(function ThreadItemAnchorInner({
                 onPressReply={onPressReply}
                 logContext="PostThreadItem"
                 threadgateRecord={threadgateRecord}
+                hidePostMenu
               />
             </View>
             <DebugFieldDisplay subject={post} />
@@ -723,7 +740,7 @@ export function ThreadItemAnchorSkeleton() {
 
       <Skele.Text style={[a.text_sm, {width: '50%'}]} />
 
-      <PostControlsSkeleton big />
+      <PostControlsSkeleton big hidePostMenu />
     </View>
   )
 }
