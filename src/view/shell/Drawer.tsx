@@ -1,10 +1,5 @@
 import {type ComponentProps, type JSX, memo, useCallback} from 'react'
-import {
-  Pressable,
-  ScrollView,
-  TouchableOpacity,
-  View,
-} from 'react-native'
+import {Pressable, ScrollView, TouchableOpacity, View} from 'react-native'
 import {useSafeAreaInsets} from 'react-native-safe-area-context'
 import {plural} from '@lingui/core/macro'
 import {Plural, Trans, useLingui} from '@lingui/react/macro'
@@ -16,7 +11,6 @@ import {
 } from '@react-navigation/native'
 
 import {UNREAD_NOTIFICATION_CAP, VIDEO_FEED_URI} from '#/lib/constants'
-import {isBrowserNonStandaloneWeb} from '#/platform/detection'
 import {type PressableScale} from '#/lib/custom-animations/PressableScale'
 import {useNavigationTabState} from '#/lib/hooks/useNavigationTabState'
 import {getCurrentRoute, getTabState, TabState} from '#/lib/routes/helpers'
@@ -28,6 +22,7 @@ import {
 import {type SharedNavTab, TAB_TO_NAV_ITEM} from '#/lib/routes/tab-to-nav-item'
 import {type RootNavigationProp} from '#/lib/routes/types'
 import {sanitizeHandle} from '#/lib/strings/handles'
+import {isBrowserNonStandaloneWeb} from '#/platform/detection'
 import {emitSoftReset} from '#/state/events'
 import {useModerationInboxUnreadCountQuery} from '#/state/queries/moderation-inbox'
 import {useUnreadNotifications} from '#/state/queries/notifications/unread'
@@ -55,8 +50,6 @@ import {BulletList_Stroke2_Corner0_Rounded as ListIcon} from '#/components/icons
 import {Download_Stroke2_Corner0_Rounded as DownloadIcon} from '#/components/icons/Download'
 import {Earth_Stroke2_Corner0_Rounded as EarthIcon} from '#/components/icons/Earth'
 import {Growth_Stroke2_Corner0_Rounded as GrowthIcon} from '#/components/icons/Growth'
-import {Newspaper_Stroke2_Corner2_Rounded as NewspaperIcon} from '#/components/icons/Newspaper'
-import {VideoClip_Stroke2_Corner0_Rounded as VideoClipIcon} from '#/components/icons/VideoClip'
 import {
   Hashtag_Filled_Corner0_Rounded as HashtagFilledIcon,
   Hashtag_Stroke2_Corner0_Rounded as HashtagIcon,
@@ -73,14 +66,16 @@ import {
   Message_Stroke2_Corner0_Rounded as MessageIcon,
   Message_Stroke2_Corner0_Rounded_Filled as MessageFilledIcon,
 } from '#/components/icons/Message'
+import {Newspaper_Stroke2_Corner2_Rounded as NewspaperIcon} from '#/components/icons/Newspaper'
 import {SettingsGear2_Stroke2_Corner0_Rounded as SettingsIcon} from '#/components/icons/Settings'
 import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
 import {StreamingLive_Stroke2_Corner0_Rounded as StreamingLiveIcon} from '#/components/icons/StreamingLive'
-import {Verified_Stroke2_Corner2_Rounded as VerifiedIcon} from '#/components/icons/Verified'
 import {
   UserCircle_Filled_Corner0_Rounded as UserCircleFilledIcon,
   UserCircle_Stroke2_Corner0_Rounded as UserCircleIcon,
 } from '#/components/icons/UserCircle'
+import {Verified_Stroke2_Corner2_Rounded as VerifiedIcon} from '#/components/icons/Verified'
+import {VideoClip_Stroke2_Corner0_Rounded as VideoClipIcon} from '#/components/icons/VideoClip'
 import {InlineLinkText} from '#/components/Link'
 import {OTAChannelNotice} from '#/components/OTAChannelNotice'
 import {ProfileBadges} from '#/components/ProfileBadges'
@@ -242,7 +237,7 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
   const isAtStudio = currentRouteName === 'CreatorStudio'
   const isAtPro = currentRouteName === 'QuantZingPro'
   const isAtDownload = currentRouteName === 'Download'
-  const showDownload = isBrowserNonStandaloneWeb()
+  const showDownload = IS_WEB && isBrowserNonStandaloneWeb()
 
   // events
   // =
@@ -574,12 +569,6 @@ let DrawerContent = ({}: React.PropsWithoutRef<{}>): React.ReactNode => {
         ) : (
           <>
             <HomeMenuItem isActive={isAtHome} onPress={onPressHome} />
-            <MenuItem
-              icon={<VideoClipIcon style={[t.atoms.text]} width={iconWidth} />}
-              label="Reels"
-              bold={isAtReels}
-              onPress={onPressReels}
-            />
             <QuantyMenuItem isActive={isAtQuanty} onPress={onPressQuanty} />
             <FeedsMenuItem isActive={isAtFeeds} onPress={onPressMyFeeds} />
             <SearchMenuItem isActive={isAtSearch} onPress={onPressSearch} />
@@ -1137,17 +1126,10 @@ function MenuItem({
 function ExtraLinks() {
   const {t: l} = useLingui()
   const setDrawerOpen = useSetDrawerOpen()
-  const showDownload = isBrowserNonStandaloneWeb()
+  const showDownload = IS_WEB && isBrowserNonStandaloneWeb()
 
   return (
     <View style={[a.flex_col, a.gap_md, a.flex_wrap]}>
-      <InlineLinkText
-        style={[a.text_md, a.font_bold]}
-        label="Open QuantZing Reels"
-        to="/video-feed"
-        onPress={() => setDrawerOpen(false)}>
-        Reels
-      </InlineLinkText>
       {showDownload && (
         <InlineLinkText
           style={[a.text_md, a.font_bold]}

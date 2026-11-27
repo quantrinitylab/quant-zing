@@ -11,8 +11,8 @@ import {PressableScale} from '#/lib/custom-animations/PressableScale'
 import {useHaptics} from '#/lib/haptics'
 import {type NavigationProp} from '#/lib/routes/types'
 import {emitSoftReset} from '#/state/events'
-import {useSession} from '#/state/session'
 import {useShellHeaderLayout} from '#/state/shell/shell-layout'
+import {DiscoverTopicsModal} from '#/view/com/home/DiscoverTopicsModal'
 import {useHomeHeaderTransform} from '#/view/com/util/MainScrollProvider'
 import {Logo} from '#/view/icons/Logo'
 import {
@@ -20,13 +20,13 @@ import {
   useBreakpoints,
   useTheme,
   utils,
-  web,
   type ViewStyleProp,
+  web,
 } from '#/alf'
-import {ButtonIcon} from '#/components/Button'
-import {Hashtag_Stroke2_Corner0_Rounded as FeedsIcon} from '#/components/icons/Hashtag'
+import {Button, ButtonIcon} from '#/components/Button'
+import * as Dialog from '#/components/Dialog'
+import {PlusLarge_Stroke2_Corner0_Rounded as PlusIcon} from '#/components/icons/Plus'
 import * as Layout from '#/components/Layout'
-import {Link} from '#/components/Link'
 import {useAnalytics} from '#/analytics'
 import {IS_DEV, IS_LIQUID_GLASS, IS_NATIVE} from '#/env'
 
@@ -42,7 +42,7 @@ export function HomeHeaderLayoutMobile({
   const {onLayout} = useShellHeaderLayout()
   const insets = useSafeAreaInsets()
   const headerMinimalShellTransform = useHomeHeaderTransform()
-  const {hasSession} = useSession()
+  const discoverTopicsControl = Dialog.useDialogControl()
   const haptics = useHaptics()
   const {navigate} = useNavigation<NavigationProp>()
   const {gtMobile} = useBreakpoints()
@@ -109,31 +109,34 @@ export function HomeHeaderLayoutMobile({
           </View>
 
           <Layout.Header.Slot>
-            {hasSession && (
-              <Link
-                testID="viewHeaderHomeFeedPrefsBtn"
-                to={{screen: 'Feeds'}}
-                hitSlop={HITSLOP_10}
-                label={_(msg`View your feeds and explore more`)}
-                size="small"
-                variant="ghost"
-                color="secondary"
-                shape="square"
-                onPress={() => {
-                  ax.metric('nav:click', {item: 'feeds', surface: 'topBar'})
-                }}
-                style={[
-                  a.justify_center,
-                  {marginRight: -Layout.BUTTON_VISUAL_ALIGNMENT_OFFSET},
-                  a.bg_transparent,
-                ]}>
-                <ButtonIcon icon={FeedsIcon} size="lg" />
-              </Link>
-            )}
+            <Button
+              testID="viewHeaderDiscoverTopicsBtn"
+              label={_(msg`Discover topics and find people`)}
+              accessibilityLabel="Discover topics and find people"
+              accessibilityHint={_(
+                msg`Opens discover topics and find people modal`,
+              )}
+              size="small"
+              variant="ghost"
+              color="secondary"
+              shape="square"
+              hitSlop={HITSLOP_10}
+              onPress={() => {
+                ax.metric('nav:click', {item: 'feeds', surface: 'topBar'})
+                discoverTopicsControl.open()
+              }}
+              style={[
+                a.justify_center,
+                {marginRight: -Layout.BUTTON_VISUAL_ALIGNMENT_OFFSET},
+                a.bg_transparent,
+              ]}>
+              <ButtonIcon icon={PlusIcon} size="lg" />
+            </Button>
           </Layout.Header.Slot>
         </Layout.Header.Outer>
         {children}
       </Animated.View>
+      <DiscoverTopicsModal control={discoverTopicsControl} />
     </>
   )
 }

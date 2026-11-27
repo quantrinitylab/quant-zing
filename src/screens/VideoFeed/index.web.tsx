@@ -1,18 +1,16 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {Pressable, useWindowDimensions, View} from 'react-native'
-import type Hls from 'hls.js'
-import {
-  type AtIdentifierString,
-  AtUri,
-  type AtUriString,
-  type DidString,
-} from '@atproto/syntax'
+import {type AtIdentifierString, AtUri, type AtUriString} from '@atproto/syntax'
 import {useNavigation, useRoute} from '@react-navigation/native'
 import {useQueryClient} from '@tanstack/react-query'
+import type Hls from 'hls.js'
 
 import {VIDEO_FEED_URI} from '#/lib/constants'
 import {useOpenComposer} from '#/lib/hooks/useOpenComposer'
-import {type CommonNavigatorParams, type NavigationProp} from '#/lib/routes/types'
+import {
+  type CommonNavigatorParams,
+  type NavigationProp,
+} from '#/lib/routes/types'
 import {updatePostShadow} from '#/state/cache/post-shadow'
 import {useAppviewClient, useRequireAuth, useSession} from '#/state/session'
 import {UserAvatar} from '#/view/com/util/UserAvatar'
@@ -23,6 +21,7 @@ import {
   Bookmark_Filled_Corner0_Rounded as BookmarkFilledIcon,
   Bookmark_Stroke2_Corner0_Rounded as BookmarkIcon,
 } from '#/components/icons/Bookmark'
+import {VerifiedCheck as VerifiedIcon} from '#/components/icons/brands/VerifiedCheck'
 import {
   ChevronBottom_Stroke2_Corner0_Rounded as ChevronDownIcon,
   ChevronTop_Stroke2_Corner0_Rounded as ChevronUpIcon,
@@ -32,12 +31,12 @@ import {
   Heart2_Stroke2_Corner0_Rounded as HeartIcon,
 } from '#/components/icons/Heart2'
 import {Mute_Stroke2_Corner0_Rounded as MuteIcon} from '#/components/icons/Mute'
+import {Pause_Filled_Corner0_Rounded as PauseIcon} from '#/components/icons/Pause'
 import {Play_Filled_Corner0_Rounded as PlayIcon} from '#/components/icons/Play'
 import {PlusLarge_Stroke2_Corner0_Rounded as PlusIcon} from '#/components/icons/Plus'
 import {Reply_Stroke2_Corner0_Rounded as ReplyIcon} from '#/components/icons/Reply'
 import {Repost_Stroke2_Corner0_Rounded as RepostIcon} from '#/components/icons/Repost'
 import {SpeakerVolumeFull_Stroke2_Corner0_Rounded as VolumeIcon} from '#/components/icons/SpeakerVolumeFull'
-import {VerifiedCheck as VerifiedIcon} from '#/components/icons/brands/VerifiedCheck'
 import {VideoClip_Stroke2_Corner0_Rounded as VideoClipIcon} from '#/components/icons/VideoClip'
 import {Loader} from '#/components/Loader'
 import {loadHls} from '#/components/Post/Embed/VideoEmbed/VideoEmbedInner/loadHls'
@@ -54,8 +53,25 @@ type ReelItem = {
   aspectRatio?: {width: number; height: number}
 }
 
-function extractVideoFromPost(post: app.bsky.feed.defs.PostView): ReelItem | null {
-  const embed = post.embed as any
+type VideoEmbedLike = {
+  $type?: string
+  playlist?: string
+  thumbnail?: string
+  alt?: string
+  aspectRatio?: {width: number; height: number}
+  media?: {
+    $type?: string
+    playlist?: string
+    thumbnail?: string
+    alt?: string
+    aspectRatio?: {width: number; height: number}
+  }
+}
+
+function extractVideoFromPost(
+  post: app.bsky.feed.defs.PostView,
+): ReelItem | null {
+  const embed = post.embed as VideoEmbedLike | undefined
   if (!embed) return null
   if (embed.$type === 'app.bsky.embed.video#view' && embed.playlist) {
     return {
@@ -106,6 +122,7 @@ export function VideoFeed() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [activeIndex, setActiveIndex] = useState(0)
   const [muted, setMuted] = useState(false)
+  const [controlsHidden, setControlsHidden] = useState(false)
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const slideRefs = useRef<Array<HTMLDivElement | null>>([])
   const cursorRef = useRef<string | undefined>(undefined)
@@ -139,7 +156,12 @@ export function VideoFeed() {
         cursor: res.cursor,
       }
     },
-    [client, params?.type, (params as any)?.did, (params as any)?.uri],
+    [
+      client,
+      params?.type,
+      (params as {did?: string; uri?: string} | undefined)?.did,
+      (params as {did?: string; uri?: string} | undefined)?.uri,
+    ],
   )
 
   const loadReels = useCallback(async () => {
@@ -187,10 +209,10 @@ export function VideoFeed() {
 
       setReels(extracted)
       setActiveIndex(0)
-    } catch (err: any) {
+    } catch (err: unknown) {
       setReels([])
       setLoadError(
-        err?.message ||
+        (err instanceof Error ? err.message : '') ||
           'Unable to load Reels right now. Please check your connection and try again.',
       )
     } finally {
@@ -199,7 +221,11 @@ export function VideoFeed() {
   }, [client, fetchFeedPage, params?.initialPostUri])
 
   const loadMoreReels = useCallback(async () => {
-    if (isFetchingMoreRef.current || !hasMoreRef.current || !cursorRef.current) {
+    if (
+      isFetchingMoreRef.current ||
+      !hasMoreRef.current ||
+      !cursorRef.current
+    ) {
       return
     }
     isFetchingMoreRef.current = true
@@ -218,7 +244,9 @@ export function VideoFeed() {
       if (incoming.length > 0) {
         setReels(prev => {
           const existing = new Set(prev.map(r => r.post.uri))
-          const additions = incoming.filter(item => !existing.has(item.post.uri))
+          const additions = incoming.filter(
+            item => !existing.has(item.post.uri),
+          )
           return additions.length > 0 ? [...prev, ...additions] : prev
         })
       }
@@ -261,7 +289,9 @@ export function VideoFeed() {
     if (navigation.canGoBack()) {
       navigation.goBack()
     } else {
-      ;(navigation as any).navigate('Home')
+      ;(navigation as unknown as {navigate: (screen: string) => void}).navigate(
+        'Home',
+      )
     }
   }, [navigation])
 
@@ -349,7 +379,12 @@ export function VideoFeed() {
         width: '100%',
         overflow: 'hidden',
       }}>
-      <style>{`@keyframes qzReelHeartPop{0%{opacity:0;transform:translate(-50%,-50%) scale(0.5);}25%{opacity:1;transform:translate(-50%,-50%) scale(1.15);}65%{opacity:0.95;transform:translate(-50%,-50%) scale(1);}100%{opacity:0;transform:translate(-50%,-68%) scale(1.25);}}`}</style>
+      <style
+        dangerouslySetInnerHTML={{
+          __html:
+            '@keyframes qzReelHeartPop{0%{opacity:0;transform:translate(-50%,-50%) scale(0.5);}25%{opacity:1;transform:translate(-50%,-50%) scale(1.15);}65%{opacity:0.95;transform:translate(-50%,-50%) scale(1);}100%{opacity:0;transform:translate(-50%,-68%) scale(1.25);}}',
+        }}
+      />
       {/* Top Overlay Header */}
       <div
         style={{
@@ -364,20 +399,22 @@ export function VideoFeed() {
           padding: gtMobile ? '16px 24px' : '12px 14px',
           background:
             'linear-gradient(180deg, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0) 100%)',
-          pointerEvents: 'none',
+          pointerEvents: controlsHidden ? 'none' : 'auto',
+          opacity: controlsHidden ? 0 : 1,
+          transition: 'opacity 200ms ease-in-out',
         }}>
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 12,
-            pointerEvents: 'auto',
+            pointerEvents: controlsHidden ? 'none' : 'auto',
           }}>
           <Pressable
             testID="reelsBackBtn"
             onPress={onClose}
             accessibilityRole="button"
             accessibilityLabel="Close Reels"
+            accessibilityHint=""
             style={({pressed}) => [
               a.align_center,
               a.justify_center,
@@ -394,41 +431,30 @@ export function VideoFeed() {
             ]}>
             <ArrowLeftIcon width={20} fill="#FFFFFF" />
           </Pressable>
-          <View>
-            <Text style={[a.text_lg, a.font_bold, {color: '#FFFFFF'}]}>
-              Reels
-            </Text>
-            {reels.length > 0 && (
-              <Text style={[a.text_xs, {color: 'rgba(231,233,234,0.75)'}]}>
-                {activeIndex + 1} / {reels.length}
-              </Text>
-            )}
-          </View>
         </div>
 
-        <div style={{pointerEvents: 'auto'}}>
+        <div style={{pointerEvents: controlsHidden ? 'none' : 'auto'}}>
           <Pressable
             testID="reelsUploadBtn"
             onPress={onUploadReel}
             accessibilityRole="button"
             accessibilityLabel="Post Reel"
+            accessibilityHint=""
             style={({pressed}) => [
-              a.flex_row,
               a.align_center,
-              a.gap_xs,
+              a.justify_center,
               a.rounded_full,
               {
-                height: 36,
-                paddingHorizontal: 14,
-                backgroundColor: '#EFF3F4',
-                opacity: pressed ? 0.85 : 1,
+                width: 40,
+                height: 40,
+                backgroundColor: 'rgba(15, 20, 25, 0.72)',
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.16)',
+                opacity: pressed ? 0.75 : 1,
               },
-              web({cursor: 'pointer'}),
+              web({cursor: 'pointer', backdropFilter: 'blur(10px)'}),
             ]}>
-            <PlusIcon width={14} fill="#0F1419" />
-            <Text style={[a.text_sm, a.font_bold, {color: '#0F1419'}]}>
-              Post Reel
-            </Text>
+            <PlusIcon width={18} fill="#FFFFFF" />
           </Pressable>
         </div>
       </div>
@@ -445,6 +471,9 @@ export function VideoFeed() {
             display: 'flex',
             flexDirection: 'column',
             gap: 10,
+            pointerEvents: controlsHidden ? 'none' : 'auto',
+            opacity: controlsHidden ? 0 : 1,
+            transition: 'opacity 200ms ease-in-out',
           }}>
           <Pressable
             testID="reelsPrevBtn"
@@ -452,6 +481,7 @@ export function VideoFeed() {
             disabled={activeIndex === 0}
             accessibilityRole="button"
             accessibilityLabel="Previous Reel"
+            accessibilityHint=""
             style={({pressed}) => [
               a.align_center,
               a.justify_center,
@@ -474,6 +504,7 @@ export function VideoFeed() {
             disabled={activeIndex >= reels.length - 1}
             accessibilityRole="button"
             accessibilityLabel="Next Reel"
+            accessibilityHint=""
             style={({pressed}) => [
               a.align_center,
               a.justify_center,
@@ -557,6 +588,7 @@ export function VideoFeed() {
               onPress={() => void loadReels()}
               accessibilityRole="button"
               accessibilityLabel="Retry loading Reels"
+              accessibilityHint=""
               style={({pressed}) => [
                 a.rounded_full,
                 a.align_center,
@@ -619,6 +651,7 @@ export function VideoFeed() {
               onPress={onUploadReel}
               accessibilityRole="button"
               accessibilityLabel="Upload first Reel"
+              accessibilityHint=""
               style={({pressed}) => [
                 a.rounded_full,
                 a.align_center,
@@ -676,6 +709,8 @@ export function VideoFeed() {
                 currentUserDid={currentAccount?.did}
                 gtMobile={gtMobile}
                 isCompactHeight={isCompactHeight}
+                controlsHidden={controlsHidden}
+                onToggleControls={() => setControlsHidden(h => !h)}
               />
             </div>
           ))}
@@ -693,7 +728,9 @@ function ReelSlide({
   onToggleMute,
   currentUserDid,
   gtMobile,
-  isCompactHeight,
+  isCompactHeight: _isCompactHeight,
+  controlsHidden,
+  onToggleControls,
 }: {
   item: ReelItem
   isActive: boolean
@@ -703,6 +740,8 @@ function ReelSlide({
   currentUserDid?: string
   gtMobile: boolean
   isCompactHeight: boolean
+  controlsHidden: boolean
+  onToggleControls: () => void
 }) {
   const {post} = item
   const queryClient = useQueryClient()
@@ -720,6 +759,8 @@ function ReelSlide({
   const [mediaReady, setMediaReady] = useState(!isHlsPlaylist)
   const [paused, setPaused] = useState(false)
   const [isBuffering, setIsBuffering] = useState(false)
+  const [playbackFailed, setPlaybackFailed] = useState(false)
+  const [retrySeq, setRetrySeq] = useState(0)
   const [progress, setProgress] = useState(0)
   const [heartBurst, setHeartBurst] = useState<{
     id: number
@@ -749,7 +790,9 @@ function ReelSlide({
   const heartBurstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isOwnPost = currentUserDid === post.author.did
-  const recordText = String((post.record as any)?.text || '')
+  const recordText = String(
+    (post.record as {text?: string} | undefined)?.text || '',
+  )
   const rkey = useMemo(() => {
     try {
       return new AtUri(post.uri).rkey
@@ -785,6 +828,7 @@ function ReelSlide({
     let cancelled = false
     let instance: Hls | null = null
     setMediaReady(false)
+    setPlaybackFailed(false)
 
     void loadHls()
       .then(HlsClass => {
@@ -799,6 +843,7 @@ function ReelSlide({
           instance.on(HlsClass.Events.MANIFEST_PARSED, () => {
             if (!cancelled) {
               setMediaReady(true)
+              setPlaybackFailed(false)
             }
           })
           instance.on(HlsClass.Events.ERROR, (_event, data) => {
@@ -807,6 +852,9 @@ function ReelSlide({
                 instance.startLoad()
               } else if (data.type === HlsClass.ErrorTypes.MEDIA_ERROR) {
                 instance.recoverMediaError()
+              } else {
+                setPlaybackFailed(true)
+                setIsBuffering(false)
               }
             }
           })
@@ -835,7 +883,7 @@ function ReelSlide({
         video.load()
       }
     }
-  }, [isHlsPlaylist, item.playlist, shouldMountVideo])
+  }, [isHlsPlaylist, item.playlist, retrySeq, shouldMountVideo])
 
   useEffect(() => {
     const v = videoRef.current
@@ -861,14 +909,11 @@ function ReelSlide({
         setIsBuffering(true)
       }
       if (mediaReady) {
-        const p = v.play()
-        if (p && typeof p.catch === 'function') {
-          p.catch(() => {
-            // Browser autoplay policy fallback: retry muted
-            v.muted = true
-            v.play().catch(() => {})
-          })
-        }
+        void v.play().catch(() => {
+          // Browser autoplay policy fallback: retry muted
+          v.muted = true
+          v.play().catch(() => {})
+        })
       }
     } else if (!isActive || paused) {
       v.pause()
@@ -1048,7 +1093,7 @@ function ReelSlide({
             collection: 'app.bsky.graph.follow',
             record: {
               $type: 'app.bsky.graph.follow',
-              subject: post.author.did as DidString,
+              subject: post.author.did,
               createdAt: new Date().toISOString(),
             },
           })
@@ -1137,11 +1182,11 @@ function ReelSlide({
         }
         singleTapTimerRef.current = setTimeout(() => {
           singleTapTimerRef.current = null
-          onTogglePlay()
+          onToggleControls()
         }, 240)
       }
     },
-    [likeUri, onToggleLike, onTogglePlay],
+    [likeUri, onToggleControls, onToggleLike],
   )
 
   const frameStyle: React.CSSProperties = gtMobile
@@ -1187,10 +1232,22 @@ function ReelSlide({
           onWaiting={() => {
             if (isActive) setIsBuffering(true)
           }}
-          onCanPlay={() => setIsBuffering(false)}
-          onPlaying={() => setIsBuffering(false)}
-          onLoadedData={() => setIsBuffering(false)}
-          onError={() => setIsBuffering(false)}
+          onCanPlay={() => {
+            setIsBuffering(false)
+            setPlaybackFailed(false)
+          }}
+          onPlaying={() => {
+            setIsBuffering(false)
+            setPlaybackFailed(false)
+          }}
+          onLoadedData={() => {
+            setIsBuffering(false)
+            setPlaybackFailed(false)
+          }}
+          onError={() => {
+            setIsBuffering(false)
+            setPlaybackFailed(true)
+          }}
           onEnded={e => {
             const el = e.currentTarget
             el.currentTime = 0
@@ -1242,7 +1299,52 @@ function ReelSlide({
         </div>
       )}
 
-      {isActive && isBuffering && !paused && (
+      {isActive && playbackFailed && (
+        <div
+          data-testid="reelErrorOverlay"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'rgba(0,0,0,0.55)',
+            zIndex: 5,
+          }}>
+          <Pressable
+            onPress={() => {
+              setPlaybackFailed(false)
+              setIsBuffering(true)
+              setRetrySeq(n => n + 1)
+              const v = videoRef.current
+              if (v && !isHlsPlaylist) {
+                v.load()
+                v.play().catch(() => {})
+              }
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Retry Video"
+            accessibilityHint=""
+            style={({pressed}) => [
+              a.rounded_full,
+              a.px_lg,
+              a.py_sm,
+              {
+                backgroundColor: 'rgba(15, 20, 25, 0.85)',
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.25)',
+                opacity: pressed ? 0.75 : 1,
+              },
+              web({cursor: 'pointer', backdropFilter: 'blur(8px)'}),
+            ]}>
+            <Text style={[a.text_sm, a.font_bold, {color: '#FFFFFF'}]}>
+              Video unavailable · Tap to retry
+            </Text>
+          </Pressable>
+        </div>
+      )}
+
+      {isActive && isBuffering && !paused && !playbackFailed && (
         <div
           data-testid="reelBufferingSpinner"
           style={{
@@ -1292,7 +1394,7 @@ function ReelSlide({
 
       {shouldMountVideo && paused && (
         <div
-          onClick={onStageClick}
+          onClick={onTogglePlay}
           style={{
             position: 'absolute',
             inset: 0,
@@ -1301,6 +1403,7 @@ function ReelSlide({
             justifyContent: 'center',
             backgroundColor: 'rgba(0,0,0,0.22)',
             cursor: 'pointer',
+            zIndex: 4,
           }}>
           <div
             style={{
@@ -1318,143 +1421,65 @@ function ReelSlide({
         </div>
       )}
 
-      {/* Right-Side Floating Action Rail */}
-      <div
-        style={{
-          position: 'absolute',
-          right: 12,
-          bottom: isCompactHeight ? 54 : 84,
-          maxHeight: 'calc(100dvh - 124px)',
-          overflowY: 'auto',
-          scrollbarWidth: 'none',
-          zIndex: 5,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: isCompactHeight ? 8 : 16,
-        }}>
-        <Pressable onPress={onOpenProfile} accessibilityRole="button" accessibilityLabel="Open creator profile">
-          <UserAvatar
-            avatar={post.author.avatar}
-            size={isCompactHeight ? 34 : 42}
-            type="user"
-          />
-        </Pressable>
-
-        <ReelActionButton
-          testID="reelLikeBtn"
-          label={formatCompact(likeCount)}
-          ariaLabel="Like Reel"
-          onPress={onToggleLike}
-          compact={isCompactHeight}
-          icon={
-            likeUri ? (
-              <HeartFilledIcon width={isCompactHeight ? 20 : 24} fill="#F91880" />
-            ) : (
-              <HeartIcon width={isCompactHeight ? 20 : 24} fill="#FFFFFF" />
-            )
-          }
-          activeColor={likeUri ? '#F91880' : undefined}
-        />
-
-        <ReelActionButton
-          testID="reelReplyBtn"
-          label={formatCompact(post.replyCount ?? 0)}
-          ariaLabel="Reply to Reel"
-          onPress={onReply}
-          compact={isCompactHeight}
-          icon={<ReplyIcon width={isCompactHeight ? 20 : 24} fill="#FFFFFF" />}
-        />
-
-        <ReelActionButton
-          testID="reelRezingBtn"
-          label={formatCompact(repostCount)}
-          ariaLabel="Rezing Reel"
-          onPress={onToggleRepost}
-          compact={isCompactHeight}
-          icon={
-            <RepostIcon
-              width={isCompactHeight ? 20 : 24}
-              fill={repostUri ? '#00BA7C' : '#FFFFFF'}
-            />
-          }
-          activeColor={repostUri ? '#00BA7C' : undefined}
-        />
-
-        <ReelActionButton
-          testID="reelBookmarkBtn"
-          label={bookmarked ? 'Saved' : 'Save'}
-          ariaLabel="Bookmark Reel"
-          onPress={onToggleBookmark}
-          compact={isCompactHeight}
-          icon={
-            bookmarked ? (
-              <BookmarkFilledIcon width={isCompactHeight ? 18 : 22} fill="#1D9BF0" />
-            ) : (
-              <BookmarkIcon width={isCompactHeight ? 18 : 22} fill="#FFFFFF" />
-            )
-          }
-          activeColor={bookmarked ? '#1D9BF0' : undefined}
-        />
-
-        <ReelActionButton
-          testID="reelShareBtn"
-          label="Share"
-          ariaLabel="Share Reel"
-          onPress={() => void onShare()}
-          compact={isCompactHeight}
-          icon={<ShareIcon width={isCompactHeight ? 18 : 22} fill="#FFFFFF" />}
-        />
-
-        <ReelActionButton
-          testID="reelMuteBtn"
-          label={muted ? 'Muted' : 'Sound'}
-          ariaLabel={muted ? 'Unmute Reel' : 'Mute Reel'}
-          onPress={onToggleMute}
-          compact={isCompactHeight}
-          icon={
-            muted ? (
-              <MuteIcon width={isCompactHeight ? 18 : 22} fill="#FFFFFF" />
-            ) : (
-              <VolumeIcon width={isCompactHeight ? 18 : 22} fill="#FFFFFF" />
-            )
-          }
-        />
-      </div>
-
-      {/* Bottom-Left Creator Overlay */}
+      {/* Sleek X-Style Bottom Overlay */}
       <div
         style={{
           position: 'absolute',
           left: 0,
           right: 0,
           bottom: 0,
-          padding: '44px 76px 20px 16px',
+          zIndex: 8,
+          padding: '48px 16px 14px 16px',
           background:
-            'linear-gradient(0deg, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.45) 60%, rgba(0,0,0,0) 100%)',
-          pointerEvents: 'none',
+            'linear-gradient(0deg, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.6) 65%, rgba(0,0,0,0) 100%)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+          pointerEvents: controlsHidden ? 'none' : 'auto',
+          opacity: controlsHidden ? 0 : 1,
+          transition: 'opacity 200ms ease-in-out',
         }}>
+        {/* Row 1: Creator Avatar + Display Name + Verified badge + @handle + Follow pill */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 8,
-            flexWrap: 'wrap',
-            marginBottom: 8,
-            pointerEvents: 'auto',
+            justifyContent: 'space-between',
+            gap: 10,
           }}>
           <Pressable
             onPress={onOpenProfile}
             accessibilityRole="button"
             accessibilityLabel={post.author.handle}
-            style={[a.flex_row, a.align_center, a.gap_xs]}>
-            <Text style={[a.text_md, a.font_bold, {color: '#FFFFFF'}]}>
-              {post.author.displayName || post.author.handle}
-            </Text>
-            {isVerified && <VerifiedIcon width={15} fill="#1D9BF0" />}
-            <Text style={[a.text_xs, {color: 'rgba(231,233,234,0.75)'}]}>
-              @{post.author.handle}
-            </Text>
+            accessibilityHint=""
+            style={[
+              a.flex_row,
+              a.align_center,
+              a.gap_sm,
+              a.flex_1,
+              {minWidth: 0},
+            ]}>
+            <UserAvatar avatar={post.author.avatar} size={32} type="user" />
+            <View
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.gap_xs,
+                a.flex_shrink,
+                {minWidth: 0},
+              ]}>
+              <Text
+                numberOfLines={1}
+                style={[a.text_sm, a.font_bold, {color: '#FFFFFF'}]}>
+                {post.author.displayName || post.author.handle}
+              </Text>
+              {isVerified && <VerifiedIcon width={14} fill="#1D9BF0" />}
+              <Text
+                numberOfLines={1}
+                style={[a.text_xs, {color: 'rgba(231,233,234,0.75)'}]}>
+                @{post.author.handle}
+              </Text>
+            </View>
           </Pressable>
 
           {!isOwnPost && (
@@ -1463,12 +1488,15 @@ function ReelSlide({
               onPress={onToggleFollow}
               accessibilityRole="button"
               accessibilityLabel={followUri ? 'Unfollow' : 'Follow'}
+              accessibilityHint=""
               style={({pressed}) => [
                 a.rounded_full,
                 {
-                  paddingHorizontal: 12,
-                  paddingVertical: 4,
-                  backgroundColor: followUri ? 'rgba(255,255,255,0.16)' : '#EFF3F4',
+                  paddingHorizontal: 14,
+                  paddingVertical: 5,
+                  backgroundColor: followUri
+                    ? 'rgba(255,255,255,0.16)'
+                    : '#EFF3F4',
                   borderWidth: followUri ? 1 : 0,
                   borderColor: 'rgba(255,255,255,0.35)',
                   opacity: pressed ? 0.8 : 1,
@@ -1487,20 +1515,179 @@ function ReelSlide({
           )}
         </div>
 
+        {/* Row 2: Caption text (max 2 lines, tap to open thread) */}
         {recordText.length > 0 && (
-          <div style={{pointerEvents: 'auto'}}>
-            <Pressable onPress={onOpenThread} accessibilityRole="button">
-              <Text
-                numberOfLines={3}
-                style={[
-                  a.text_sm,
-                  {color: '#E7E9EA', lineHeight: 20},
-                ]}>
-                {recordText}
-              </Text>
-            </Pressable>
-          </div>
+          <Pressable onPress={onOpenThread} accessibilityRole="button">
+            <Text
+              numberOfLines={2}
+              style={[a.text_sm, {color: '#E7E9EA', lineHeight: 19}]}>
+              {recordText}
+            </Text>
+          </Pressable>
         )}
+
+        {/* Row 3: X-Style Bottom Horizontal Action Bar */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingTop: 4,
+          }}>
+          {/* Play/Pause control */}
+          <Pressable
+            testID="reelPlayPauseBtn"
+            onPress={onTogglePlay}
+            accessibilityRole="button"
+            accessibilityLabel={paused ? 'Play' : 'Pause'}
+            accessibilityHint=""
+            style={({pressed}) => [
+              a.flex_row,
+              a.align_center,
+              a.gap_2xs,
+              {opacity: pressed ? 0.65 : 1, padding: 4},
+              web({cursor: 'pointer'}),
+            ]}>
+            {paused ? (
+              <PlayIcon width={20} fill="#FFFFFF" />
+            ) : (
+              <PauseIcon width={20} fill="#FFFFFF" />
+            )}
+          </Pressable>
+
+          {/* Reply */}
+          <Pressable
+            testID="reelReplyBtn"
+            onPress={onReply}
+            accessibilityRole="button"
+            accessibilityLabel="Reply"
+            accessibilityHint=""
+            style={({pressed}) => [
+              a.flex_row,
+              a.align_center,
+              a.gap_2xs,
+              {opacity: pressed ? 0.65 : 1, padding: 4},
+              web({cursor: 'pointer'}),
+            ]}>
+            <ReplyIcon width={19} fill="#FFFFFF" />
+            <Text style={[a.text_xs, a.font_semi_bold, {color: '#FFFFFF'}]}>
+              {formatCompact(post.replyCount ?? 0)}
+            </Text>
+          </Pressable>
+
+          {/* Rezing / Repost */}
+          <Pressable
+            testID="reelRezingBtn"
+            onPress={onToggleRepost}
+            accessibilityRole="button"
+            accessibilityLabel="Rezing"
+            accessibilityHint=""
+            style={({pressed}) => [
+              a.flex_row,
+              a.align_center,
+              a.gap_2xs,
+              {opacity: pressed ? 0.65 : 1, padding: 4},
+              web({cursor: 'pointer'}),
+            ]}>
+            <RepostIcon width={19} fill={repostUri ? '#00BA7C' : '#FFFFFF'} />
+            <Text
+              style={[
+                a.text_xs,
+                a.font_semi_bold,
+                {color: repostUri ? '#00BA7C' : '#FFFFFF'},
+              ]}>
+              {formatCompact(repostCount)}
+            </Text>
+          </Pressable>
+
+          {/* Like */}
+          <Pressable
+            testID="reelLikeBtn"
+            onPress={onToggleLike}
+            accessibilityRole="button"
+            accessibilityLabel="Like"
+            accessibilityHint=""
+            style={({pressed}) => [
+              a.flex_row,
+              a.align_center,
+              a.gap_2xs,
+              {opacity: pressed ? 0.65 : 1, padding: 4},
+              web({cursor: 'pointer'}),
+            ]}>
+            {likeUri ? (
+              <HeartFilledIcon width={19} fill="#F91880" />
+            ) : (
+              <HeartIcon width={19} fill="#FFFFFF" />
+            )}
+            <Text
+              style={[
+                a.text_xs,
+                a.font_semi_bold,
+                {color: likeUri ? '#F91880' : '#FFFFFF'},
+              ]}>
+              {formatCompact(likeCount)}
+            </Text>
+          </Pressable>
+
+          {/* Bookmark */}
+          <Pressable
+            testID="reelBookmarkBtn"
+            onPress={onToggleBookmark}
+            accessibilityRole="button"
+            accessibilityLabel="Bookmark"
+            accessibilityHint=""
+            style={({pressed}) => [
+              a.flex_row,
+              a.align_center,
+              a.gap_2xs,
+              {opacity: pressed ? 0.65 : 1, padding: 4},
+              web({cursor: 'pointer'}),
+            ]}>
+            {bookmarked ? (
+              <BookmarkFilledIcon width={19} fill="#1D9BF0" />
+            ) : (
+              <BookmarkIcon width={19} fill="#FFFFFF" />
+            )}
+          </Pressable>
+
+          {/* Share */}
+          <Pressable
+            testID="reelShareBtn"
+            onPress={() => void onShare()}
+            accessibilityRole="button"
+            accessibilityLabel="Share"
+            accessibilityHint=""
+            style={({pressed}) => [
+              a.flex_row,
+              a.align_center,
+              a.gap_2xs,
+              {opacity: pressed ? 0.65 : 1, padding: 4},
+              web({cursor: 'pointer'}),
+            ]}>
+            <ShareIcon width={19} fill="#FFFFFF" />
+          </Pressable>
+
+          {/* Mute/Sound toggle */}
+          <Pressable
+            testID="reelMuteBtn"
+            onPress={onToggleMute}
+            accessibilityRole="button"
+            accessibilityLabel={muted ? 'Unmute' : 'Mute'}
+            accessibilityHint=""
+            style={({pressed}) => [
+              a.flex_row,
+              a.align_center,
+              a.gap_2xs,
+              {opacity: pressed ? 0.65 : 1, padding: 4},
+              web({cursor: 'pointer'}),
+            ]}>
+            {muted ? (
+              <MuteIcon width={19} fill="#FFFFFF" />
+            ) : (
+              <VolumeIcon width={19} fill="#FFFFFF" />
+            )}
+          </Pressable>
+        </div>
       </div>
 
       {/* Bottom Scrubber Bar */}
@@ -1512,6 +1699,9 @@ function ReelSlide({
           bottom: 0,
           height: 3,
           backgroundColor: 'rgba(255,255,255,0.2)',
+          zIndex: 9,
+          opacity: controlsHidden ? 0 : 1,
+          transition: 'opacity 200ms ease-in-out',
         }}>
         <div
           style={{
@@ -1523,69 +1713,5 @@ function ReelSlide({
         />
       </div>
     </div>
-  )
-}
-
-function ReelActionButton({
-  testID,
-  icon,
-  label,
-  ariaLabel,
-  onPress,
-  activeColor,
-  compact,
-}: {
-  testID?: string
-  icon: React.ReactNode
-  label: string
-  ariaLabel: string
-  onPress: () => void
-  activeColor?: string
-  compact?: boolean
-}) {
-  const circleSize = compact ? 36 : 44
-  return (
-    <Pressable
-      testID={testID}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={ariaLabel}
-      style={({pressed}) => [
-        a.align_center,
-        {gap: compact ? 2 : 4, opacity: pressed ? 0.75 : 1},
-        web({cursor: 'pointer'}),
-      ]}>
-      <View
-        style={[
-          a.align_center,
-          a.justify_center,
-          a.rounded_full,
-          {
-            width: circleSize,
-            height: circleSize,
-            backgroundColor: 'rgba(15, 20, 25, 0.62)',
-            borderWidth: 1,
-            borderColor: 'rgba(255, 255, 255, 0.14)',
-          },
-          web({backdropFilter: 'blur(8px)'}),
-        ]}>
-        {icon}
-      </View>
-      <Text
-        style={[
-          a.text_xs,
-          a.font_bold,
-          {
-            color: activeColor || '#FFFFFF',
-            backgroundColor: 'rgba(15, 20, 25, 0.56)',
-            paddingHorizontal: 6,
-            paddingVertical: 1,
-            borderRadius: 999,
-          },
-          web({textShadow: '0 1px 4px rgba(0, 0, 0, 0.95)'}),
-        ]}>
-        {label}
-      </Text>
-    </Pressable>
   )
 }

@@ -811,7 +811,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, {
       'content-type': 'application/json; charset=utf-8',
       'content-length': Buffer.byteLength(payload),
-      'cache-control': 'no-store',
+      'cache-control': 'no-cache, no-store, must-revalidate',
     })
     res.end(payload)
     return
@@ -848,11 +848,21 @@ const server = http.createServer(async (req, res) => {
       return
     }
     const stat = fs.statSync(apkPath)
+    const etag = '"' + stat.size + '-' + Math.floor(stat.mtimeMs) + '"'
+    if (isEtagMatch(req.headers['if-none-match'], etag)) {
+      res.writeHead(304, {
+        etag,
+        'cache-control': 'no-cache, no-store, must-revalidate',
+      })
+      res.end()
+      return
+    }
     const baseHeaders = {
       'content-type': 'application/vnd.android.package-archive',
       'accept-ranges': 'bytes',
       'content-disposition': 'attachment; filename="QuantZing-Android.apk"',
-      'cache-control': 'public, max-age=3600',
+      'cache-control': 'no-cache, no-store, must-revalidate',
+      etag,
     }
     if (req.method === 'HEAD') {
       res.writeHead(200, {...baseHeaders, 'content-length': stat.size})

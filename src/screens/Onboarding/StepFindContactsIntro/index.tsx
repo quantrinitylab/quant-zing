@@ -32,7 +32,13 @@ export function StepFindContactsIntro() {
 
   const {data: isAvailable, isSuccess} = useQuery({
     queryKey: ['contacts-available'],
-    queryFn: async () => await Contacts.isAvailableAsync(),
+    queryFn: async () => {
+      try {
+        return await Contacts.isAvailableAsync()
+      } catch {
+        return false
+      }
+    },
   })
 
   return (
@@ -40,11 +46,11 @@ export function StepFindContactsIntro() {
       <OnboardingPosition />
       <ContactsHeroImage />
       <OnboardingTitleText style={[a.mt_sm]}>
-        <Trans>Bluesky is more fun with friends</Trans>
+        <Trans>QuantZing is more fun with friends</Trans>
       </OnboardingTitleText>
       <OnboardingDescriptionText>
         <Trans>
-          Find your friends on Bluesky by verifying your phone number and
+          Find your friends on QuantZing by verifying your phone number and
           matching with your contacts. We protect your information and you
           control what happens next.{' '}
           <InlineLinkText
@@ -61,26 +67,37 @@ export function StepFindContactsIntro() {
         </Trans>
       </OnboardingDescriptionText>
       {!isAvailable && isSuccess && (
-        <Admonition type="error">
+        <Admonition type="info">
           <Trans>
-            Contact sync is not available on this device, as the app is unable
-            to access your contacts.
+            Contact sync is optional. You can continue to explore QuantZing or
+            browse suggested accounts to follow.
           </Trans>
         </Admonition>
       )}
 
       <OnboardingControls.Portal>
         <View style={[a.gap_md]}>
-          <Button
-            onPress={() => dispatch({type: 'next'})}
-            label={_(msg`Import contacts`)}
-            size="large"
-            color="primary"
-            disabled={!isAvailable}>
-            <ButtonText>
-              <Trans>Import contacts</Trans>
-            </ButtonText>
-          </Button>
+          {isAvailable ? (
+            <Button
+              onPress={() => dispatch({type: 'next'})}
+              label={_(msg`Import contacts`)}
+              size="large"
+              color="primary">
+              <ButtonText>
+                <Trans>Import contacts</Trans>
+              </ButtonText>
+            </Button>
+          ) : (
+            <Button
+              onPress={() => dispatch({type: 'skip-contacts'})}
+              label={_(msg`Browse suggested people`)}
+              size="large"
+              color="primary">
+              <ButtonText>
+                <Trans>Browse suggested people</Trans>
+              </ButtonText>
+            </Button>
+          )}
           <Button
             onPress={() => dispatch({type: 'skip-contacts'})}
             label={_(msg`Skip`)}

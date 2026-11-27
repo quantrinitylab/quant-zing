@@ -7,7 +7,6 @@ import {Trans, useLingui} from '@lingui/react/macro'
 import {type BottomTabBarProps} from '@react-navigation/bottom-tabs'
 import {StackActions, useNavigationState} from '@react-navigation/native'
 
-import {VIDEO_FEED_URI} from '#/lib/constants'
 import {PressableScale} from '#/lib/custom-animations/PressableScale'
 import {useHaptics} from '#/lib/haptics'
 import {useDedupe} from '#/lib/hooks/useDedupe'
@@ -50,7 +49,6 @@ import {
   Message_Stroke2_Corner0_Rounded_Filled as MessageFilled,
 } from '#/components/icons/Message'
 import {Sparkle_Stroke2_Corner0_Rounded as Sparkle} from '#/components/icons/Sparkle'
-import {VideoClip_Stroke2_Corner0_Rounded as VideoClip} from '#/components/icons/VideoClip'
 import * as Menu from '#/components/Menu'
 import * as Toast from '#/components/Toast'
 import {Text} from '#/components/Typography'
@@ -71,9 +69,8 @@ export function BottomBar({navigation}: BottomTabBarProps) {
   const currentRouteName = useNavigationState(state =>
     state ? getCurrentRoute(state).name : 'Home',
   )
-  const isAtReels = currentRouteName === 'VideoFeed'
   const isAtQuanty = currentRouteName === 'Quanty'
-  const isAtCommonRoute = isAtReels || isAtQuanty
+  const isAtCommonRoute = isAtQuanty
   const isHomeActive = isAtHome && !isAtCommonRoute
   const isSearchActive = isAtSearch && !isAtCommonRoute
   const isNotificationsActive = isAtNotifications && !isAtCommonRoute
@@ -139,31 +136,6 @@ export function BottomBar({navigation}: BottomTabBarProps) {
   )
   const onPressHome = useCallback(() => onPressTab('Home'), [onPressTab])
   const onPressSearch = useCallback(() => onPressTab('Search'), [onPressTab])
-  const onPressReels = useCallback(() => {
-    ax.metric('nav:click', {
-      item: 'reels',
-      surface: 'bottomBar',
-    })
-    if (isAtReels) {
-      emitSoftReset()
-      return
-    }
-    dedupe(() =>
-      navigation.dispatch(
-        getCommonNavigationAction(
-          {
-            name: 'VideoFeed',
-            params: {
-              type: 'feedgen',
-              uri: VIDEO_FEED_URI,
-              sourceInterstitial: 'none',
-            },
-          },
-          navigation.getState(),
-        ),
-      ),
-    )
-  }, [ax, dedupe, isAtReels, navigation])
   const onPressQuanty = useCallback(() => {
     ax.metric('nav:click', {
       item: 'quanty',
@@ -253,22 +225,6 @@ export function BottomBar({navigation}: BottomTabBarProps) {
               onPress={onPressSearch}
               accessibilityRole="search"
               accessibilityLabel={l`Explore`}
-              accessibilityHint=""
-            />
-            <Btn
-              testID="bottomBarReelsBtn"
-              icon={
-                <VideoClip
-                  width={iconWidth}
-                  style={[
-                    styles.ctrlIcon,
-                    isAtReels ? {color: '#1D9BF0'} : t.atoms.text,
-                  ]}
-                />
-              }
-              onPress={onPressReels}
-              accessibilityRole="tab"
-              accessibilityLabel={l`Reels`}
               accessibilityHint=""
             />
             <Btn

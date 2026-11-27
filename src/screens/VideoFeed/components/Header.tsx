@@ -1,5 +1,5 @@
 import {useCallback} from 'react'
-import {type GestureResponderEvent, View} from 'react-native'
+import {type GestureResponderEvent, Pressable, View} from 'react-native'
 import {msg} from '@lingui/core/macro'
 import {useLingui} from '@lingui/react'
 import {useNavigation} from '@react-navigation/native'
@@ -12,10 +12,8 @@ import {useFeedSourceInfoQuery} from '#/state/queries/feed'
 import {UserAvatar} from '#/view/com/util/UserAvatar'
 import {type VideoFeedSourceContext} from '#/screens/VideoFeed/types'
 import {atoms as a, useBreakpoints} from '#/alf'
-import {Button, type ButtonProps} from '#/components/Button'
+import {type ButtonProps} from '#/components/Button'
 import {ArrowLeft_Stroke2_Corner0_Rounded as ArrowLeft} from '#/components/icons/Arrow'
-import * as Layout from '#/components/Layout'
-import {BUTTON_VISUAL_ALIGNMENT_OFFSET} from '#/components/Layout/const'
 import {Text} from '#/components/Typography'
 
 export function HeaderPlaceholder() {
@@ -64,28 +62,14 @@ export function HeaderPlaceholder() {
 }
 
 export function Header({
-  sourceContext,
+  sourceContext: _sourceContext,
 }: {
   sourceContext: VideoFeedSourceContext
 }) {
-  let content = null
-  switch (sourceContext.type) {
-    case 'feedgen': {
-      content = <FeedHeader sourceContext={sourceContext} />
-      break
-    }
-    case 'author':
-    // TODO
-    default: {
-      break
-    }
-  }
-
   return (
-    <Layout.Header.Outer noBottomBorder>
+    <View style={[a.w_full, a.flex_row, a.align_center, a.px_md, a.py_xs]}>
       <BackButton />
-      <Layout.Header.Content align="left">{content}</Layout.Header.Content>
-    </Layout.Header.Outer>
+    </View>
   )
 }
 
@@ -140,8 +124,7 @@ export function FeedHeader({
   )
 }
 
-// TODO: This customization should be a part of the layout component
-export function BackButton({onPress, style, ...props}: Partial<ButtonProps>) {
+export function BackButton({onPress, style}: Partial<ButtonProps>) {
   const {_} = useLingui()
   const navigation = useNavigation<NavigationProp>()
 
@@ -161,23 +144,28 @@ export function BackButton({onPress, style, ...props}: Partial<ButtonProps>) {
   )
 
   return (
-    <Layout.Header.Slot>
-      <Button
-        label={_(msg`Go back`)}
-        size="small"
-        variant="ghost"
-        color="secondary"
-        shape="round"
-        onPress={onPressBack}
-        hitSlop={HITSLOP_30}
-        style={[
-          {marginLeft: -BUTTON_VISUAL_ALIGNMENT_OFFSET},
-          a.bg_transparent,
-          style,
-        ]}
-        {...props}>
-        <ArrowLeft size="lg" fill="white" />
-      </Button>
-    </Layout.Header.Slot>
+    <Pressable
+      testID="nativeReelsBackBtn"
+      accessibilityLabel={_(msg`Go back`)}
+      accessibilityHint=""
+      accessibilityRole="button"
+      hitSlop={HITSLOP_30}
+      onPress={onPressBack}
+      style={({pressed}) => [
+        a.align_center,
+        a.justify_center,
+        a.rounded_full,
+        {
+          width: 38,
+          height: 38,
+          backgroundColor: 'rgba(15, 20, 25, 0.72)',
+          borderWidth: 1,
+          borderColor: 'rgba(255, 255, 255, 0.22)',
+          opacity: pressed ? 0.75 : 1,
+        },
+        style,
+      ]}>
+      <ArrowLeft size="md" fill="white" />
+    </Pressable>
   )
 }

@@ -1,5 +1,13 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react'
-import {ActivityIndicator, Pressable, TextInput, View} from 'react-native'
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  Switch,
+  TextInput,
+  View,
+  type ViewStyle,
+} from 'react-native'
 import {AtUri} from '@atproto/syntax'
 import {useNavigation} from '@react-navigation/native'
 
@@ -33,6 +41,7 @@ import {
 } from '#/lib/quantos/spaceAudioWebRtc'
 import {type NavigationProp} from '#/lib/routes/types'
 import {useRequireAuth, useSession} from '#/state/session'
+import {UserAvatar} from '#/view/com/util/UserAvatar'
 import {atoms as a, useTheme, web} from '#/alf'
 import {Celebrate_Stroke2_Corner0_Rounded as CelebrateIcon} from '#/components/icons/Celebrate'
 import {Clock_Stroke2_Corner0_Rounded as ClockIcon} from '#/components/icons/Clock'
@@ -51,15 +60,18 @@ import * as Layout from '#/components/Layout'
 import * as Toast from '#/components/Toast'
 import {Text} from '#/components/Typography'
 import {IS_WEB} from '#/env'
-import {UserAvatar} from '#/view/com/util/UserAvatar'
 
 const SUGGESTED_TOPICS = [
   'AI & Agents',
   'Technology',
+  'Politics',
+  'Soccer',
+  'Art',
+  'Movies & TV',
   'Markets',
+  'Music',
+  'Gaming',
   'Build in Public',
-  'Design',
-  'Breaking News',
 ]
 
 const SCHEDULE_PRESETS: Array<{label: string; offsetMinutes: number}> = [
@@ -87,6 +99,10 @@ const REACTION_LABEL_MAP: Record<QuantZingSpaceReactionKind, string> = {
   insight: 'INSIGHT',
   heart: 'HEART',
   wave: 'WAVE',
+}
+
+function getErrMsg(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback
 }
 
 function formatElapsed(seconds: number): string {
@@ -125,12 +141,13 @@ export function ZingSpacesScreen() {
   const accessJwt = currentAccount?.accessJwt
   const viewerDid = currentAccount?.did
 
-  // Creator form state
+  // Creator modal state
   const [showCreateForm, setShowCreateForm] = useState(false)
+  const [createMode, setCreateMode] = useState<'live' | 'scheduled'>('live')
+  const [recordSpace, setRecordSpace] = useState(false)
+  const [showReactionsTray, setShowReactionsTray] = useState(false)
   const [title, setTitle] = useState('')
-  const [selectedTopics, setSelectedTopics] = useState<string[]>([
-    'AI & Agents',
-  ])
+  const [selectedTopics, setSelectedTopics] = useState<string[]>(['Technology'])
   const [scheduleOffsetMin, setScheduleOffsetMin] = useState<number>(60)
   const [isCreating, setIsCreating] = useState(false)
 
@@ -187,15 +204,11 @@ export function ZingSpacesScreen() {
       try {
         const fetched = await fetchZingSpaces(filter, accessJwt)
         setSpaces(fetched)
-        setActiveSpaceSlug(prev => {
-          if (prev && fetched.some(s => s.slug === prev)) {
-            return prev
-          }
-          const firstLive = fetched.find(s => s.status === 'live')
-          return firstLive ? firstLive.slug : null
-        })
-      } catch (err: any) {
-        Toast.show(err?.message || 'Unable to load ZingSpaces right now', {
+        setActiveSpaceSlug(prev =>
+          prev && fetched.some(s => s.slug === prev) ? prev : null,
+        )
+      } catch (err: unknown) {
+        Toast.show(getErrMsg(err, 'Unable to load ZingSpaces right now'), {
           type: 'warning',
         })
       } finally {
@@ -215,8 +228,7 @@ export function ZingSpacesScreen() {
   )
 
   const viewerParticipant = useMemo(
-    () =>
-      activeSpace?.participants.find(p => p.did === viewerDid) || null,
+    () => activeSpace?.participants.find(p => p.did === viewerDid) || null,
     [activeSpace, viewerDid],
   )
   const isViewerHost = Boolean(
@@ -248,9 +260,7 @@ export function ZingSpacesScreen() {
   useEffect(() => {
     if (!meshRef.current || !activeSpace) return
     const allowed = activeSpace.participants
-      .filter(
-        p => (p.role === 'host' || p.role === 'speaker') && !p.muted,
-      )
+      .filter(p => (p.role === 'host' || p.role === 'speaker') && !p.muted)
       .map(p => p.did)
     meshRef.current.setAllowedAudioDids(allowed)
   }, [activeSpace])
@@ -292,7 +302,9 @@ export function ZingSpacesScreen() {
       callbacks: {
         sendSignal: async payload => {
           if (!accessJwt) return
-          await sendSpaceSignal(activeSpaceSlug, payload, accessJwt).catch(() => {})
+          await sendSpaceSignal(activeSpaceSlug, payload, accessJwt).catch(
+            () => {},
+          )
         },
         onStateChange: state => {
           setAudioState(state)
@@ -309,21 +321,27 @@ export function ZingSpacesScreen() {
 
     const startPollingFallback = () => {
       if (pollTimer || cancelled) return
-      pollTimer = setInterval(async () => {
-        try {
-          const res = await pollSpaceSignals(
-            activeSpaceSlug,
-            clientIdRef.current,
-            pollSeq,
-            accessJwt,
-          )
-          if (!cancelled && res?.ok && Array.isArray(res.signals)) {
-            pollSeq = res.nextSeq || pollSeq
-            for (const sig of res.signals) {
-              void mesh.handleSignal(sig as any)
+      pollTimer = setInterval(() => {
+        void (async () => {
+          try {
+            const res = await pollSpaceSignals(
+              activeSpaceSlug,
+              clientIdRef.current,
+              pollSeq,
+              accessJwt,
+            )
+            if (!cancelled && res?.ok && Array.isArray(res.signals)) {
+              pollSeq = res.nextSeq || pollSeq
+              for (const sig of res.signals) {
+                void mesh.handleSignal(
+                  sig as unknown as Parameters<
+                    ZingSpaceAudioMesh['handleSignal']
+                  >[0],
+                )
+              }
             }
-          }
-        } catch {}
+          } catch {}
+        })()
       }, 2000)
     }
 
@@ -348,7 +366,9 @@ export function ZingSpacesScreen() {
         eventSource = new EventSource(sseUrl)
         eventSource.addEventListener('space_update', (ev: MessageEvent) => {
           try {
-            const parsed = JSON.parse(ev.data)
+            const parsed = JSON.parse(String(ev.data)) as {
+              space?: QuantZingSpace
+            } & Partial<QuantZingSpace>
             const room = parsed?.space || parsed
             if (room && typeof room.slug === 'string') {
               upsertSpaceInState(room as QuantZingSpace)
@@ -357,7 +377,9 @@ export function ZingSpacesScreen() {
         })
         eventSource.addEventListener('space_peers', (ev: MessageEvent) => {
           try {
-            const parsed = JSON.parse(ev.data)
+            const parsed = JSON.parse(String(ev.data)) as {
+              peers?: Parameters<ZingSpaceAudioMesh['handlePeersSnapshot']>[0]
+            }
             if (Array.isArray(parsed?.peers)) {
               mesh.handlePeersSnapshot(parsed.peers)
             }
@@ -365,7 +387,9 @@ export function ZingSpacesScreen() {
         })
         eventSource.addEventListener('peer_joined', (ev: MessageEvent) => {
           try {
-            const peer = JSON.parse(ev.data)
+            const peer = JSON.parse(String(ev.data)) as Parameters<
+              ZingSpaceAudioMesh['handlePeerJoined']
+            >[0]
             if (peer && peer.clientId) {
               mesh.handlePeerJoined(peer)
             }
@@ -373,7 +397,7 @@ export function ZingSpacesScreen() {
         })
         eventSource.addEventListener('peer_left', (ev: MessageEvent) => {
           try {
-            const data = JSON.parse(ev.data)
+            const data = JSON.parse(String(ev.data)) as {clientId?: string}
             if (data?.clientId) {
               mesh.handlePeerLeft(data.clientId)
             }
@@ -381,7 +405,9 @@ export function ZingSpacesScreen() {
         })
         eventSource.addEventListener('space_signal', (ev: MessageEvent) => {
           try {
-            const signal = JSON.parse(ev.data)
+            const signal = JSON.parse(String(ev.data)) as Parameters<
+              ZingSpaceAudioMesh['handleSignal']
+            >[0]
             if (signal) {
               void mesh.handleSignal(signal)
             }
@@ -389,7 +415,9 @@ export function ZingSpacesScreen() {
         })
         eventSource.onmessage = (ev: MessageEvent) => {
           try {
-            const parsed = JSON.parse(ev.data)
+            const parsed = JSON.parse(String(ev.data)) as {
+              space?: QuantZingSpace
+            } & Partial<QuantZingSpace>
             const room = parsed?.space || parsed
             if (room && typeof room.slug === 'string') {
               upsertSpaceInState(room as QuantZingSpace)
@@ -444,7 +472,13 @@ export function ZingSpacesScreen() {
     if (accessJwt) {
       void setSpaceMute(activeSpace.slug, nextMuted, accessJwt).catch(() => {})
     }
-  }, [accessJwt, activeSpace, audioState.muted, isViewerHost, isViewerServerMuted])
+  }, [
+    accessJwt,
+    activeSpace,
+    audioState.muted,
+    isViewerHost,
+    isViewerServerMuted,
+  ])
 
   const handleResumeAudio = useCallback(async () => {
     if (meshRef.current) {
@@ -520,16 +554,16 @@ export function ZingSpacesScreen() {
           setShowCreateForm(false)
           if (created.status === 'live') {
             setActiveSpaceSlug(created.slug)
-            Toast.show('ZingSpace is now live on Sovereign PDS', {
+            Toast.show('ZingSpace is now live', {
               type: 'success',
             })
           } else {
-            Toast.show('ZingSpace scheduled on Sovereign PDS', {
+            Toast.show('ZingSpace scheduled', {
               type: 'success',
             })
           }
-        } catch (err: any) {
-          Toast.show(err?.message || 'Failed to create ZingSpace', {
+        } catch (err: unknown) {
+          Toast.show(getErrMsg(err, 'Failed to create ZingSpace'), {
             type: 'warning',
           })
         } finally {
@@ -562,8 +596,8 @@ export function ZingSpacesScreen() {
         upsertSpaceInState(updated)
         setActiveSpaceSlug(null)
         Toast.show('ZingSpace ended', {type: 'info'})
-      } catch (err: any) {
-        Toast.show(err?.message || 'Unable to end ZingSpace', {
+      } catch (err: unknown) {
+        Toast.show(getErrMsg(err, 'Unable to end ZingSpace'), {
           type: 'warning',
         })
       } finally {
@@ -587,8 +621,8 @@ export function ZingSpacesScreen() {
             upsertSpaceInState(liveSpace)
             setActiveSpaceSlug(liveSpace.slug)
             Toast.show('ZingSpace is now live', {type: 'success'})
-          } catch (err: any) {
-            Toast.show(err?.message || 'Unable to start ZingSpace', {
+          } catch (err: unknown) {
+            Toast.show(getErrMsg(err, 'Unable to start ZingSpace'), {
               type: 'warning',
             })
           }
@@ -630,8 +664,8 @@ export function ZingSpacesScreen() {
           upsertSpaceInState(updated)
           Toast.show('Joined ZingSpace stage', {type: 'success'})
         }
-      } catch (err: any) {
-        Toast.show(err?.message || 'Unable to update room membership', {
+      } catch (err: unknown) {
+        Toast.show(getErrMsg(err, 'Unable to update room membership'), {
           type: 'warning',
         })
       } finally {
@@ -664,12 +698,11 @@ export function ZingSpacesScreen() {
           accessJwt,
         )
         upsertSpaceInState(updated)
-        Toast.show(
-          nextRaised ? 'Hand raised for host' : 'Hand lowered',
-          {type: 'info'},
-        )
-      } catch (err: any) {
-        Toast.show(err?.message || 'Unable to update hand status', {
+        Toast.show(nextRaised ? 'Hand raised for host' : 'Hand lowered', {
+          type: 'info',
+        })
+      } catch (err: unknown) {
+        Toast.show(getErrMsg(err, 'Unable to update hand status'), {
           type: 'warning',
         })
       } finally {
@@ -705,8 +738,8 @@ export function ZingSpacesScreen() {
               : 'Moved participant to Listener',
             {type: 'success'},
           )
-        } catch (err: any) {
-          Toast.show(err?.message || 'Unable to change participant role', {
+        } catch (err: unknown) {
+          Toast.show(getErrMsg(err, 'Unable to change participant role'), {
             type: 'warning',
           })
         }
@@ -726,8 +759,8 @@ export function ZingSpacesScreen() {
           }
           setSpaces(prev => prev.filter(s => s.slug !== slug))
           Toast.show('ZingSpace deleted', {type: 'info'})
-        } catch (err: any) {
-          Toast.show(err?.message || 'Unable to delete ZingSpace', {
+        } catch (err: unknown) {
+          Toast.show(getErrMsg(err, 'Unable to delete ZingSpace'), {
             type: 'warning',
           })
         }
@@ -766,8 +799,8 @@ export function ZingSpacesScreen() {
             accessJwt,
           )
           upsertSpaceInState(updated)
-        } catch (err: any) {
-          Toast.show(err?.message || 'Unable to send reaction', {
+        } catch (err: unknown) {
+          Toast.show(getErrMsg(err, 'Unable to send reaction'), {
             type: 'warning',
           })
         }
@@ -791,51 +824,139 @@ export function ZingSpacesScreen() {
     [navigation],
   )
 
+  const stageSpeakers = useMemo(
+    () =>
+      activeSpace
+        ? activeSpace.participants.filter(
+            p => p.role === 'host' || p.role === 'speaker',
+          )
+        : [],
+    [activeSpace],
+  )
+  const stageListeners = useMemo(
+    () =>
+      activeSpace
+        ? activeSpace.participants.filter(p => p.role === 'listener')
+        : [],
+    [activeSpace],
+  )
+  const raisedHandRequests = useMemo(
+    () =>
+      activeSpace
+        ? activeSpace.participants.filter(
+            p => p.role === 'listener' && p.handRaised,
+          )
+        : [],
+    [activeSpace],
+  )
+
   return (
     <Layout.Screen
       testID="zingSpacesScreen"
       style={{backgroundColor: colors.bg}}>
       <Layout.Header.Outer>
-        <Layout.Header.BackButton />
+        {activeSpace ? (
+          <Layout.Header.Slot>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Back to Spaces"
+              accessibilityHint=""
+              onPress={() => setActiveSpaceSlug(null)}
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.gap_xs,
+                a.px_sm,
+                a.py_xs,
+                a.rounded_full,
+                {backgroundColor: colors.surface},
+                web({cursor: 'pointer'}),
+              ]}>
+              <CloseIcon size="xs" fill={colors.text} />
+              <Text style={[a.text_xs, a.font_bold, {color: colors.text}]}>
+                Spaces
+              </Text>
+            </Pressable>
+          </Layout.Header.Slot>
+        ) : (
+          <Layout.Header.BackButton />
+        )}
         <Layout.Header.Content>
           <View style={[a.flex_row, a.align_center, a.gap_xs]}>
-            <LiveIcon size="md" fill={colors.accent} />
+            <LiveIcon size="md" fill="#794BC4" />
             <Layout.Header.TitleText style={{color: colors.text}}>
-              ZingSpaces
+              {activeSpace ? 'Space' : 'Spaces'}
             </Layout.Header.TitleText>
           </View>
-          <Layout.Header.SubtitleText>
-            Live rooms, real-time speaker stages, and community discussions
-          </Layout.Header.SubtitleText>
+          {!activeSpace && (
+            <Layout.Header.SubtitleText>
+              Live audio conversations on QuantZing
+            </Layout.Header.SubtitleText>
+          )}
         </Layout.Header.Content>
-        <Layout.Header.Slot />
+        <Layout.Header.Slot>
+          {!activeSpace && (
+            <Pressable
+              testID="toggleStartSpaceFormBtn"
+              accessibilityRole="button"
+              accessibilityLabel="Start a Space"
+              accessibilityHint=""
+              onPress={() => {
+                setCreateMode('live')
+                setShowCreateForm(true)
+              }}
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.gap_2xs,
+                a.px_md,
+                a.rounded_full,
+                {
+                  height: 34,
+                  backgroundColor: '#794BC4',
+                },
+                web({cursor: 'pointer'}),
+              ]}>
+              <PlusIcon size="xs" fill="#FFFFFF" />
+              <Text style={[a.text_xs, a.font_bold, {color: '#FFFFFF'}]}>
+                Start
+              </Text>
+            </Pressable>
+          )}
+        </Layout.Header.Slot>
       </Layout.Header.Outer>
 
       <Layout.Content
         style={{backgroundColor: colors.bg}}
-        contentContainerStyle={[a.p_md, a.gap_md, {paddingBottom: 96}]}>
-        {/* Active Live Interactive Space Room */}
-        {activeSpace && (
+        contentContainerStyle={[a.p_md, a.gap_lg, {paddingBottom: 112}]}>
+        {/* Focused X-Style Live Space Stage View */}
+        {activeSpace ? (
           <View
             testID="activeZingSpaceRoom"
             style={[
               a.p_lg,
-              a.rounded_lg,
-              a.gap_md,
+              a.gap_lg,
               {
+                borderRadius: 24,
                 backgroundColor: colors.card,
                 borderWidth: 1,
-                borderColor: colors.accent,
+                borderColor: 'rgba(121, 75, 196, 0.55)',
               },
+              IS_WEB
+                ? {
+                    backgroundImage:
+                      'linear-gradient(180deg, rgba(121, 75, 196, 0.16) 0%, rgba(22, 24, 28, 0.98) 38%)',
+                  }
+                : {},
             ]}>
-            {/* Top Status Row */}
+            {/* Top Status & Leave Bar */}
             <View
               style={[
                 a.flex_row,
                 a.flex_wrap,
                 a.align_center,
                 a.justify_between,
-                a.gap_xs,
+                a.gap_sm,
               ]}>
               <View style={[a.flex_row, a.flex_wrap, a.align_center, a.gap_xs]}>
                 <View
@@ -849,8 +970,8 @@ export function ZingSpacesScreen() {
                     {
                       backgroundColor:
                         activeSpace.status === 'live'
-                          ? colors.rezingSubtle
-                          : colors.accentSubtle,
+                          ? 'rgba(0, 186, 124, 0.16)'
+                          : 'rgba(121, 75, 196, 0.2)',
                     },
                   ]}>
                   <View
@@ -861,18 +982,19 @@ export function ZingSpacesScreen() {
                       backgroundColor:
                         activeSpace.status === 'live'
                           ? colors.rezing
-                          : colors.accent,
+                          : '#A78BFA',
                     }}
                   />
                   <Text
                     style={[
                       {
                         fontSize: 11,
-                        fontWeight: '700',
+                        fontWeight: '800',
+                        letterSpacing: 0.4,
                         color:
                           activeSpace.status === 'live'
                             ? colors.rezing
-                            : colors.accent,
+                            : '#A78BFA',
                       },
                     ]}>
                     {activeSpace.status === 'live'
@@ -889,41 +1011,20 @@ export function ZingSpacesScreen() {
                     a.px_sm,
                     a.py_2xs,
                     a.rounded_full,
-                    {
-                      backgroundColor: colors.surface,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                    },
+                    {backgroundColor: colors.surface},
                   ]}>
                   <View
                     style={{
                       width: 6,
                       height: 6,
                       borderRadius: 3,
-                      backgroundColor: audioState.supported ? colors.rezing : colors.muted,
+                      backgroundColor: audioState.supported
+                        ? colors.rezing
+                        : colors.muted,
                     }}
                   />
                   <Text style={[{fontSize: 11, color: colors.muted}]}>
-                    {audioState.supported
-                      ? 'Voice Connected'
-                      : 'Stage Audio'}
-                  </Text>
-                </View>
-
-                <View
-                  style={[
-                    a.px_sm,
-                    a.py_2xs,
-                    a.rounded_full,
-                    {
-                      backgroundColor: colors.surface,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                    },
-                  ]}>
-                  <Text style={[{fontSize: 11, color: colors.text}]}>
-                    {activeSpace.speakerCount} speakers ·{' '}
-                    {activeSpace.listenerCount} listeners
+                    {audioState.supported ? 'Audio Ready' : 'Stage View'}
                   </Text>
                 </View>
               </View>
@@ -932,6 +1033,7 @@ export function ZingSpacesScreen() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="End Space"
+                  accessibilityHint=""
                   disabled={actionBusy}
                   onPress={handleEndSpace}
                   style={[
@@ -939,17 +1041,19 @@ export function ZingSpacesScreen() {
                     a.py_xs,
                     a.rounded_full,
                     {backgroundColor: colors.danger},
+                    web({cursor: 'pointer'}),
                   ]}>
                   <Text style={[a.text_xs, a.font_bold, {color: '#FFFFFF'}]}>
-                    End Space
+                    End
                   </Text>
                 </Pressable>
               ) : (
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={
-                    viewerParticipant ? 'Leave Space' : 'Join Space'
+                    viewerParticipant ? 'Leave quietly' : 'Join Space'
                   }
+                  accessibilityHint=""
                   disabled={actionBusy}
                   onPress={handleJoinLeaveActiveSpace}
                   style={[
@@ -958,38 +1062,65 @@ export function ZingSpacesScreen() {
                     a.rounded_full,
                     {
                       backgroundColor: viewerParticipant
-                        ? colors.surface
-                        : colors.ctaBg,
-                      borderWidth: 1,
-                      borderColor: viewerParticipant
-                        ? colors.border
-                        : colors.ctaBg,
+                        ? 'rgba(244, 33, 46, 0.14)'
+                        : '#EFF3F4',
                     },
+                    web({cursor: 'pointer'}),
                   ]}>
                   <Text
                     style={[
                       a.text_xs,
                       a.font_bold,
                       {
-                        color: viewerParticipant
-                          ? colors.text
-                          : colors.ctaText,
+                        color: viewerParticipant ? '#F4212E' : '#0F1419',
                       },
                     ]}>
-                    {viewerParticipant ? 'Leave Space' : 'Join Space'}
+                    {viewerParticipant ? 'Leave quietly' : 'Join Space'}
                   </Text>
                 </Pressable>
               )}
             </View>
 
-            <View style={[a.gap_2xs]}>
-              <Text style={[a.text_xl, a.font_bold, {color: colors.text}]}>
+            {/* Space Title & Topic Chips */}
+            <View style={[a.gap_xs]}>
+              <Text
+                style={[
+                  {
+                    fontSize: 22,
+                    fontWeight: '800',
+                    lineHeight: 28,
+                    color: colors.text,
+                  },
+                ]}>
                 {activeSpace.title}
               </Text>
-              <Text style={[a.text_xs, {color: colors.muted}]}>
-                Hosted by @{activeSpace.hostHandle} ·{' '}
-                {activeSpace.topic || 'General Discussion'}
-              </Text>
+              <View style={[a.flex_row, a.flex_wrap, a.align_center, a.gap_xs]}>
+                {(activeSpace.topic || 'General')
+                  .split('·')
+                  .map(part => part.trim())
+                  .filter(Boolean)
+                  .map(tag => (
+                    <View
+                      key={tag}
+                      style={[
+                        a.px_sm,
+                        a.py_2xs,
+                        a.rounded_full,
+                        {backgroundColor: 'rgba(121, 75, 196, 0.2)'},
+                      ]}>
+                      <Text
+                        style={[
+                          {fontSize: 11, fontWeight: '700', color: '#C4B5FD'},
+                        ]}>
+                        {tag}
+                      </Text>
+                    </View>
+                  ))}
+                <Text style={[a.text_xs, {color: colors.muted}]}>
+                  {activeSpace.speakerCount} speaking ·{' '}
+                  {activeSpace.listenerCount} listening
+                </Text>
+              </View>
             </View>
 
             {/* Tap-to-hear Autoplay Blocked Banner */}
@@ -997,14 +1128,15 @@ export function ZingSpacesScreen() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Tap to hear live audio"
+                accessibilityHint=""
                 onPress={handleResumeAudio}
                 style={[
                   a.flex_row,
                   a.align_center,
                   a.justify_between,
                   a.px_md,
-                  a.py_xs,
-                  a.rounded_sm,
+                  a.py_sm,
+                  a.rounded_md,
                   {
                     backgroundColor: colors.accentSubtle,
                     borderWidth: 1,
@@ -1014,186 +1146,160 @@ export function ZingSpacesScreen() {
                 ]}>
                 <View style={[a.flex_row, a.align_center, a.gap_xs]}>
                   <SpeakerIcon size="xs" fill={colors.accent} />
-                  <Text style={[a.text_xs, a.font_semi_bold, {color: colors.accent}]}>
-                    Audio paused by browser policy. Tap to Hear Live Audio.
+                  <Text
+                    style={[
+                      a.text_xs,
+                      a.font_semi_bold,
+                      {color: colors.accent},
+                    ]}>
+                    Tap to enable live stage audio
                   </Text>
                 </View>
-                <Text style={[a.text_2xs, a.font_bold, {color: colors.accent}]}>
-                  UNMUTE STAGE
+                <Text style={[a.text_xs, a.font_bold, {color: colors.accent}]}>
+                  Turn On
                 </Text>
               </Pressable>
             )}
 
-            {/* Persisted Participant Stage Grid */}
+            {/* Speakers Stage Grid */}
             <View
               style={[
-                a.flex_row,
-                a.flex_wrap,
-                a.justify_start,
+                a.gap_md,
                 {
-                  gap: 14,
                   paddingVertical: 16,
                   borderTopWidth: 1,
                   borderBottomWidth: 1,
                   borderColor: colors.border,
                 },
               ]}>
-              {activeSpace.participants.map(participant => {
-                const initials = (
-                  participant.displayName ||
-                  participant.handle ||
-                  'QZ'
-                )
-                  .slice(0, 2)
-                  .toUpperCase()
-                const isSpeakerOrHost =
-                  participant.role === 'host' || participant.role === 'speaker'
-                const canManageRole =
-                  isViewerHost && participant.role !== 'host'
-                const isSpeaking = Boolean(
-                  audioState.speakingLevels[participant.did] &&
+              <View style={[a.flex_row, a.flex_wrap, {gap: 18}]}>
+                {stageSpeakers.map(participant => {
+                  const initials = (
+                    participant.displayName ||
+                    participant.handle ||
+                    'QZ'
+                  )
+                    .slice(0, 2)
+                    .toUpperCase()
+                  const canManageRole =
+                    isViewerHost && participant.role !== 'host'
+                  const isSpeaking = Boolean(
+                    audioState.speakingLevels[participant.did] &&
                     audioState.speakingLevels[participant.did] > 0.035 &&
                     !participant.muted,
-                )
+                  )
 
-                return (
-                  <View
-                    key={participant.did}
-                    style={[a.align_center, a.gap_2xs, {width: 82}]}>
+                  return (
                     <View
-                      style={[
-                        a.align_center,
-                        a.justify_center,
-                        a.rounded_full,
-                        {
-                          width: 68,
-                          height: 68,
-                          borderWidth: isSpeaking ? 3 : 2,
-                          borderColor: isSpeaking
-                            ? colors.rezing
-                            : participant.handRaised
-                              ? colors.accent
-                              : isSpeakerOrHost
-                                ? '#794BC4'
-                                : colors.border,
-                        },
-                        web(
-                          isSpeaking
-                            ? ({
-                                boxShadow: `0 0 14px ${colors.rezing}88`,
-                              } as any)
-                            : {},
-                        ),
-                      ]}>
-                      {participant.avatar ? (
-                        <UserAvatar type="user" size={62} avatar={participant.avatar} />
-                      ) : (
+                      key={participant.did}
+                      style={[a.align_center, a.gap_xs, {width: 86}]}>
+                      <View style={{position: 'relative'}}>
                         <View
                           style={[
                             a.align_center,
                             a.justify_center,
                             a.rounded_full,
                             {
-                              width: 62,
-                              height: 62,
-                              backgroundColor: isSpeakerOrHost
-                                ? 'rgba(121, 75, 196, 0.22)'
-                                : colors.surface,
+                              width: 70,
+                              height: 70,
+                              borderWidth: isSpeaking ? 3 : 2,
+                              borderColor: isSpeaking
+                                ? colors.rezing
+                                : '#794BC4',
                             },
+                            web(
+                              isSpeaking
+                                ? {
+                                    boxShadow: `0 0 16px ${colors.rezing}88`,
+                                  }
+                                : {},
+                            ),
                           ]}>
-                          <Text
-                            style={[
-                              a.text_sm,
-                              a.font_bold,
-                              {
-                                color: isSpeakerOrHost
-                                  ? '#A78BFA'
-                                  : colors.text,
-                              },
-                            ]}>
-                            {initials}
-                          </Text>
+                          {participant.avatar ? (
+                            <UserAvatar
+                              type="user"
+                              size={62}
+                              avatar={participant.avatar}
+                            />
+                          ) : (
+                            <View
+                              style={[
+                                a.align_center,
+                                a.justify_center,
+                                a.rounded_full,
+                                {
+                                  width: 62,
+                                  height: 62,
+                                  backgroundColor: 'rgba(121, 75, 196, 0.22)',
+                                },
+                              ]}>
+                              <Text
+                                style={[
+                                  a.text_md,
+                                  a.font_bold,
+                                  {color: '#C4B5FD'},
+                                ]}>
+                                {initials}
+                              </Text>
+                            </View>
+                          )}
                         </View>
-                      )}
-                    </View>
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        {
-                          fontSize: 12,
-                          fontWeight: '700',
-                          color: colors.text,
-                          textAlign: 'center',
-                          width: '100%',
-                        },
-                      ]}>
-                      @{participant.handle}
-                    </Text>
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        {fontSize: 10, textAlign: 'center'},
-                        {
-                          color: isSpeaking
-                            ? colors.rezing
-                            : participant.handRaised
-                              ? colors.accent
-                              : isSpeakerOrHost
-                                ? '#A78BFA'
-                                : colors.muted,
-                          fontWeight: isSpeaking ? '700' : '500',
-                        },
-                      ]}>
-                      {isSpeaking
-                        ? '||· Speaking'
-                        : participant.role === 'host'
-                          ? '||· Host'
-                          : participant.role === 'speaker'
-                            ? 'Speaker'
-                            : 'Listener'}
-                      {participant.muted && !isSpeaking ? ' · Muted' : ''}
-                      {participant.handRaised ? ' · Hand up' : ''}
-                    </Text>
-                    {canManageRole && (
-                      <View style={[a.flex_row, a.gap_2xs, {marginTop: 2}]}>
-                        <Pressable
-                          accessibilityRole="button"
-                          onPress={() =>
-                            handlePromoteOrDemote(
-                              participant.did,
-                              participant.role,
-                            )
-                          }
-                          style={[
-                            a.px_xs,
-                            {
-                              paddingVertical: 2,
-                              borderRadius: 999,
-                              backgroundColor: colors.surface,
+                        {participant.muted && (
+                          <View
+                            style={{
+                              position: 'absolute',
+                              right: 0,
+                              bottom: 0,
+                              width: 22,
+                              height: 22,
+                              borderRadius: 11,
+                              backgroundColor: '#16181C',
                               borderWidth: 1,
                               borderColor: colors.border,
-                            },
-                          ]}>
-                          <Text
-                            style={[
-                              {fontSize: 10, fontWeight: '700', color: colors.accent},
-                            ]}>
-                            {participant.role === 'listener'
-                              ? 'Make Speaker'
-                              : 'To Listener'}
-                          </Text>
-                        </Pressable>
-                        {participant.role === 'speaker' && !participant.muted && (
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}>
+                            <MuteIcon width={12} fill={colors.danger} />
+                          </View>
+                        )}
+                      </View>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          {
+                            fontSize: 12,
+                            fontWeight: '700',
+                            color: colors.text,
+                            textAlign: 'center',
+                            width: '100%',
+                          },
+                        ]}>
+                        {participant.displayName || `@${participant.handle}`}
+                      </Text>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          {
+                            fontSize: 11,
+                            textAlign: 'center',
+                            color: isSpeaking ? colors.rezing : '#A78BFA',
+                            fontWeight: '600',
+                          },
+                        ]}>
+                        {isSpeaking
+                          ? 'Speaking'
+                          : participant.role === 'host'
+                            ? 'Host'
+                            : 'Speaker'}
+                      </Text>
+                      {canManageRole && (
+                        <View style={[a.flex_row, a.gap_2xs]}>
                           <Pressable
                             accessibilityRole="button"
-                            accessibilityLabel="Mute speaker"
                             onPress={() =>
-                              accessJwt &&
-                              void setSpaceMute(
-                                activeSpace.slug,
-                                true,
-                                accessJwt,
+                              handlePromoteOrDemote(
                                 participant.did,
+                                participant.role,
                               )
                             }
                             style={[
@@ -1208,39 +1314,159 @@ export function ZingSpacesScreen() {
                             ]}>
                             <Text
                               style={[
-                                {fontSize: 10, fontWeight: '700', color: colors.muted},
+                                {
+                                  fontSize: 10,
+                                  fontWeight: '700',
+                                  color: colors.muted,
+                                },
                               ]}>
-                              Mute
+                              Move
                             </Text>
                           </Pressable>
-                        )}
-                      </View>
-                    )}
+                          {!participant.muted && (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel="Mute speaker"
+                              accessibilityHint=""
+                              onPress={() =>
+                                accessJwt &&
+                                void setSpaceMute(
+                                  activeSpace.slug,
+                                  true,
+                                  accessJwt,
+                                  participant.did,
+                                )
+                              }
+                              style={[
+                                a.px_xs,
+                                {
+                                  paddingVertical: 2,
+                                  borderRadius: 999,
+                                  backgroundColor: colors.surface,
+                                  borderWidth: 1,
+                                  borderColor: colors.border,
+                                },
+                              ]}>
+                              <Text
+                                style={[
+                                  {
+                                    fontSize: 10,
+                                    fontWeight: '700',
+                                    color: colors.danger,
+                                  },
+                                ]}>
+                                Mute
+                              </Text>
+                            </Pressable>
+                          )}
+                        </View>
+                      )}
+                    </View>
+                  )
+                })}
+              </View>
+
+              {/* Host Speaker Requests Row */}
+              {isViewerHost && raisedHandRequests.length > 0 && (
+                <View style={[a.gap_xs, a.pt_sm]}>
+                  <Text
+                    style={[a.text_xs, a.font_bold, {color: colors.accent}]}>
+                    Speaker Requests ({raisedHandRequests.length})
+                  </Text>
+                  <View style={[a.flex_row, a.flex_wrap, a.gap_xs]}>
+                    {raisedHandRequests.map(reqUser => (
+                      <Pressable
+                        key={reqUser.did}
+                        accessibilityRole="button"
+                        onPress={() =>
+                          handlePromoteOrDemote(reqUser.did, reqUser.role)
+                        }
+                        style={[
+                          a.flex_row,
+                          a.align_center,
+                          a.gap_xs,
+                          a.px_sm,
+                          a.py_2xs,
+                          a.rounded_full,
+                          {
+                            backgroundColor: colors.accentSubtle,
+                            borderWidth: 1,
+                            borderColor: colors.accent,
+                          },
+                        ]}>
+                        <Text
+                          style={[
+                            a.text_xs,
+                            a.font_bold,
+                            {color: colors.accent},
+                          ]}>
+                          Approve @{reqUser.handle}
+                        </Text>
+                      </Pressable>
+                    ))}
                   </View>
-                )
-              })}
+                </View>
+              )}
+
+              {/* Listeners Row */}
+              {stageListeners.length > 0 && (
+                <View style={[a.gap_xs, a.pt_sm]}>
+                  <Text style={[a.text_xs, a.font_bold, {color: colors.muted}]}>
+                    Listeners ({stageListeners.length})
+                  </Text>
+                  <View style={[a.flex_row, a.flex_wrap, {gap: 12}]}>
+                    {stageListeners.map(listener => (
+                      <Pressable
+                        accessibilityRole="button"
+                        key={listener.did}
+                        disabled={!isViewerHost}
+                        onPress={() =>
+                          isViewerHost &&
+                          handlePromoteOrDemote(listener.did, listener.role)
+                        }
+                        style={[a.align_center, {width: 62, gap: 4}]}>
+                        <UserAvatar
+                          type="user"
+                          size={42}
+                          avatar={listener.avatar}
+                        />
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            {
+                              fontSize: 10,
+                              color: listener.handRaised
+                                ? colors.accent
+                                : colors.muted,
+                              fontWeight: listener.handRaised ? '700' : '500',
+                            },
+                          ]}>
+                          @{listener.handle}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              )}
             </View>
 
-            {/* Recent Persisted Reactions Stream */}
+            {/* Recent Reactions Pill Stream */}
             {activeSpace.recentReactions.length > 0 && (
               <View style={[a.flex_row, a.flex_wrap, a.align_center, a.gap_xs]}>
-                <Text style={[a.text_xs, {color: colors.muted}]}>
-                  Live Reactions:
-                </Text>
-                {activeSpace.recentReactions.slice(-8).map(r => (
+                {activeSpace.recentReactions.slice(-5).map(r => (
                   <View
                     key={r.id}
                     style={[
                       a.px_xs,
                       {
-                        paddingVertical: 2,
+                        paddingVertical: 3,
                         borderRadius: 999,
-                        backgroundColor: colors.accentSubtle,
+                        backgroundColor: 'rgba(121, 75, 196, 0.16)',
                       },
                     ]}>
                     <Text
                       style={[
-                        {fontSize: 10, fontWeight: '700', color: colors.accent},
+                        {fontSize: 10, fontWeight: '700', color: '#C4B5FD'},
                       ]}>
                       {REACTION_LABEL_MAP[r.kind] || r.kind.toUpperCase()} · @
                       {r.handle}
@@ -1250,97 +1476,181 @@ export function ZingSpacesScreen() {
               </View>
             )}
 
-            {/* X Spaces 52px Circular Mic Dock & Compact Icon Reaction Bar */}
+            {/* Popover Reaction Tray */}
+            {showReactionsTray && (
+              <View
+                style={[
+                  a.flex_row,
+                  a.align_center,
+                  {justifyContent: 'space-around'},
+                  a.p_sm,
+                  a.rounded_full,
+                  {
+                    backgroundColor: colors.surface,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  },
+                ]}>
+                {REACTIONS.map(reaction => {
+                  const renderReactionIcon = () => {
+                    switch (reaction.kind) {
+                      case 'applause':
+                        return <CelebrateIcon size="sm" fill={colors.text} />
+                      case 'fire':
+                        return <FlameIcon size="sm" fill="#F91880" />
+                      case 'heart':
+                        return <HeartIcon size="sm" fill="#F91880" />
+                      case 'insight':
+                        return <SparkleIcon size="sm" fill="#1D9BF0" />
+                      case 'wave':
+                      default:
+                        return <HandIcon size="sm" fill={colors.text} />
+                    }
+                  }
+                  return (
+                    <Pressable
+                      key={reaction.kind}
+                      testID={`zingSpaceReact-${reaction.kind}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Send ${reaction.label} reaction`}
+                      accessibilityHint=""
+                      onPress={() => {
+                        handleTriggerReaction(reaction.kind)
+                        setShowReactionsTray(false)
+                      }}
+                      style={[
+                        a.flex_row,
+                        a.align_center,
+                        a.gap_2xs,
+                        a.px_sm,
+                        a.py_2xs,
+                        a.rounded_full,
+                        web({cursor: 'pointer'}),
+                      ]}>
+                      {renderReactionIcon()}
+                      <Text
+                        style={[
+                          {fontSize: 11, fontWeight: '700', color: colors.text},
+                        ]}>
+                        {reaction.label}
+                      </Text>
+                    </Pressable>
+                  )
+                })}
+              </View>
+            )}
+
+            {/* Clean X-Style Bottom Audio Dock */}
             <View
               style={[
                 a.flex_row,
                 a.align_center,
-                a.justify_between,
-                a.flex_wrap,
-                a.gap_md,
+                {justifyContent: 'space-around'},
                 a.pt_xs,
               ]}>
-              <View style={[a.flex_row, a.align_center, {gap: 12}]}>
-                {canViewerSpeak ? (
-                  <View style={[a.align_center, {gap: 3}]}>
-                    <Pressable
-                      testID="zingSpaceMicToggleBtn"
-                      accessibilityRole="button"
-                      accessibilityLabel={
-                        audioState.muted
-                          ? 'Unmute microphone'
-                          : 'Mute microphone'
-                      }
-                      onPress={handleToggleMic}
-                      style={[
-                        a.align_center,
-                        a.justify_center,
-                        a.rounded_full,
-                        {
-                          width: 52,
-                          height: 52,
-                          backgroundColor: audioState.muted
-                            ? colors.surface
-                            : colors.rezing,
-                          borderWidth: 2,
-                          borderColor: audioState.muted
-                            ? colors.border
-                            : colors.rezing,
-                        },
-                        web(
-                          !audioState.muted
-                            ? ({
-                                boxShadow: `0 0 16px ${colors.rezing}88`,
-                                cursor: 'pointer',
-                              } as any)
-                            : {cursor: 'pointer'},
-                        ),
-                      ]}>
-                      {audioState.muted ? (
-                        <MuteIcon size="md" fill={colors.danger} />
-                      ) : (
-                        <SpeakerIcon size="md" fill="#000000" />
-                      )}
-                    </Pressable>
-                    <Text
-                      style={[
-                        {fontSize: 11, fontWeight: '700'},
-                        {color: audioState.muted ? colors.muted : colors.rezing},
-                      ]}>
-                      {audioState.muted ? 'Mic is off' : 'Live on Mic'}
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={[a.align_center, {gap: 3}]}>
-                    <View
-                      style={[
-                        a.align_center,
-                        a.justify_center,
-                        a.rounded_full,
-                        {
-                          width: 52,
-                          height: 52,
-                          backgroundColor: colors.surface,
-                          borderWidth: 1,
-                          borderColor: colors.border,
-                          opacity: 0.65,
-                        },
-                      ]}>
-                      <MuteIcon size="md" fill={colors.muted} />
-                    </View>
-                    <Text style={[{fontSize: 11, color: colors.muted}]}>
-                      Mic is off
-                    </Text>
-                  </View>
-                )}
+              {canViewerSpeak ? (
+                <View style={[a.align_center, {gap: 4}]}>
+                  <Pressable
+                    testID="zingSpaceMicToggleBtn"
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      audioState.muted ? 'Unmute microphone' : 'Mute microphone'
+                    }
+                    accessibilityHint=""
+                    onPress={handleToggleMic}
+                    style={[
+                      a.align_center,
+                      a.justify_center,
+                      a.rounded_full,
+                      {
+                        width: 52,
+                        height: 52,
+                        backgroundColor: audioState.muted
+                          ? colors.surface
+                          : colors.rezing,
+                        borderWidth: 2,
+                        borderColor: audioState.muted
+                          ? colors.border
+                          : colors.rezing,
+                      },
+                      web(
+                        !audioState.muted
+                          ? {
+                              boxShadow: `0 0 16px ${colors.rezing}88`,
+                              cursor: 'pointer',
+                            }
+                          : {cursor: 'pointer'},
+                      ),
+                    ]}>
+                    {audioState.muted ? (
+                      <MuteIcon size="md" fill={colors.danger} />
+                    ) : (
+                      <SpeakerIcon size="md" fill="#000000" />
+                    )}
+                  </Pressable>
+                  <Text
+                    style={[
+                      {fontSize: 11, fontWeight: '700'},
+                      {color: audioState.muted ? colors.muted : colors.rezing},
+                    ]}>
+                    {audioState.muted ? 'Mic is off' : 'Mic is on'}
+                  </Text>
+                </View>
+              ) : (
+                <View style={[a.align_center, {gap: 4}]}>
+                  <Pressable
+                    testID="zingSpaceRaiseHandBtn"
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      viewerHandRaised ? 'Lower Hand' : 'Request to speak'
+                    }
+                    accessibilityHint=""
+                    disabled={actionBusy}
+                    onPress={handleToggleHand}
+                    style={[
+                      a.align_center,
+                      a.justify_center,
+                      a.rounded_full,
+                      {
+                        width: 52,
+                        height: 52,
+                        backgroundColor: viewerHandRaised
+                          ? colors.accentSubtle
+                          : colors.surface,
+                        borderWidth: 2,
+                        borderColor: viewerHandRaised
+                          ? colors.accent
+                          : colors.border,
+                      },
+                      web({cursor: 'pointer'}),
+                    ]}>
+                    <HandIcon
+                      size="md"
+                      fill={viewerHandRaised ? colors.accent : colors.text}
+                    />
+                  </Pressable>
+                  <Text
+                    style={[
+                      {
+                        fontSize: 11,
+                        fontWeight: '700',
+                        color: viewerHandRaised ? colors.accent : colors.muted,
+                      },
+                    ]}>
+                    {viewerHandRaised ? 'Requested' : 'Request'}
+                  </Text>
+                </View>
+              )}
 
-                <View style={[a.align_center, {gap: 3}]}>
+              {canViewerSpeak && (
+                <View style={[a.align_center, {gap: 4}]}>
                   <Pressable
                     testID="zingSpaceRaiseHandBtn"
                     accessibilityRole="button"
                     accessibilityLabel={
                       viewerHandRaised ? 'Lower Hand' : 'Raise Hand'
                     }
+                    accessibilityHint=""
                     disabled={actionBusy}
                     onPress={handleToggleHand}
                     style={[
@@ -1365,206 +1675,649 @@ export function ZingSpacesScreen() {
                       fill={viewerHandRaised ? colors.accent : colors.text}
                     />
                   </Pressable>
-                  <Text style={[{fontSize: 10, color: viewerHandRaised ? colors.accent : colors.muted}]}>
-                    {viewerHandRaised ? 'Raised' : 'Hand'}
+                  <Text style={[{fontSize: 11, color: colors.muted}]}>
+                    Hand
                   </Text>
                 </View>
+              )}
 
-                <View style={[a.align_center, {gap: 3}]}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Share Space as Zing"
-                    onPress={() => handleShareSpace(activeSpace)}
-                    style={[
-                      a.align_center,
-                      a.justify_center,
-                      a.rounded_full,
-                      {
-                        width: 44,
-                        height: 44,
-                        backgroundColor: colors.surface,
-                        borderWidth: 1,
-                        borderColor: colors.border,
-                      },
-                      web({cursor: 'pointer'}),
-                    ]}>
-                    <ShareIcon size="sm" fill={colors.accent} />
-                  </Pressable>
-                  <Text style={[{fontSize: 10, color: colors.muted}]}>
-                    Share
-                  </Text>
-                </View>
+              <View style={[a.align_center, {gap: 4}]}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="React in Space"
+                  accessibilityHint=""
+                  onPress={() => setShowReactionsTray(prev => !prev)}
+                  style={[
+                    a.align_center,
+                    a.justify_center,
+                    a.rounded_full,
+                    {
+                      width: 44,
+                      height: 44,
+                      backgroundColor: showReactionsTray
+                        ? 'rgba(121, 75, 196, 0.25)'
+                        : colors.surface,
+                      borderWidth: 1,
+                      borderColor: showReactionsTray
+                        ? '#794BC4'
+                        : colors.border,
+                    },
+                    web({cursor: 'pointer'}),
+                  ]}>
+                  <HeartIcon size="sm" fill="#F91880" />
+                </Pressable>
+                <Text style={[{fontSize: 11, color: colors.muted}]}>React</Text>
               </View>
 
-              {/* Compact Sleek SVG Icon Reactions Bar */}
-              <View style={[a.flex_row, a.align_center, {gap: 8}]}>
-                {REACTIONS.map(reaction => {
-                  const renderReactionIcon = () => {
-                    switch (reaction.kind) {
-                      case 'applause':
-                        return <CelebrateIcon size="sm" fill={colors.text} />
-                      case 'fire':
-                        return <FlameIcon size="sm" fill="#FF7A00" />
-                      case 'heart':
-                        return <HeartIcon size="sm" fill="#F91880" />
-                      case 'insight':
-                        return <SparkleIcon size="sm" fill={colors.accent} />
-                      case 'wave':
-                        return <HandIcon size="sm" fill={colors.text} />
-                      default:
-                        return <SparkleIcon size="sm" fill={colors.accent} />
-                    }
-                  }
-
-                  return (
-                    <Pressable
-                      key={reaction.kind}
-                      testID={`zingSpaceReact-${reaction.kind}`}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Send ${reaction.label} reaction`}
-                      onPress={() => handleTriggerReaction(reaction.kind)}
-                      style={[
-                        a.align_center,
-                        a.justify_center,
-                        a.rounded_full,
-                        {
-                          width: 36,
-                          height: 36,
-                          backgroundColor: colors.surface,
-                          borderWidth: 1,
-                          borderColor: colors.border,
-                        },
-                        web({
-                          cursor: 'pointer',
-                          transition: 'transform 100ms ease',
-                        }),
-                      ]}>
-                      {renderReactionIcon()}
-                    </Pressable>
-                  )
-                })}
+              <View style={[a.align_center, {gap: 4}]}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Share Space"
+                  accessibilityHint=""
+                  onPress={() => handleShareSpace(activeSpace)}
+                  style={[
+                    a.align_center,
+                    a.justify_center,
+                    a.rounded_full,
+                    {
+                      width: 44,
+                      height: 44,
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    },
+                    web({cursor: 'pointer'}),
+                  ]}>
+                  <ShareIcon size="sm" fill={colors.accent} />
+                </Pressable>
+                <Text style={[{fontSize: 11, color: colors.muted}]}>Share</Text>
               </View>
             </View>
           </View>
-        )}
+        ) : (
+          <>
+            {/* X-Style Filter Pill Bar */}
+            <View style={[a.flex_row, a.flex_wrap, a.align_center, a.gap_xs]}>
+              {(
+                [
+                  {id: 'all', label: 'Happening Now'},
+                  {id: 'live', label: 'Live'},
+                  {id: 'scheduled', label: 'Upcoming'},
+                  {id: 'ended', label: 'Ended'},
+                ] as const
+              ).map(tab => {
+                const active = statusFilter === tab.id
+                return (
+                  <Pressable
+                    key={tab.id}
+                    accessibilityRole="button"
+                    onPress={() => setStatusFilter(tab.id)}
+                    style={[
+                      a.px_md,
+                      a.rounded_full,
+                      a.justify_center,
+                      {
+                        height: 34,
+                        backgroundColor: active ? '#EFF3F4' : colors.card,
+                        borderWidth: 1,
+                        borderColor: active ? '#EFF3F4' : colors.border,
+                      },
+                      web({cursor: 'pointer'}),
+                    ]}>
+                    <Text
+                      style={[
+                        {
+                          fontSize: 13,
+                          fontWeight: '700',
+                          color: active ? '#0F1419' : colors.muted,
+                        },
+                      ]}>
+                      {tab.label}
+                    </Text>
+                  </Pressable>
+                )
+              })}
+            </View>
 
-        {/* Collapsible Start a ZingSpace Bar / Creator Card */}
-        {!showCreateForm ? (
+            {/* Spaces Cards Discovery */}
+            <View style={[a.gap_md]}>
+              {loadingSpaces ? (
+                <View
+                  style={[
+                    a.p_2xl,
+                    a.rounded_lg,
+                    a.align_center,
+                    a.gap_sm,
+                    {
+                      backgroundColor: colors.card,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    },
+                  ]}>
+                  <ActivityIndicator size="small" color="#794BC4" />
+                  <Text style={[a.text_sm, {color: colors.muted}]}>
+                    Loading Spaces...
+                  </Text>
+                </View>
+              ) : spaces.length === 0 ? (
+                <View
+                  style={[
+                    a.p_2xl,
+                    a.rounded_lg,
+                    a.align_center,
+                    a.gap_md,
+                    {
+                      backgroundColor: colors.card,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    },
+                  ]}>
+                  <LiveIcon size="lg" fill="#794BC4" />
+                  <View style={[a.align_center, a.gap_2xs]}>
+                    <Text
+                      style={[a.text_lg, a.font_bold, {color: colors.text}]}>
+                      No Spaces right now
+                    </Text>
+                    <Text
+                      style={[
+                        a.text_sm,
+                        a.text_center,
+                        {color: colors.muted, maxWidth: 320},
+                      ]}>
+                      Start a live audio room on Politics, Technology, Sports,
+                      or anything on your mind.
+                    </Text>
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setCreateMode('live')
+                      setShowCreateForm(true)
+                    }}
+                    style={[
+                      a.px_xl,
+                      a.rounded_full,
+                      a.justify_center,
+                      {height: 40, backgroundColor: '#794BC4'},
+                      web({cursor: 'pointer'}),
+                    ]}>
+                    <Text style={[a.text_sm, a.font_bold, {color: '#FFFFFF'}]}>
+                      Create your Space
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : (
+                spaces.map(space => {
+                  const isHost = Boolean(
+                    viewerDid && space.hostDid === viewerDid,
+                  )
+                  const isLive = space.status === 'live'
+                  const isEnded = space.status === 'ended'
+                  const stackParticipants =
+                    space.participants && space.participants.length > 0
+                      ? space.participants.slice(0, 3)
+                      : [
+                          {
+                            did: space.hostDid,
+                            handle: space.hostHandle,
+                            displayName: space.hostDisplayName,
+                            avatar: space.hostAvatar,
+                          },
+                        ]
+
+                  return (
+                    <Pressable
+                      key={space.slug}
+                      accessibilityRole="button"
+                      onPress={() => handleJoinOrOpenSpace(space)}
+                      style={[
+                        a.p_lg,
+                        a.gap_md,
+                        {
+                          borderRadius: 20,
+                          backgroundColor: isEnded ? colors.card : '#6D3EC2',
+                          borderWidth: 1,
+                          borderColor: isEnded ? colors.border : '#8B5CF6',
+                        },
+                        IS_WEB && !isEnded
+                          ? ({
+                              cursor: 'pointer',
+                              backgroundImage: isLive
+                                ? 'linear-gradient(135deg, #794BC4 0%, #5B33A6 100%)'
+                                : 'linear-gradient(135deg, #6B3EB8 0%, #4C288A 100%)',
+                              boxShadow: '0 6px 22px rgba(121, 75, 196, 0.25)',
+                            } as unknown as ViewStyle)
+                          : {},
+                      ]}>
+                      {/* Header: Status + Topics + Delete */}
+                      <View
+                        style={[a.flex_row, a.align_center, a.justify_between]}>
+                        <View
+                          style={[
+                            a.flex_row,
+                            a.flex_wrap,
+                            a.align_center,
+                            {gap: 6},
+                          ]}>
+                          <View
+                            style={[
+                              a.flex_row,
+                              a.align_center,
+                              a.rounded_full,
+                              {
+                                gap: 5,
+                                paddingHorizontal: 10,
+                                paddingVertical: 4,
+                                backgroundColor: isEnded
+                                  ? colors.surface
+                                  : 'rgba(0, 0, 0, 0.28)',
+                              },
+                            ]}>
+                            {isLive && (
+                              <View
+                                style={{
+                                  width: 6,
+                                  height: 6,
+                                  borderRadius: 3,
+                                  backgroundColor: '#00BA7C',
+                                }}
+                              />
+                            )}
+                            <Text
+                              style={[
+                                {
+                                  fontSize: 11,
+                                  fontWeight: '800',
+                                  color: isEnded ? colors.muted : '#FFFFFF',
+                                  letterSpacing: 0.4,
+                                },
+                              ]}>
+                              {isLive
+                                ? 'LIVE'
+                                : space.status === 'scheduled' &&
+                                    space.scheduledFor
+                                  ? formatScheduledTime(space.scheduledFor)
+                                  : space.status.toUpperCase()}
+                            </Text>
+                          </View>
+
+                          {(space.topic || 'General')
+                            .split('·')
+                            .slice(0, 2)
+                            .map(tag => tag.trim())
+                            .filter(Boolean)
+                            .map(tag => (
+                              <View
+                                key={tag}
+                                style={[
+                                  a.px_sm,
+                                  a.rounded_full,
+                                  {
+                                    paddingVertical: 3,
+                                    backgroundColor: isEnded
+                                      ? colors.surface
+                                      : 'rgba(255, 255, 255, 0.16)',
+                                  },
+                                ]}>
+                                <Text
+                                  style={[
+                                    {
+                                      fontSize: 11,
+                                      fontWeight: '600',
+                                      color: isEnded ? colors.muted : '#FFFFFF',
+                                    },
+                                  ]}>
+                                  {tag}
+                                </Text>
+                              </View>
+                            ))}
+                        </View>
+
+                        {isHost && (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Delete Space"
+                            accessibilityHint=""
+                            onPress={() => handleDeleteSpace(space.slug)}
+                            hitSlop={8}>
+                            <TrashIcon
+                              size="xs"
+                              fill={isEnded ? colors.muted : '#E9D5FF'}
+                            />
+                          </Pressable>
+                        )}
+                      </View>
+
+                      {/* Title */}
+                      <Text
+                        style={[
+                          {
+                            fontSize: 19,
+                            fontWeight: '800',
+                            color: isEnded ? colors.text : '#FFFFFF',
+                            lineHeight: 24,
+                          },
+                        ]}>
+                        {space.title}
+                      </Text>
+
+                      {/* Overlapping Listener Avatars */}
+                      <View style={[a.flex_row, a.align_center, {gap: 10}]}>
+                        <View style={[a.flex_row, a.align_center]}>
+                          {stackParticipants.map((p, idx) => (
+                            <View
+                              key={p.did || idx}
+                              style={[
+                                a.rounded_full,
+                                {
+                                  width: 28,
+                                  height: 28,
+                                  marginLeft: idx === 0 ? 0 : -8,
+                                  borderWidth: 2,
+                                  borderColor: isEnded
+                                    ? colors.card
+                                    : '#794BC4',
+                                  overflow: 'hidden',
+                                  backgroundColor: isEnded
+                                    ? colors.surface
+                                    : 'rgba(255, 255, 255, 0.25)',
+                                },
+                              ]}>
+                              {p.avatar ? (
+                                <UserAvatar
+                                  type="user"
+                                  size={24}
+                                  avatar={p.avatar}
+                                />
+                              ) : (
+                                <View
+                                  style={[
+                                    a.align_center,
+                                    a.justify_center,
+                                    a.w_full,
+                                    a.h_full,
+                                  ]}>
+                                  <Text
+                                    style={[
+                                      {
+                                        fontSize: 9,
+                                        fontWeight: '700',
+                                        color: isEnded
+                                          ? colors.text
+                                          : '#FFFFFF',
+                                      },
+                                    ]}>
+                                    {(p.displayName || p.handle || 'QZ')
+                                      .slice(0, 2)
+                                      .toUpperCase()}
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                          ))}
+                        </View>
+                        <Text
+                          style={[
+                            {
+                              fontSize: 13,
+                              fontWeight: '600',
+                              color: isEnded
+                                ? colors.muted
+                                : 'rgba(255,255,255,0.9)',
+                            },
+                          ]}>
+                          {isLive
+                            ? `${Math.max(1, space.listenerCount + space.speakerCount)} listening`
+                            : `${space.speakerCount} speakers · ${space.listenerCount} listeners`}
+                        </Text>
+                      </View>
+
+                      {/* Host Footer */}
+                      <View
+                        style={[
+                          a.flex_row,
+                          a.align_center,
+                          a.justify_between,
+                          a.px_sm,
+                          a.py_xs,
+                          {
+                            borderRadius: 12,
+                            backgroundColor: isEnded
+                              ? colors.surface
+                              : 'rgba(0, 0, 0, 0.22)',
+                          },
+                        ]}>
+                        <View
+                          style={[
+                            a.flex_row,
+                            a.align_center,
+                            a.gap_xs,
+                            {flex: 1, minWidth: 0},
+                          ]}>
+                          <UserAvatar
+                            type="user"
+                            size={24}
+                            avatar={space.hostAvatar}
+                          />
+                          <Text
+                            numberOfLines={1}
+                            style={[
+                              {
+                                fontSize: 13,
+                                fontWeight: '700',
+                                color: isEnded ? colors.text : '#FFFFFF',
+                                maxWidth: 160,
+                              },
+                            ]}>
+                            {space.hostDisplayName || `@${space.hostHandle}`}
+                          </Text>
+                          <View
+                            style={[
+                              a.px_xs,
+                              a.rounded_full,
+                              {
+                                paddingVertical: 1,
+                                backgroundColor: isEnded
+                                  ? colors.border
+                                  : 'rgba(255, 255, 255, 0.2)',
+                              },
+                            ]}>
+                            <Text
+                              style={[
+                                {
+                                  fontSize: 10,
+                                  fontWeight: '700',
+                                  color: isEnded ? colors.muted : '#FFFFFF',
+                                },
+                              ]}>
+                              Host
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={[a.flex_row, a.align_center, {gap: 6}]}>
+                          {!isEnded && (
+                            <Pressable
+                              accessibilityRole="button"
+                              onPress={() => handleJoinOrOpenSpace(space)}
+                              style={[
+                                a.px_md,
+                                a.py_xs,
+                                a.rounded_full,
+                                {backgroundColor: '#FFFFFF'},
+                                web({cursor: 'pointer'}),
+                              ]}>
+                              <Text
+                                style={[
+                                  a.text_xs,
+                                  a.font_bold,
+                                  {color: '#0F1419'},
+                                ]}>
+                                {isLive
+                                  ? 'Listen live'
+                                  : isHost
+                                    ? 'Go Live'
+                                    : 'Set reminder'}
+                              </Text>
+                            </Pressable>
+                          )}
+                        </View>
+                      </View>
+                    </Pressable>
+                  )
+                })
+              )}
+            </View>
+
+            {/* Compact Community Spaces Zings (only when present) */}
+            {!loadingDiscovery && discoveryPosts.length > 0 && (
+              <View
+                style={[
+                  a.rounded_lg,
+                  a.overflow_hidden,
+                  {
+                    backgroundColor: colors.card,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  },
+                ]}>
+                <View
+                  style={[
+                    a.flex_row,
+                    a.align_center,
+                    a.justify_between,
+                    a.p_md,
+                    {borderBottomWidth: 1, borderBottomColor: colors.border},
+                  ]}>
+                  <Text style={[a.text_sm, a.font_bold, {color: colors.text}]}>
+                    Shared Spaces
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => void loadLiveDiscovery()}>
+                    <Text
+                      style={[
+                        a.text_xs,
+                        a.font_semi_bold,
+                        {color: colors.accent},
+                      ]}>
+                      Refresh
+                    </Text>
+                  </Pressable>
+                </View>
+                {discoveryPosts.map((post, idx) => (
+                  <Pressable
+                    key={post.uri}
+                    accessibilityRole="button"
+                    onPress={() => handleOpenPost(post)}
+                    style={[
+                      a.p_md,
+                      a.gap_xs,
+                      idx > 0 && {
+                        borderTopWidth: 1,
+                        borderTopColor: colors.border,
+                      },
+                    ]}>
+                    <Text
+                      numberOfLines={1}
+                      style={[a.text_xs, a.font_bold, {color: colors.accent}]}>
+                      {stripEmojisAndSymbols(post.displayName)} @{post.handle}
+                    </Text>
+                    <Text
+                      numberOfLines={2}
+                      style={[a.text_sm, a.leading_snug, {color: colors.text}]}>
+                      {stripEmojisAndSymbols(post.text)}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </>
+        )}
+      </Layout.Content>
+
+      {/* Dedicated X-Style Create Space Modal */}
+      <Modal
+        visible={showCreateForm}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCreateForm(false)}>
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0, 0, 0, 0.72)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 16,
+          }}>
           <View
             style={[
-              a.flex_row,
-              a.align_center,
-              a.justify_between,
-              a.p_md,
-              a.rounded_lg,
+              a.p_lg,
+              a.gap_lg,
               {
+                width: '100%',
+                maxWidth: 480,
+                borderRadius: 24,
                 backgroundColor: colors.card,
                 borderWidth: 1,
                 borderColor: colors.border,
               },
             ]}>
-            <View style={[a.gap_2xs, {flex: 1}]}>
-              <Text style={[a.text_md, a.font_bold, {color: colors.text}]}>
-                Host your own ZingSpace
-              </Text>
-              <Text style={[a.text_xs, {color: colors.muted}]}>
-                Launch a live room or schedule for later on Sovereign PDS
-              </Text>
-            </View>
-            <Pressable
-              testID="toggleStartSpaceFormBtn"
-              accessibilityRole="button"
-              accessibilityLabel="Start a Space"
-              onPress={() => setShowCreateForm(true)}
-              style={[
-                a.flex_row,
-                a.align_center,
-                a.gap_xs,
-                a.px_md,
-                a.py_sm,
-                a.rounded_full,
-                {
-                  backgroundColor: '#794BC4',
-                },
-                web({
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 10px rgba(121, 75, 196, 0.35)',
-                }),
-              ]}>
-              <PlusIcon size="xs" fill="#FFFFFF" />
-              <Text style={[a.text_xs, a.font_bold, {color: '#FFFFFF'}]}>
-                + Start a Space
-              </Text>
-            </Pressable>
-          </View>
-        ) : (
-          <View
-            style={[
-              a.p_md,
-              a.rounded_lg,
-              a.gap_md,
-              {
-                backgroundColor: colors.card,
-                borderWidth: 1,
-                borderColor: '#794BC4',
-              },
-            ]}>
             <View style={[a.flex_row, a.align_center, a.justify_between]}>
-              <View>
-                <Text style={[a.text_lg, a.font_bold, {color: colors.text}]}>
-                  Start a ZingSpace
-                </Text>
-                <Text style={[a.text_xs, {color: colors.muted}]}>
-                  Launch or schedule a real-time room persisted on Sovereign PDS
+              <View style={[a.flex_row, a.align_center, a.gap_sm]}>
+                <LiveIcon size="md" fill="#794BC4" />
+                <Text style={[a.text_xl, a.font_bold, {color: colors.text}]}>
+                  Create your Space
                 </Text>
               </View>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Close creator form"
+                accessibilityLabel="Close creator modal"
+                accessibilityHint=""
                 onPress={() => setShowCreateForm(false)}
-                hitSlop={8}
                 style={[
                   a.align_center,
                   a.justify_center,
                   a.rounded_full,
                   {
-                    width: 30,
-                    height: 30,
+                    width: 34,
+                    height: 34,
                     backgroundColor: colors.surface,
-                    borderWidth: 1,
-                    borderColor: colors.border,
                   },
                   web({cursor: 'pointer'}),
                 ]}>
-                <CloseIcon size="xs" fill={colors.muted} />
+                <CloseIcon size="xs" fill={colors.text} />
               </Pressable>
             </View>
 
             <TextInput
+              accessibilityLabel="Space title"
+              accessibilityHint=""
               testID="zingSpaceTitleInput"
               value={title}
               onChangeText={setTitle}
               placeholder="What do you want to talk about?"
               placeholderTextColor={colors.muted}
               style={[
-                a.text_md,
-                a.px_md,
-                a.py_sm,
-                a.rounded_md,
                 {
+                  fontSize: 18,
+                  fontWeight: '600',
+                  paddingHorizontal: 14,
+                  paddingVertical: 14,
+                  borderRadius: 14,
                   backgroundColor: colors.surface,
                   color: colors.text,
                   borderWidth: 1,
                   borderColor: colors.border,
                 },
-                web({outlineStyle: 'none'} as any),
+                web({outlineStyle: 'none'}),
               ]}
             />
 
-            {/* Topic Tags */}
-            <View style={[a.gap_xs]}>
-              <Text style={[a.text_xs, a.font_semi_bold, {color: colors.muted}]}>
-                TOPICS (UP TO 3)
+            {/* Topics Selection */}
+            <View style={[a.gap_sm]}>
+              <Text style={[a.text_xs, a.font_bold, {color: colors.muted}]}>
+                ADD TOPICS (UP TO 3)
               </Text>
               <View style={[a.flex_row, a.flex_wrap, a.gap_xs]}>
                 {SUGGESTED_TOPICS.map(topic => {
@@ -1575,22 +2328,23 @@ export function ZingSpacesScreen() {
                       accessibilityRole="button"
                       onPress={() => toggleTopic(topic)}
                       style={[
-                        a.px_sm,
-                        a.py_2xs,
+                        a.px_md,
+                        a.py_xs,
                         a.rounded_full,
                         {
                           backgroundColor: selected
-                            ? colors.accentSubtle
+                            ? 'rgba(121, 75, 196, 0.25)'
                             : colors.surface,
                           borderWidth: 1,
-                          borderColor: selected ? colors.accent : colors.border,
+                          borderColor: selected ? '#794BC4' : colors.border,
                         },
+                        web({cursor: 'pointer'}),
                       ]}>
                       <Text
                         style={[
                           a.text_xs,
-                          a.font_semi_bold,
-                          {color: selected ? colors.accent : colors.text},
+                          a.font_bold,
+                          {color: selected ? '#C4B5FD' : colors.text},
                         ]}>
                         {topic}
                       </Text>
@@ -1600,661 +2354,162 @@ export function ZingSpacesScreen() {
               </View>
             </View>
 
-            {/* Schedule Offset Selector */}
-            <View style={[a.flex_row, a.flex_wrap, a.align_center, a.gap_xs]}>
-              <Text style={[a.text_xs, {color: colors.muted}]}>
-                Schedule window:
-              </Text>
-              {SCHEDULE_PRESETS.map(preset => {
-                const active = scheduleOffsetMin === preset.offsetMinutes
-                return (
-                  <Pressable
-                    key={preset.label}
-                    accessibilityRole="button"
-                    onPress={() => setScheduleOffsetMin(preset.offsetMinutes)}
-                    style={[
-                      a.px_sm,
-                      a.py_2xs,
-                      a.rounded_full,
-                      {
-                        backgroundColor: active
-                          ? colors.accentSubtle
-                          : colors.surface,
-                        borderWidth: 1,
-                        borderColor: active ? colors.accent : colors.border,
-                      },
-                    ]}>
-                    <Text
-                      style={[
-                        a.text_xs,
-                        a.font_semi_bold,
-                        {color: active ? colors.accent : colors.text},
-                      ]}>
-                      {preset.label}
-                    </Text>
-                  </Pressable>
-                )
-              })}
-            </View>
-
-            {/* Launch Buttons */}
-            <View style={[a.flex_row, a.flex_wrap, a.align_center, a.gap_sm]}>
-              <Pressable
-                testID="startZingSpaceLiveBtn"
-                accessibilityRole="button"
-                accessibilityLabel="Start ZingSpace live now"
-                disabled={isCreating}
-                onPress={() => handleCreateSpace('live')}
+            {/* Start Now vs Schedule */}
+            <View style={[a.gap_sm]}>
+              <View
                 style={[
                   a.flex_row,
-                  a.align_center,
-                  a.gap_xs,
-                  a.px_lg,
-                  a.py_sm,
-                  a.rounded_full,
-                  {backgroundColor: '#794BC4', opacity: isCreating ? 0.6 : 1},
-                  web({cursor: 'pointer'}),
-                ]}>
-                {isCreating ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <LiveIcon size="xs" fill="#FFFFFF" />
-                )}
-                <Text style={[a.text_xs, a.font_bold, {color: '#FFFFFF'}]}>
-                  Start ZingSpace Live
-                </Text>
-              </Pressable>
-
-              <Pressable
-                testID="scheduleZingSpaceBtn"
-                accessibilityRole="button"
-                accessibilityLabel="Schedule ZingSpace for later"
-                disabled={isCreating}
-                onPress={() => handleCreateSpace('scheduled')}
-                style={[
-                  a.flex_row,
-                  a.align_center,
-                  a.gap_xs,
-                  a.px_md,
-                  a.py_sm,
+                  a.p_2xs,
                   a.rounded_full,
                   {
                     backgroundColor: colors.surface,
                     borderWidth: 1,
                     borderColor: colors.border,
                   },
-                  web({cursor: 'pointer'}),
                 ]}>
-                <ClockIcon size="xs" fill={colors.text} />
-                <Text
-                  style={[a.text_xs, a.font_semi_bold, {color: colors.text}]}>
-                  Schedule ({SCHEDULE_PRESETS.find(p => p.offsetMinutes === scheduleOffsetMin)?.label})
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        )}
-
-        {/* Network ZingSpaces Directory */}
-        <View style={[a.gap_sm]}>
-          <View
-            style={[
-              a.flex_row,
-              a.flex_wrap,
-              a.align_center,
-              a.justify_between,
-              a.gap_xs,
-            ]}>
-            <Text style={[a.text_sm, a.font_bold, {color: colors.text}]}>
-              Sovereign Network ZingSpaces ({spaces.length})
-            </Text>
-
-            <View style={[a.flex_row, a.align_center, a.gap_2xs]}>
-              {(['all', 'live', 'scheduled', 'ended'] as const).map(tab => {
-                const active = statusFilter === tab
-                return (
-                  <Pressable
-                    key={tab}
-                    accessibilityRole="button"
-                    onPress={() => setStatusFilter(tab)}
-                    style={[
-                      a.px_sm,
-                      a.py_2xs,
-                      a.rounded_full,
-                      {
-                        backgroundColor: active
-                          ? colors.accentSubtle
-                          : colors.card,
-                        borderWidth: 1,
-                        borderColor: active ? colors.accent : colors.border,
-                      },
-                    ]}>
-                    <Text
+                {(
+                  [
+                    {id: 'live', label: 'Start now'},
+                    {id: 'scheduled', label: 'Schedule for later'},
+                  ] as const
+                ).map(mode => {
+                  const active = createMode === mode.id
+                  return (
+                    <Pressable
+                      key={mode.id}
+                      accessibilityRole="button"
+                      onPress={() => setCreateMode(mode.id)}
                       style={[
-                        {
-                          fontSize: 11,
-                          fontWeight: active ? '700' : '600',
-                          color: active ? colors.accent : colors.muted,
-                        },
-                      ]}>
-                      {tab.toUpperCase()}
-                    </Text>
-                  </Pressable>
-                )
-              })}
-            </View>
-          </View>
-
-          {loadingSpaces ? (
-            <View
-              style={[
-                a.p_lg,
-                a.rounded_lg,
-                a.align_center,
-                a.gap_xs,
-                {
-                  backgroundColor: colors.card,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                },
-              ]}>
-              <ActivityIndicator size="small" color={colors.accent} />
-              <Text style={[a.text_xs, {color: colors.muted}]}>
-                Syncing ZingSpaces from Sovereign PDS...
-              </Text>
-            </View>
-          ) : spaces.length === 0 ? (
-            <View
-              style={[
-                a.p_lg,
-                a.rounded_lg,
-                a.align_center,
-                {
-                  backgroundColor: colors.card,
-                  borderWidth: 1,
-                  borderColor: colors.border,
-                },
-              ]}>
-              <Text style={[a.text_xs, {color: colors.muted}]}>
-                No {statusFilter === 'all' ? '' : statusFilter} ZingSpaces
-                found. Launch the first live room above!
-              </Text>
-            </View>
-          ) : (
-            spaces.map(space => {
-              const isHost = Boolean(viewerDid && space.hostDid === viewerDid)
-              const isActive = activeSpaceSlug === space.slug
-              const isLive = space.status === 'live'
-              const isEnded = space.status === 'ended'
-
-              // Overlapping participant avatar stack (up to 3)
-              const stackParticipants =
-                space.participants && space.participants.length > 0
-                  ? space.participants.slice(0, 3)
-                  : [
-                      {
-                        did: space.hostDid,
-                        handle: space.hostHandle,
-                        displayName: space.hostDisplayName,
-                        avatar: space.hostAvatar,
-                      },
-                    ]
-
-              return (
-                <View
-                  key={space.slug}
-                  style={[
-                    a.p_md,
-                    a.rounded_lg,
-                    a.gap_sm,
-                    {
-                      backgroundColor: isEnded ? colors.card : '#6D3EC2',
-                      borderWidth: 1,
-                      borderColor: isActive
-                        ? '#FFFFFF'
-                        : isEnded
-                          ? colors.border
-                          : '#8B5CF6',
-                    },
-                    IS_WEB && !isEnded
-                      ? ({
-                          backgroundImage: isLive
-                            ? 'linear-gradient(135deg, #794BC4 0%, #5B33A6 100%)'
-                            : 'linear-gradient(135deg, #6B3EB8 0%, #4C288A 100%)',
-                          boxShadow: isActive
-                            ? '0 0 0 2px #FFFFFF, 0 8px 24px rgba(121, 75, 196, 0.4)'
-                            : '0 4px 18px rgba(121, 75, 196, 0.22)',
-                        } as any)
-                      : {},
-                  ]}>
-                  {/* Top Header Row with LIVE badge & Topic */}
-                  <View
-                    style={[a.flex_row, a.align_center, a.justify_between]}>
-                    <View style={[a.flex_row, a.align_center, {gap: 6}]}>
-                      {isLive ? (
-                        <View
-                          style={[
-                            a.flex_row,
-                            a.align_center,
-                            a.rounded_full,
-                            {
-                              gap: 5,
-                              paddingHorizontal: 8,
-                              paddingVertical: 3,
-                              backgroundColor: 'rgba(0, 0, 0, 0.35)',
-                              borderWidth: 1,
-                              borderColor: 'rgba(255, 255, 255, 0.25)',
-                            },
-                          ]}>
-                          <View
-                            style={{
-                              width: 6,
-                              height: 6,
-                              borderRadius: 3,
-                              backgroundColor: '#00BA7C',
-                            }}
-                          />
-                          <Text
-                            style={[
-                              {
-                                fontSize: 11,
-                                fontWeight: '800',
-                                color: '#FFFFFF',
-                                letterSpacing: 0.4,
-                              },
-                            ]}>
-                            LIVE
-                          </Text>
-                        </View>
-                      ) : (
-                        <View
-                          style={[
-                            a.px_xs,
-                            a.rounded_full,
-                            {
-                              paddingVertical: 2,
-                              backgroundColor: isEnded
-                                ? colors.surface
-                                : 'rgba(255, 255, 255, 0.2)',
-                            },
-                          ]}>
-                          <Text
-                            style={[
-                              {
-                                fontSize: 10,
-                                fontWeight: '700',
-                                color: isEnded ? colors.muted : '#FFFFFF',
-                              },
-                            ]}>
-                            {space.status.toUpperCase()}
-                            {space.scheduledFor && space.status === 'scheduled'
-                              ? ` · ${formatScheduledTime(space.scheduledFor)}`
-                              : ''}
-                          </Text>
-                        </View>
-                      )}
-
-                      <View
-                        style={[
-                          a.px_xs,
-                          a.rounded_full,
-                          {
-                            paddingVertical: 2,
-                            backgroundColor: isEnded
-                              ? colors.surface
-                              : 'rgba(255, 255, 255, 0.16)',
-                          },
-                        ]}>
-                        <Text
-                          style={[
-                            {
-                              fontSize: 10,
-                              fontWeight: '600',
-                              color: isEnded ? colors.muted : '#FFFFFF',
-                            },
-                          ]}>
-                          {space.topic || 'General'}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {isHost && (
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Delete ZingSpace"
-                        onPress={() => handleDeleteSpace(space.slug)}
-                        hitSlop={8}>
-                        <TrashIcon
-                          size="xs"
-                          fill={isEnded ? colors.muted : '#E9D5FF'}
-                        />
-                      </Pressable>
-                    )}
-                  </View>
-
-                  {/* Space Title */}
-                  <Text
-                    style={[
-                      a.text_md,
-                      a.font_bold,
-                      {
-                        color: isEnded ? colors.text : '#FFFFFF',
-                        lineHeight: 22,
-                      },
-                    ]}>
-                    {space.title}
-                  </Text>
-
-                  {/* Overlapping Participant Avatar Stack + Listening Count */}
-                  <View style={[a.flex_row, a.align_center, {gap: 10}]}>
-                    <View style={[a.flex_row, a.align_center]}>
-                      {stackParticipants.map((p, idx) => {
-                        const pInitials = (
-                          p.displayName ||
-                          p.handle ||
-                          'QZ'
-                        )
-                          .slice(0, 2)
-                          .toUpperCase()
-
-                        return (
-                          <View
-                            key={p.did || idx}
-                            style={[
-                              a.rounded_full,
-                              {
-                                width: 28,
-                                height: 28,
-                                marginLeft: idx === 0 ? 0 : -8,
-                                borderWidth: 2,
-                                borderColor: isEnded ? colors.card : '#794BC4',
-                                overflow: 'hidden',
-                                backgroundColor: isEnded
-                                  ? colors.surface
-                                  : 'rgba(255, 255, 255, 0.25)',
-                              },
-                            ]}>
-                            {p.avatar ? (
-                              <UserAvatar type="user" size={24} avatar={p.avatar} />
-                            ) : (
-                              <View
-                                style={[
-                                  a.align_center,
-                                  a.justify_center,
-                                  a.w_full,
-                                  a.h_full,
-                                ]}>
-                                <Text
-                                  style={[
-                                    {
-                                      fontSize: 9,
-                                      fontWeight: '700',
-                                      color: isEnded ? colors.text : '#FFFFFF',
-                                    },
-                                  ]}>
-                                  {pInitials}
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                        )
-                      })}
-                    </View>
-
-                    <Text
-                      style={[
-                        {
-                          fontSize: 12,
-                          fontWeight: '600',
-                          color: isEnded ? colors.muted : '#FFFFFF',
-                          opacity: isEnded ? 1 : 0.95,
-                        },
-                      ]}>
-                      {isLive
-                        ? `${Math.max(1, space.listenerCount + space.speakerCount)} listening`
-                        : `${space.speakerCount} speakers · ${space.listenerCount} listeners`}
-                    </Text>
-                  </View>
-
-                  {/* Bottom Host Band & CTA */}
-                  <View
-                    style={[
-                      a.flex_row,
-                      a.align_center,
-                      a.justify_between,
-                      a.px_sm,
-                      a.py_xs,
-                      {
-                        borderRadius: 12,
-                        backgroundColor: isEnded
-                          ? colors.surface
-                          : 'rgba(0, 0, 0, 0.22)',
-                      },
-                    ]}>
-                    <View
-                      style={[
-                        a.flex_row,
+                        a.flex_1,
                         a.align_center,
-                        a.gap_xs,
-                        {flex: 1, minWidth: 0},
+                        a.justify_center,
+                        a.rounded_full,
+                        {
+                          height: 34,
+                          backgroundColor: active ? '#794BC4' : 'transparent',
+                        },
+                        web({cursor: 'pointer'}),
                       ]}>
-                      {space.hostAvatar ? (
-                        <UserAvatar type="user" size={22} avatar={space.hostAvatar} />
-                      ) : (
-                        <View
-                          style={[
-                            a.align_center,
-                            a.justify_center,
-                            a.rounded_full,
-                            {
-                              width: 22,
-                              height: 22,
-                              backgroundColor: isEnded
-                                ? colors.card
-                                : 'rgba(255, 255, 255, 0.25)',
-                            },
-                          ]}>
-                          <Text
-                            style={[
-                              {
-                                fontSize: 9,
-                                fontWeight: '700',
-                                color: isEnded ? colors.text : '#FFFFFF',
-                              },
-                            ]}>
-                            {(space.hostDisplayName || space.hostHandle || 'H')
-                              .slice(0, 2)
-                              .toUpperCase()}
-                          </Text>
-                        </View>
-                      )}
                       <Text
-                        numberOfLines={1}
                         style={[
-                          {
-                            fontSize: 12,
-                            fontWeight: '700',
-                            color: isEnded ? colors.text : '#FFFFFF',
-                            maxWidth: 160,
-                          },
+                          a.text_xs,
+                          a.font_bold,
+                          {color: active ? '#FFFFFF' : colors.muted},
                         ]}>
-                        @{space.hostHandle}
+                        {mode.label}
                       </Text>
-                      <View
-                        style={[
-                          a.px_2xs,
-                          a.rounded_full,
-                          {
-                            backgroundColor: isEnded
-                              ? colors.border
-                              : 'rgba(255, 255, 255, 0.25)',
-                          },
-                        ]}>
-                        <Text
-                          style={[
-                            {
-                              fontSize: 9,
-                              fontWeight: '700',
-                              color: isEnded ? colors.muted : '#FFFFFF',
-                            },
-                          ]}>
-                          Host
-                        </Text>
-                      </View>
-                    </View>
+                    </Pressable>
+                  )
+                })}
+              </View>
 
-                    <View style={[a.flex_row, a.align_center, {gap: 6}]}>
-                      {!isActive && !isEnded && (
-                        <Pressable
-                          accessibilityRole="button"
-                          onPress={() => handleJoinOrOpenSpace(space)}
-                          style={[
-                            a.px_md,
-                            a.py_2xs,
-                            a.rounded_full,
-                            {
-                              backgroundColor: '#FFFFFF',
-                            },
-                            web({cursor: 'pointer'}),
-                          ]}>
-                          <Text
-                            style={[
-                              a.text_xs,
-                              a.font_bold,
-                              {color: '#0F1419'},
-                            ]}>
-                            {isLive
-                              ? 'Listen live'
-                              : isHost
-                                ? 'Go Live'
-                                : 'View Stage'}
-                          </Text>
-                        </Pressable>
-                      )}
+              {createMode === 'scheduled' && (
+                <View style={[a.flex_row, a.flex_wrap, a.gap_xs]}>
+                  {SCHEDULE_PRESETS.map(preset => {
+                    const active = scheduleOffsetMin === preset.offsetMinutes
+                    return (
                       <Pressable
+                        key={preset.label}
                         accessibilityRole="button"
-                        onPress={() => handleShareSpace(space)}
+                        onPress={() =>
+                          setScheduleOffsetMin(preset.offsetMinutes)
+                        }
                         style={[
-                          a.px_sm,
-                          a.py_2xs,
+                          a.px_md,
+                          a.py_xs,
                           a.rounded_full,
                           {
-                            backgroundColor: isEnded
-                              ? colors.card
-                              : 'rgba(255, 255, 255, 0.15)',
+                            backgroundColor: active
+                              ? colors.accentSubtle
+                              : colors.surface,
                             borderWidth: 1,
-                            borderColor: isEnded
-                              ? colors.border
-                              : 'rgba(255, 255, 255, 0.25)',
+                            borderColor: active ? colors.accent : colors.border,
                           },
                           web({cursor: 'pointer'}),
                         ]}>
                         <Text
                           style={[
                             a.text_xs,
-                            {color: isEnded ? colors.accent : '#FFFFFF'},
+                            a.font_bold,
+                            {color: active ? colors.accent : colors.text},
                           ]}>
-                          Invite
+                          In {preset.label}
                         </Text>
                       </Pressable>
-                    </View>
-                  </View>
+                    )
+                  })}
                 </View>
-              )
-            })
-          )}
-        </View>
-
-        {/* Live #spaces & #live Community Feed Posts */}
-        <View
-          style={[
-            a.rounded_lg,
-            a.overflow_hidden,
-            {
-              backgroundColor: colors.card,
-              borderWidth: 1,
-              borderColor: colors.border,
-            },
-          ]}>
-          <View
-            style={[
-              a.flex_row,
-              a.align_center,
-              a.justify_between,
-              a.p_md,
-              {borderBottomWidth: 1, borderBottomColor: colors.border},
-            ]}>
-            <View>
-              <Text style={[a.text_md, a.font_bold, {color: colors.text}]}>
-                Community Announcements (#spaces & #live)
-              </Text>
-              <Text style={[a.text_xs, {color: colors.muted}]}>
-                Public Zings tagged with #spaces and #live across the network
-              </Text>
+              )}
             </View>
+
+            {/* Record Space Toggle */}
+            <View
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.justify_between,
+                a.px_sm,
+                a.py_xs,
+              ]}>
+              <View style={{flex: 1}}>
+                <Text style={[a.text_sm, a.font_bold, {color: colors.text}]}>
+                  Record Space
+                </Text>
+                <Text style={[a.text_xs, {color: colors.muted}]}>
+                  Save replay for listeners after Space ends
+                </Text>
+              </View>
+              <Switch
+                value={recordSpace}
+                onValueChange={setRecordSpace}
+                trackColor={{false: colors.border, true: '#794BC4'}}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+
+            {/* Launch / Schedule CTA */}
             <Pressable
+              testID={
+                createMode === 'live'
+                  ? 'startZingSpaceLiveBtn'
+                  : 'scheduleZingSpaceBtn'
+              }
               accessibilityRole="button"
-              onPress={() => void loadLiveDiscovery()}>
-              <Text
-                style={[a.text_xs, a.font_semi_bold, {color: colors.accent}]}>
-                Refresh
+              accessibilityLabel={
+                createMode === 'live' ? 'Start your Space' : 'Schedule Space'
+              }
+              accessibilityHint=""
+              disabled={isCreating}
+              onPress={() => handleCreateSpace(createMode)}
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.justify_center,
+                a.gap_xs,
+                a.rounded_full,
+                {
+                  height: 46,
+                  backgroundColor: '#794BC4',
+                  opacity: isCreating ? 0.6 : 1,
+                },
+                web({cursor: 'pointer'}),
+              ]}>
+              {isCreating ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : createMode === 'live' ? (
+                <LiveIcon size="sm" fill="#FFFFFF" />
+              ) : (
+                <ClockIcon size="sm" fill="#FFFFFF" />
+              )}
+              <Text style={[a.text_md, a.font_bold, {color: '#FFFFFF'}]}>
+                {createMode === 'live'
+                  ? 'Start your Space'
+                  : `Schedule (${SCHEDULE_PRESETS.find(p => p.offsetMinutes === scheduleOffsetMin)?.label})`}
               </Text>
             </Pressable>
           </View>
-
-          {loadingDiscovery ? (
-            <View style={[a.p_lg, a.align_center, a.gap_xs]}>
-              <ActivityIndicator size="small" color={colors.accent} />
-              <Text style={[a.text_xs, {color: colors.muted}]}>
-                Loading community announcements...
-              </Text>
-            </View>
-          ) : discoveryPosts.length === 0 ? (
-            <View style={[a.p_lg, a.align_center]}>
-              <Text style={[a.text_xs, {color: colors.muted}]}>
-                No #spaces announcements right now. Start your own room above!
-              </Text>
-            </View>
-          ) : (
-            discoveryPosts.map((post, idx) => (
-              <Pressable
-                key={post.uri}
-                accessibilityRole="button"
-                onPress={() => handleOpenPost(post)}
-                style={[
-                  a.p_md,
-                  a.gap_xs,
-                  idx > 0 && {
-                    borderTopWidth: 1,
-                    borderTopColor: colors.border,
-                  },
-                ]}>
-                <View
-                  style={[a.flex_row, a.align_center, a.justify_between]}>
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      a.text_xs,
-                      a.font_bold,
-                      a.flex_1,
-                      {color: colors.accent},
-                    ]}>
-                    {stripEmojisAndSymbols(post.displayName)} @{post.handle}
-                  </Text>
-                  <Text style={[a.text_xs, {color: colors.muted}]}>
-                    {post.likeCount} likes · {post.repostCount} rezings
-                  </Text>
-                </View>
-                <Text
-                  numberOfLines={2}
-                  style={[a.text_sm, a.leading_snug, {color: colors.text}]}>
-                  {stripEmojisAndSymbols(post.text)}
-                </Text>
-              </Pressable>
-            ))
-          )}
         </View>
-      </Layout.Content>
+      </Modal>
     </Layout.Screen>
   )
 }

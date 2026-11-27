@@ -14,7 +14,7 @@ import {LinkDestination} from './LinkDestination'
 
 /**
  * Opened by long-pressing a link: shows the full destination before anyone
- * leaves Bluesky, plus copy and report.
+ * leaves QuantZing, plus copy and report.
  */
 export function LinkPreviewSheet({
   control,
@@ -82,7 +82,7 @@ function LinkPreviewSheetInner({
           <Button
             testID="profileLinkPreviewOpenBtn"
             label={l`Open link`}
-            accessibilityHint={l`Opens ${link.url} outside Bluesky`}
+            accessibilityHint={l`Opens ${link.url} outside QuantZing`}
             onPress={e => control.close(() => onOpen(link, e))}
             size="large"
             color="primary">

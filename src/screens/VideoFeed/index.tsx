@@ -53,6 +53,7 @@ import {
   createPlaybackTelemetry,
   type PlaybackTelemetry,
 } from '#/lib/media/video/playbackTelemetry'
+import {getQuantZingApiOrigin} from '#/lib/quantos/client'
 import {getHomeNavigationAction} from '#/lib/routes/navigation'
 import {
   type CommonNavigatorParams,
@@ -69,6 +70,7 @@ import {
   usePostShadow,
 } from '#/state/cache/post-shadow'
 import {useProfileShadow} from '#/state/cache/profile-shadow'
+import {useModerationOpts} from '#/state/preferences/moderation-opts'
 import {useFeedInfo} from '#/state/queries/feed'
 import {usePostLikeMutationQueue} from '#/state/queries/post'
 import {
@@ -76,8 +78,6 @@ import {
   usePostFeedQuery,
 } from '#/state/queries/post-feed'
 import {useProfileFollowMutationQueue} from '#/state/queries/profile'
-import {getQuantZingApiOrigin} from '#/lib/quantos/client'
-import {useModerationOpts} from '#/state/preferences/moderation-opts'
 import {useAppviewClient, useRequireAuth, useSession} from '#/state/session'
 import {useSetLightStatusBar} from '#/state/shell/light-status-bar'
 import {List} from '#/view/com/util/List'
@@ -93,14 +93,16 @@ import {Check_Stroke2_Corner0_Rounded as CheckIcon} from '#/components/icons/Che
 import {EyeSlash_Stroke2_Corner0_Rounded as Eye} from '#/components/icons/EyeSlash'
 import {Leaf_Stroke2_Corner0_Rounded as LeafIcon} from '#/components/icons/Leaf'
 import {Mute_Stroke2_Corner0_Rounded as MuteIcon} from '#/components/icons/Mute'
+import {Pause_Filled_Corner0_Rounded as PauseIcon} from '#/components/icons/Pause'
+import {Play_Filled_Corner0_Rounded as PlayIcon} from '#/components/icons/Play'
 import {PlusLarge_Stroke2_Corner0_Rounded as PlusIcon} from '#/components/icons/Plus'
 import {SpeakerVolumeFull_Stroke2_Corner0_Rounded as VolumeIcon} from '#/components/icons/SpeakerVolumeFull'
 import {VideoClip_Stroke2_Corner0_Rounded as VideoClipIcon} from '#/components/icons/VideoClip'
 import {KeepAwake} from '#/components/KeepAwake'
-import {Loader} from '#/components/Loader'
 import * as Layout from '#/components/Layout'
 import {Link} from '#/components/Link'
 import {ListFooter} from '#/components/Lists'
+import {Loader} from '#/components/Loader'
 import * as Hider from '#/components/moderation/Hider'
 import * as ReportDialogMetadataContext from '#/components/moderation/ReportDialog/ReportDialogMetadataContext'
 import {PostControls} from '#/components/PostControls'
@@ -179,10 +181,6 @@ export function VideoFeed({}: NativeStackScreenProps<
   CommonNavigatorParams,
   'VideoFeed'
 >) {
-  const {top} = useSafeAreaInsets()
-  const {params} = useRoute<RouteProp<CommonNavigatorParams, 'VideoFeed'>>()
-  const safeParams = useMemo(() => resolveSafeParams(params), [params])
-
   const t = useTheme()
   useFocusEffect(
     useCallback(() => {
@@ -204,14 +202,6 @@ export function VideoFeed({}: NativeStackScreenProps<
         noInsetTop
         style={{backgroundColor: 'black'}}>
         <KeepAwake />
-        <View
-          style={[
-            a.absolute,
-            a.z_50,
-            {top: 0, left: 0, right: 0, paddingTop: top},
-          ]}>
-          <Header sourceContext={safeParams} />
-        </View>
         <Feed />
       </Layout.Screen>
     </ThemeProvider>
@@ -249,6 +239,7 @@ function Feed() {
   const [containerHeight, setContainerHeight] = useState(0)
   const height = containerHeight > 0 ? containerHeight : safeFrameHeight
   const [muted, setMuted] = useState(false)
+  const [controlsHidden, setControlsHidden] = useState(false)
   const [fallbackInitialPost, setFallbackInitialPost] =
     useState<app.bsky.feed.defs.PostView | null>(null)
 
@@ -445,10 +436,20 @@ function Feed() {
           scrollGesture={scrollGesture}
           feedContext={item.feedContext}
           reqId={item.reqId}
+          controlsHidden={controlsHidden}
+          onToggleControls={() => setControlsHidden(h => !h)}
         />
       )
     },
-    [players, currentIndex, isFocused, currentSources, scrollGesture, height],
+    [
+      players,
+      currentIndex,
+      isFocused,
+      currentSources,
+      scrollGesture,
+      height,
+      controlsHidden,
+    ],
   )
 
   const updateVideoState = useCallback(
@@ -635,12 +636,7 @@ function Feed() {
           }}>
           <VideoClipIcon width={42} fill={error ? '#F4212E' : '#1D9BF0'} />
           <Text
-            style={[
-              a.text_xl,
-              a.font_bold,
-              a.text_center,
-              {color: '#E7E9EA'},
-            ]}>
+            style={[a.text_xl, a.font_bold, a.text_center, {color: '#E7E9EA'}]}>
             {error ? 'Could not load Reels' : 'No Reels yet'}
           </Text>
           <Text
@@ -660,6 +656,7 @@ function Feed() {
                 onPress={() => void refetch()}
                 accessibilityRole="button"
                 accessibilityLabel="Retry loading Reels"
+                accessibilityHint=""
                 style={({pressed}) => [
                   a.rounded_full,
                   a.align_center,
@@ -683,6 +680,7 @@ function Feed() {
               onPress={onUploadReel}
               accessibilityRole="button"
               accessibilityLabel="Upload a Reel"
+              accessibilityHint=""
               style={({pressed}) => [
                 a.rounded_full,
                 a.align_center,
@@ -714,6 +712,21 @@ function Feed() {
             setContainerHeight(h)
           }
         }}>
+        <View
+          pointerEvents={controlsHidden ? 'none' : 'auto'}
+          style={[
+            a.absolute,
+            a.z_50,
+            {
+              top: 0,
+              left: 0,
+              right: 0,
+              paddingTop: top,
+              opacity: controlsHidden ? 0 : 1,
+            },
+          ]}>
+          <Header sourceContext={safeParams} />
+        </View>
         <GestureDetector gesture={scrollGesture}>
           <List
             disableTabletLayout
@@ -747,18 +760,24 @@ function Feed() {
           />
         </GestureDetector>
         <View
+          pointerEvents={controlsHidden ? 'none' : 'auto'}
           style={[
             a.absolute,
             a.z_50,
             a.flex_row,
             a.align_center,
             a.gap_xs,
-            {top: top + 10, right: 14},
+            {
+              top: top + 10,
+              right: 14,
+              opacity: controlsHidden ? 0 : 1,
+            },
           ]}>
           <Pressable
             testID="nativeReelsMuteBtn"
             accessibilityRole="button"
             accessibilityLabel={muted ? 'Unmute Reel' : 'Mute Reel'}
+            accessibilityHint=""
             onPress={() => setMuted(prev => !prev)}
             style={({pressed}) => [
               a.align_center,
@@ -783,23 +802,22 @@ function Feed() {
             testID="nativeReelsTopUploadBtn"
             accessibilityRole="button"
             accessibilityLabel="Upload a Reel"
+            accessibilityHint=""
             onPress={onUploadReel}
             style={({pressed}) => [
-              a.flex_row,
               a.align_center,
-              a.gap_2xs,
+              a.justify_center,
               a.rounded_full,
               {
+                width: 38,
                 height: 38,
-                paddingHorizontal: 14,
-                backgroundColor: 'rgba(29, 155, 240, 0.92)',
+                backgroundColor: 'rgba(15, 20, 25, 0.72)',
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.22)',
                 opacity: pressed ? 0.8 : 1,
               },
             ]}>
-            <PlusIcon width={14} fill="#FFFFFF" />
-            <Text style={[a.text_xs, a.font_bold, {color: '#FFFFFF'}]}>
-              Post Reel
-            </Text>
+            <PlusIcon width={18} fill="#FFFFFF" />
           </Pressable>
         </View>
       </View>
@@ -822,6 +840,8 @@ let VideoItem = ({
   moderation,
   feedContext,
   reqId,
+  controlsHidden,
+  onToggleControls,
 }: {
   player?: VideoPlayer
   post: app.bsky.feed.defs.PostView
@@ -833,6 +853,8 @@ let VideoItem = ({
   moderation?: ModerationDecision
   feedContext: string | undefined
   reqId: string | undefined
+  controlsHidden: boolean
+  onToggleControls: () => void
 }): React.ReactNode => {
   const ax = useAnalytics()
   const postShadow = usePostShadow(post)
@@ -936,6 +958,8 @@ let VideoItem = ({
               active={active}
               scrollGesture={scrollGesture}
               moderation={moderation}
+              controlsHidden={controlsHidden}
+              onToggleControls={onToggleControls}
             />
           )}
         </>
@@ -1236,6 +1260,8 @@ function Overlay({
   active,
   scrollGesture,
   moderation,
+  controlsHidden,
+  onToggleControls,
 }: {
   player?: VideoPlayer
   post: Shadow<app.bsky.feed.defs.PostView>
@@ -1243,6 +1269,8 @@ function Overlay({
   active: boolean
   scrollGesture: NativeGesture
   moderation: ModerationDecision
+  controlsHidden: boolean
+  onToggleControls: () => void
 }) {
   const {t: l} = useLingui()
   const t = useTheme()
@@ -1307,119 +1335,138 @@ function Overlay({
       <Hider.Content>
         <View style={[a.absolute, a.inset_0, a.z_20]}>
           <View style={[a.flex_1]}>
-            {player && <PlayPauseTapArea player={player} post={post} />}
+            {player && (
+              <PlayPauseTapArea
+                player={player}
+                post={post}
+                onToggleControls={onToggleControls}
+              />
+            )}
           </View>
 
-          <LinearGradient
-            colors={[
-              'rgba(0,0,0,0)',
-              'rgba(0,0,0,0.7)',
-              'rgba(0,0,0,0.95)',
-              'rgba(0,0,0,0.95)',
-            ]}
-            style={[a.w_full, a.pt_md]}>
-            <Animated.View style={[a.px_md, animatedStyle]}>
-              <View style={[a.w_full, a.flex_row, a.align_center, a.gap_md]}>
-                <Link
-                  label={l`View ${sanitizeDisplayName(
-                    post.author.displayName || post.author.handle,
-                  )}'s profile`}
-                  to={{
-                    screen: 'Profile',
-                    params: {name: post.author.did},
-                  }}
-                  style={[a.flex_1, a.flex_row, a.gap_md, a.align_center]}>
-                  <UserAvatar
-                    type="user"
-                    avatar={post.author.avatar}
-                    size={32}
-                  />
-                  <View style={[a.flex_1]}>
-                    <Text
-                      style={[a.text_md, a.font_bold]}
-                      emoji
-                      numberOfLines={1}>
-                      {sanitizeDisplayName(
-                        post.author.displayName || post.author.handle,
-                      )}
-                    </Text>
-                    <Text
-                      style={[a.text_sm, t.atoms.text_contrast_high]}
-                      numberOfLines={1}>
-                      {handle}
-                    </Text>
-                  </View>
-                </Link>
-                {/* show button based on non-reactive version, so it doesn't hide on press */}
-                {post.author.did !== currentAccount?.did &&
-                  !post.author.viewer?.following && (
-                    <Button
-                      label={
-                        profile.viewer?.following
-                          ? l`Following ${handle}`
-                          : l`Follow ${handle}`
-                      }
-                      accessibilityHint={
-                        profile.viewer?.following ? l`Unfollows the user` : ''
-                      }
-                      size="small"
-                      variant="solid"
-                      color="secondary_inverted"
-                      style={[a.mb_xs]}
-                      onPress={() =>
-                        profile.viewer?.following
-                          ? void queueUnfollow()
-                          : void queueFollow()
-                      }>
-                      {!!profile.viewer?.following && (
-                        <ButtonIcon icon={CheckIcon} />
-                      )}
-                      <ButtonText>
-                        {profile.viewer?.following ? (
-                          <Trans>Following</Trans>
-                        ) : (
-                          <Trans>Follow</Trans>
+          <View
+            pointerEvents={controlsHidden ? 'none' : 'auto'}
+            style={{opacity: controlsHidden ? 0 : 1}}>
+            <LinearGradient
+              colors={[
+                'rgba(0,0,0,0)',
+                'rgba(0,0,0,0.7)',
+                'rgba(0,0,0,0.95)',
+                'rgba(0,0,0,0.95)',
+              ]}
+              style={[a.w_full, a.pt_md]}>
+              <Animated.View style={[a.px_md, animatedStyle]}>
+                <View style={[a.w_full, a.flex_row, a.align_center, a.gap_md]}>
+                  <Link
+                    label={l`View ${sanitizeDisplayName(
+                      post.author.displayName || post.author.handle,
+                    )}'s profile`}
+                    to={{
+                      screen: 'Profile',
+                      params: {name: post.author.did},
+                    }}
+                    style={[a.flex_1, a.flex_row, a.gap_md, a.align_center]}>
+                    <UserAvatar
+                      type="user"
+                      avatar={post.author.avatar}
+                      size={32}
+                    />
+                    <View style={[a.flex_1]}>
+                      <Text
+                        style={[a.text_md, a.font_bold]}
+                        emoji
+                        numberOfLines={1}>
+                        {sanitizeDisplayName(
+                          post.author.displayName || post.author.handle,
                         )}
-                      </ButtonText>
-                    </Button>
-                  )}
-              </View>
-              {record?.text?.trim() && (
-                <ExpandableRichTextView
-                  value={richText}
-                  authorHandle={post.author.handle}
-                />
-              )}
-              {record && (
-                <View style={[{left: -5}]}>
-                  <PostControls
-                    richText={richText}
-                    post={post}
-                    record={record}
-                    logContext="FeedItem"
-                    forceGoogleTranslate={true}
-                    onPressReply={() =>
-                      navigation.navigate('PostThread', {
-                        name: post.author.did,
-                        rkey,
-                      })
-                    }
-                    big
-                  />
+                      </Text>
+                      <Text
+                        style={[a.text_sm, t.atoms.text_contrast_high]}
+                        numberOfLines={1}>
+                        {handle}
+                      </Text>
+                    </View>
+                  </Link>
+                  {/* show button based on non-reactive version, so it doesn't hide on press */}
+                  {post.author.did !== currentAccount?.did &&
+                    !post.author.viewer?.following && (
+                      <Button
+                        label={
+                          profile.viewer?.following
+                            ? l`Following ${handle}`
+                            : l`Follow ${handle}`
+                        }
+                        accessibilityHint={
+                          profile.viewer?.following ? l`Unfollows the user` : ''
+                        }
+                        size="small"
+                        variant="solid"
+                        color="secondary_inverted"
+                        style={[a.mb_xs]}
+                        onPress={() =>
+                          profile.viewer?.following
+                            ? void queueUnfollow()
+                            : void queueFollow()
+                        }>
+                        {!!profile.viewer?.following && (
+                          <ButtonIcon icon={CheckIcon} />
+                        )}
+                        <ButtonText>
+                          {profile.viewer?.following ? (
+                            <Trans>Following</Trans>
+                          ) : (
+                            <Trans>Follow</Trans>
+                          )}
+                        </ButtonText>
+                      </Button>
+                    )}
                 </View>
-              )}
-            </Animated.View>
-            <Scrubber
-              active={active}
-              player={player}
-              seekingAnimationSV={seekingAnimationSV}
-              scrollGesture={scrollGesture}>
-              <ThreadComposePrompt
-                onPressCompose={onPressReply}
-                style={[a.pt_md, a.pb_sm]}
-              />
-            </Scrubber>
-          </LinearGradient>
+                {record?.text?.trim() && (
+                  <ExpandableRichTextView
+                    value={richText}
+                    authorHandle={post.author.handle}
+                  />
+                )}
+                {record && (
+                  <View
+                    style={[
+                      a.flex_row,
+                      a.align_center,
+                      a.justify_between,
+                      {left: -5},
+                    ]}>
+                    <View style={[a.flex_1]}>
+                      <PostControls
+                        richText={richText}
+                        post={post}
+                        record={record}
+                        logContext="FeedItem"
+                        forceGoogleTranslate={true}
+                        onPressReply={() =>
+                          navigation.navigate('PostThread', {
+                            name: post.author.did,
+                            rkey,
+                          })
+                        }
+                        big
+                      />
+                    </View>
+                    {player && <PlayPauseControl player={player} />}
+                  </View>
+                )}
+              </Animated.View>
+              <Scrubber
+                active={active}
+                player={player}
+                seekingAnimationSV={seekingAnimationSV}
+                scrollGesture={scrollGesture}>
+                <ThreadComposePrompt
+                  onPressCompose={onPressReply}
+                  style={[a.pt_md, a.pb_sm]}
+                />
+              </Scrubber>
+            </LinearGradient>
+          </View>
         </View>
         {/*
         {IS_ANDROID && status === 'loading' && (
@@ -1544,12 +1591,58 @@ function VideoItemPlaceholder({
   ) : null
 }
 
+function PlayPauseControl({player}: {player: VideoPlayer}) {
+  const {t: l} = useLingui()
+  const {isPlaying} = useEvent(player, 'playingChange', {
+    isPlaying: player.playing,
+  })
+
+  return (
+    <Pressable
+      testID="nativeReelsPlayPauseBtn"
+      accessibilityRole="button"
+      accessibilityLabel={isPlaying ? l`Pause` : l`Play`}
+      accessibilityHint=""
+      onPress={() => {
+        try {
+          if (player.playing) {
+            player.pause()
+          } else {
+            player.play()
+          }
+        } catch {}
+      }}
+      style={({pressed}) => [
+        a.align_center,
+        a.justify_center,
+        a.rounded_full,
+        {
+          width: 36,
+          height: 36,
+          backgroundColor: 'rgba(15, 20, 25, 0.62)',
+          borderWidth: 1,
+          borderColor: 'rgba(255, 255, 255, 0.22)',
+          opacity: pressed ? 0.75 : 1,
+          marginRight: 8,
+        },
+      ]}>
+      {isPlaying ? (
+        <PauseIcon width={16} fill="#FFFFFF" />
+      ) : (
+        <PlayIcon width={16} fill="#FFFFFF" />
+      )}
+    </Pressable>
+  )
+}
+
 function PlayPauseTapArea({
   player,
   post,
+  onToggleControls,
 }: {
   player: VideoPlayer
   post: Shadow<app.bsky.feed.defs.PostView>
+  onToggleControls: () => void
 }) {
   const {t: l} = useLingui()
   const doubleTapRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1575,9 +1668,7 @@ function PlayPauseTapArea({
   }, [])
 
   const togglePlayPause = useNonReactiveCallback(() => {
-    // gets called after a timeout, so guard against being called after unmount -sfn
     if (!player || !isMounted.current) return
-    doubleTapRef.current = null
     try {
       if (player.playing) {
         player.pause()
@@ -1589,6 +1680,12 @@ function PlayPauseTapArea({
     }
   })
 
+  const handleSingleTap = useNonReactiveCallback(() => {
+    if (!player || !isMounted.current) return
+    doubleTapRef.current = null
+    onToggleControls()
+  })
+
   const onPress = () => {
     if (doubleTapRef.current) {
       clearTimeout(doubleTapRef.current)
@@ -1597,8 +1694,17 @@ function PlayPauseTapArea({
       void queueLike()
       feedItem.send('app.bsky.feed.defs#interactionLike')
     } else {
-      doubleTapRef.current = setTimeout(togglePlayPause, 200)
+      doubleTapRef.current = setTimeout(handleSingleTap, 200)
     }
+  }
+
+  const onLongPress = () => {
+    if (doubleTapRef.current) {
+      clearTimeout(doubleTapRef.current)
+      doubleTapRef.current = null
+    }
+    haptics.tap()
+    togglePlayPause()
   }
 
   return (
@@ -1608,11 +1714,30 @@ function PlayPauseTapArea({
       label={l`Video from ${sanitizeHandle(
         post.author.handle,
         '@',
-      )}. Tap to play or pause the video`}
-      accessibilityHint={l`Double tap to like`}
+      )}. Tap to toggle controls`}
+      accessibilityHint={l`Double tap to like, single tap to hide or show controls, long press to play or pause`}
       onPress={onPress}
+      onLongPress={onLongPress}
       style={[a.absolute, a.inset_0, a.z_10]}>
-      <View />
+      {!isPlaying ? (
+        <View
+          style={[
+            a.align_center,
+            a.justify_center,
+            a.rounded_full,
+            {
+              width: 68,
+              height: 68,
+              backgroundColor: 'rgba(15, 20, 25, 0.72)',
+              borderWidth: 1,
+              borderColor: 'rgba(255, 255, 255, 0.2)',
+            },
+          ]}>
+          <PlayIcon width={28} fill="#FFFFFF" />
+        </View>
+      ) : (
+        <View />
+      )}
     </Button>
   )
 }

@@ -27,6 +27,14 @@ import {ShieldCheck_Stroke2_Corner0_Rounded as ShieldIcon} from '#/components/ic
 import * as Layout from '#/components/Layout'
 import {Text} from '#/components/Typography'
 
+interface DeferredInstallPrompt {
+  prompt?: () => Promise<void>
+  userChoice?: Promise<{outcome?: string}>
+}
+type WindowWithInstall = Window & {
+  __qzDeferredInstall?: DeferredInstallPrompt | null
+}
+
 export function DownloadScreen() {
   const t = useTheme()
   const {gtMobile} = useBreakpoints()
@@ -59,7 +67,9 @@ export function DownloadScreen() {
       setIsIos(/iPad|iPhone|iPod/i.test(ua))
 
       const syncPrompt = () => {
-        setCanInstallPwa(Boolean((window as any).__qzDeferredInstall))
+        setCanInstallPwa(
+          Boolean((window as unknown as WindowWithInstall).__qzDeferredInstall),
+        )
       }
       syncPrompt()
       window.addEventListener('qz-install-ready', syncPrompt)
@@ -74,20 +84,24 @@ export function DownloadScreen() {
     }
   }, [])
 
-  const resolveDownloadHref = useCallback((relativeOrFull: string): string | null => {
-    const trimmed = String(relativeOrFull || '').trim()
-    if (!trimmed || trimmed.startsWith('//')) return null
-    try {
-      const apiOrigin = getQuantZingApiOrigin()
-      const parsed = new URL(trimmed, apiOrigin)
-      const expected = new URL(apiOrigin)
-      if (parsed.origin !== expected.origin) return null
-      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null
-      return parsed.toString()
-    } catch {
-      return null
-    }
-  }, [])
+  const resolveDownloadHref = useCallback(
+    (relativeOrFull: string): string | null => {
+      const trimmed = String(relativeOrFull || '').trim()
+      if (!trimmed || trimmed.startsWith('//')) return null
+      try {
+        const apiOrigin = getQuantZingApiOrigin()
+        const parsed = new URL(trimmed, apiOrigin)
+        const expected = new URL(apiOrigin)
+        if (parsed.origin !== expected.origin) return null
+        if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')
+          return null
+        return parsed.toString()
+      } catch {
+        return null
+      }
+    },
+    [],
+  )
 
   const onDownloadApk = useCallback(() => {
     const apkPath =
@@ -129,7 +143,8 @@ export function DownloadScreen() {
 
   const onInstallPwa = useCallback(async () => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      const deferred = (window as any).__qzDeferredInstall
+      const win = window as unknown as WindowWithInstall
+      const deferred = win.__qzDeferredInstall
       if (deferred && typeof deferred.prompt === 'function') {
         try {
           await deferred.prompt()
@@ -138,7 +153,7 @@ export function DownloadScreen() {
             setInstallFeedback(
               'QuantZing Web App is installing directly onto your device.',
             )
-            ;(window as any).__qzDeferredInstall = null
+            win.__qzDeferredInstall = null
             setCanInstallPwa(false)
           } else {
             setInstallFeedback(
@@ -165,7 +180,9 @@ export function DownloadScreen() {
     if (navigation.canGoBack()) {
       navigation.goBack()
     } else {
-      ;(navigation as any).navigate('Home')
+      ;(navigation as unknown as {navigate: (s: string) => void}).navigate(
+        'Home',
+      )
     }
   }, [navigation])
 
@@ -207,6 +224,7 @@ export function DownloadScreen() {
               onPress={onBack}
               accessibilityRole="button"
               accessibilityLabel="Back"
+              accessibilityHint=""
               style={({pressed}) => [
                 a.flex_row,
                 a.align_center,
@@ -272,8 +290,7 @@ export function DownloadScreen() {
                 backgroundColor: colors.accentSubtle,
                 marginBottom: 20,
               }}>
-              <Text
-                style={[a.text_sm, a.font_semi_bold, {color: colors.text}]}>
+              <Text style={[a.text_sm, a.font_semi_bold, {color: colors.text}]}>
                 {installFeedback}
               </Text>
             </View>
@@ -300,7 +317,13 @@ export function DownloadScreen() {
                   a.justify_between,
                   a.gap_xs,
                 ]}>
-                <View style={[a.flex_row, a.align_center, a.gap_sm, {flex: 1, minWidth: 200}]}>
+                <View
+                  style={[
+                    a.flex_row,
+                    a.align_center,
+                    a.gap_sm,
+                    {flex: 1, minWidth: 200},
+                  ]}>
                   <View
                     style={{
                       width: 40,
@@ -342,8 +365,8 @@ export function DownloadScreen() {
 
               <Text style={[a.text_sm, {color: colors.muted, lineHeight: 20}]}>
                 Download the native signed QuantZing Android installer (
-                {release?.android.sizeLabel || 'Direct APK'}) hosted directly
-                on {displayDomain}. Full-screen native layout, Reels, ZingSpaces,
+                {release?.android.sizeLabel || 'Direct APK'}) hosted directly on{' '}
+                {displayDomain}. Full-screen native layout, Reels, ZingSpaces,
                 and Quanty AI without Play Store delays.
               </Text>
 
@@ -361,8 +384,7 @@ export function DownloadScreen() {
                 ]}>
                 <View style={[a.flex_row, a.align_center, a.gap_xs]}>
                   <ShieldIcon width={14} fill={colors.rezing} />
-                  <Text
-                    style={[a.text_xs, a.font_bold, {color: colors.text}]}>
+                  <Text style={[a.text_xs, a.font_bold, {color: colors.text}]}>
                     Release Verification · v{displayVersion}{' '}
                     {release?.android.sizeLabel
                       ? `(${release.android.sizeLabel})`
@@ -386,8 +408,7 @@ export function DownloadScreen() {
 
               {/* 3-Step Android Install Guide */}
               <View style={[a.gap_xs]}>
-                <Text
-                  style={[a.text_xs, a.font_bold, {color: colors.muted}]}>
+                <Text style={[a.text_xs, a.font_bold, {color: colors.muted}]}>
                   3-STEP ANDROID INSTALL GUIDE
                 </Text>
                 {[
@@ -399,7 +420,11 @@ export function DownloadScreen() {
                     key={step}
                     style={[a.flex_row, a.align_center, a.gap_xs]}>
                     <CheckIcon width={14} fill={colors.rezing} />
-                    <Text style={[a.text_xs, {color: colors.text, flex: 1, minWidth: 0}]}>
+                    <Text
+                      style={[
+                        a.text_xs,
+                        {color: colors.text, flex: 1, minWidth: 0},
+                      ]}>
                       {step}
                     </Text>
                   </View>
@@ -411,6 +436,7 @@ export function DownloadScreen() {
                 onPress={onDownloadApk}
                 accessibilityRole="button"
                 accessibilityLabel="Download QuantZing Android APK"
+                accessibilityHint=""
                 style={({pressed}) => [
                   a.flex_row,
                   a.align_center,
@@ -429,8 +455,7 @@ export function DownloadScreen() {
                 ) : (
                   <DownloadIcon width={18} fill={colors.ctaText} />
                 )}
-                <Text
-                  style={[a.text_md, a.font_bold, {color: colors.ctaText}]}>
+                <Text style={[a.text_md, a.font_bold, {color: colors.ctaText}]}>
                   Download Android APK
                   {release?.android.sizeLabel
                     ? ` (${release.android.sizeLabel})`
@@ -458,7 +483,13 @@ export function DownloadScreen() {
                   a.justify_between,
                   a.gap_xs,
                 ]}>
-                <View style={[a.flex_row, a.align_center, a.gap_sm, {flex: 1, minWidth: 200}]}>
+                <View
+                  style={[
+                    a.flex_row,
+                    a.align_center,
+                    a.gap_sm,
+                    {flex: 1, minWidth: 200},
+                  ]}>
                   <View
                     style={{
                       width: 40,
@@ -506,8 +537,7 @@ export function DownloadScreen() {
 
               {/* iOS Install Steps */}
               <View style={[a.gap_xs]}>
-                <Text
-                  style={[a.text_xs, a.font_bold, {color: colors.muted}]}>
+                <Text style={[a.text_xs, a.font_bold, {color: colors.muted}]}>
                   iOS DIRECT PROFILE INSTALL STEPS
                 </Text>
                 {[
@@ -519,14 +549,18 @@ export function DownloadScreen() {
                     key={step}
                     style={[a.flex_row, a.align_center, a.gap_xs]}>
                     <CheckIcon width={14} fill={colors.accent} />
-                    <Text style={[a.text_xs, {color: colors.text, flex: 1, minWidth: 0}]}>
+                    <Text
+                      style={[
+                        a.text_xs,
+                        {color: colors.text, flex: 1, minWidth: 0},
+                      ]}>
                       {step}
                     </Text>
                   </View>
                 ))}
               </View>
 
-              {/* Honest App Store / TestFlight .ipa Pipeline Note */}
+              {/* iOS Direct Install Note */}
               <View
                 style={[
                   a.p_sm,
@@ -538,11 +572,9 @@ export function DownloadScreen() {
                   },
                 ]}>
                 <Text style={[a.text_xs, {color: colors.muted}]}>
-                  iOS App Store & TestFlight (.ipa) pipeline status:{' '}
-                  {release?.ios.appStoreStatus ||
-                    'pending_macos_ipa_submission'}{' '}
-                  (native Xcode project configured in /ios; use Direct Profile
-                  .mobileconfig or Safari Add to Home Screen today).
+                  iPhone & iPad: Full-screen standalone install is ready today
+                  via Direct Profile (.mobileconfig) or Safari Add to Home
+                  Screen. App Store & TestFlight distribution coming soon.
                 </Text>
               </View>
 
@@ -551,6 +583,7 @@ export function DownloadScreen() {
                 onPress={onInstallIosProfile}
                 accessibilityRole="button"
                 accessibilityLabel="Install Direct Profile (.mobileconfig) for iPhone and iPad"
+                accessibilityHint=""
                 style={({pressed}) => [
                   a.flex_row,
                   a.align_center,
@@ -592,7 +625,13 @@ export function DownloadScreen() {
                   a.justify_between,
                   a.gap_xs,
                 ]}>
-                <View style={[a.flex_row, a.align_center, a.gap_sm, {flex: 1, minWidth: 200}]}>
+                <View
+                  style={[
+                    a.flex_row,
+                    a.align_center,
+                    a.gap_sm,
+                    {flex: 1, minWidth: 200},
+                  ]}>
                   <View
                     style={{
                       width: 40,
@@ -641,6 +680,7 @@ export function DownloadScreen() {
                 onPress={() => void onInstallPwa()}
                 accessibilityRole="button"
                 accessibilityLabel="Install Instant Web App (PWA)"
+                accessibilityHint=""
                 style={({pressed}) => [
                   a.flex_row,
                   a.align_center,

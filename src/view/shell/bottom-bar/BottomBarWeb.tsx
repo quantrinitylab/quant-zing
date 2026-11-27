@@ -41,7 +41,6 @@ import {
   Message_Stroke2_Corner0_Rounded_Filled as MessageFilled,
 } from '#/components/icons/Message'
 import {Sparkle_Stroke2_Corner0_Rounded as Sparkle} from '#/components/icons/Sparkle'
-import {VideoClip_Stroke2_Corner0_Rounded as VideoClip} from '#/components/icons/VideoClip'
 import {useLightbox} from '#/components/Lightbox/state'
 import {Text} from '#/components/Typography'
 import {useAgeAssurance} from '#/ageAssurance'
@@ -52,7 +51,6 @@ import {styles} from './BottomBarStyles'
 type NavItemValue =
   | 'home'
   | 'search'
-  | 'reels'
   | 'quanty'
   | 'chat'
   | 'notifications'
@@ -155,23 +153,6 @@ export function BottomBarWeb() {
                 }}
               </NavItem>
               <NavItem
-                testID="bottomBarReelsBtn"
-                routeName="VideoFeed"
-                label="Reels"
-                href="/video-feed"
-                navItem="reels">
-                {({isActive}) => (
-                  <VideoClip
-                    aria-hidden={true}
-                    width={iconWidth}
-                    style={[
-                      styles.ctrlIcon,
-                      isActive ? {color: '#1D9BF0'} : t.atoms.text,
-                    ]}
-                  />
-                )}
-              </NavItem>
-              <NavItem
                 testID="bottomBarQuantyBtn"
                 routeName="Quanty"
                 label="Quanty"
@@ -187,6 +168,24 @@ export function BottomBarWeb() {
                     ]}
                   />
                 )}
+              </NavItem>
+              <NavItem
+                testID="bottomBarNotificationsBtn"
+                routeName="Notifications"
+                label="Notifications"
+                href="/notifications"
+                navItem="notifications"
+                notificationCount={notificationCountStr}>
+                {({isActive}) => {
+                  const Icon = isActive ? BellFilled : Bell
+                  return (
+                    <Icon
+                      aria-hidden={true}
+                      width={iconWidth}
+                      style={[styles.ctrlIcon, t.atoms.text, styles.bellIcon]}
+                    />
+                  )
+                }}
               </NavItem>
               <NavItem
                 testID="bottomBarMessagesBtn"
@@ -213,24 +212,6 @@ export function BottomBarWeb() {
                         t.atoms.text,
                         styles.messagesIcon,
                       ]}
-                    />
-                  )
-                }}
-              </NavItem>
-              <NavItem
-                testID="bottomBarNotificationsBtn"
-                routeName="Notifications"
-                label="Notifications"
-                href="/notifications"
-                navItem="notifications"
-                notificationCount={notificationCountStr}>
-                {({isActive}) => {
-                  const Icon = isActive ? BellFilled : Bell
-                  return (
-                    <Icon
-                      aria-hidden={true}
-                      width={iconWidth}
-                      style={[styles.ctrlIcon, t.atoms.text, styles.bellIcon]}
                     />
                   )
                 }}

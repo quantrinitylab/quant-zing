@@ -27,10 +27,7 @@ import {
   useGetSuggestedUsersForExploreQuery,
 } from '#/state/queries/trending/useGetSuggestedUsersForExploreQuery'
 import {createGetTrendsQueryKey} from '#/state/queries/trending/useGetTrendsQuery'
-import {
-  createSuggestedStarterPacksQueryKey,
-  useSuggestedStarterPacksQuery,
-} from '#/state/queries/useSuggestedStarterPacksQuery'
+import {createSuggestedStarterPacksQueryKey} from '#/state/queries/useSuggestedStarterPacksQuery'
 import {isThreadChildAt, isThreadParentAt} from '#/view/com/posts/PostFeed'
 import {PostFeedItem} from '#/view/com/posts/PostFeedItem'
 import {ViewFullThread} from '#/view/com/posts/ViewFullThread'
@@ -48,16 +45,20 @@ import {Admonition} from '#/components/Admonition'
 import {Button} from '#/components/Button'
 import * as FeedCard from '#/components/FeedCard'
 import {FeedCardListSkeleton} from '#/components/FeedCardSkeleton'
-import {ChevronBottom_Stroke2_Corner0_Rounded as ChevronDownIcon} from '#/components/icons/Chevron'
+import {
+  ChevronBottom_Stroke2_Corner0_Rounded as ChevronDownIcon,
+  ChevronRight_Stroke2_Corner0_Rounded as ChevronRightIcon,
+} from '#/components/icons/Chevron'
 import {CircleInfo_Stroke2_Corner0_Rounded as CircleInfo} from '#/components/icons/CircleInfo'
 import {
   type Props as IcoProps,
   type Props as SVGIconProps,
 } from '#/components/icons/common'
 import {ListSparkle_Stroke2_Corner0_Rounded as ListSparkle} from '#/components/icons/ListSparkle'
-import {StarterPackMultiPathLarge as StarterPackIcon} from '#/components/icons/StarterPack'
+import {Phone_Stroke2_Corner0_Rounded as PhoneIcon} from '#/components/icons/Phone'
 import {UserCircle_Stroke2_Corner0_Rounded as Person} from '#/components/icons/UserCircle'
-import {boostInterests} from '#/components/InterestTabs'
+import {boostInterests, InterestTabs} from '#/components/InterestTabs'
+import {Link} from '#/components/Link'
 import {Loader} from '#/components/Loader'
 import * as ProfileCard from '#/components/ProfileCard'
 import {SubtleHover} from '#/components/SubtleHover'
@@ -211,6 +212,14 @@ type ExploreScreenItems =
       type: 'liveEventFeedsBanner'
       key: string
     }
+  | {
+      type: 'topicChipsBar'
+      key: 'topic-chips-bar'
+    }
+  | {
+      type: 'findPeopleActionRow'
+      key: 'find-people-action-row'
+    }
 
 export function Explore({
   focusSearchInput,
@@ -259,13 +268,6 @@ export function Explore({
   const interestsNux = useNux(Nux.ExploreInterestsCard)
   const showInterestsNux =
     interestsNux.status === 'ready' && !interestsNux.nux?.completed
-
-  const {
-    data: suggestedSPs,
-    isLoading: isLoadingSuggestedSPs,
-    error: suggestedSPsError,
-    isRefetching: isRefetchingSuggestedSPs,
-  } = useSuggestedStarterPacksQuery({enabled: useFullExperience})
 
   const isLoadingMoreFeeds = isFetchingNextFeedsPage && !isLoadingFeeds
   const [hasPressedLoadMoreFeeds, setHasPressedLoadMoreFeeds] = useState(false)
@@ -655,47 +657,6 @@ export function Explore({
     feeds,
   ])
 
-  const suggestedStarterPacksModule = useMemo(() => {
-    const i: ExploreScreenItems[] = []
-    i.push({
-      type: 'header',
-      key: 'suggested-starterPacks-header',
-      title: l`Starter Packs`,
-      icon: StarterPackIcon,
-      iconSize: 'md',
-    })
-
-    if (isLoadingSuggestedSPs || isRefetchingSuggestedSPs) {
-      Array.from({length: 3}).forEach((__, index) =>
-        i.push({
-          type: 'starterPackSkeleton',
-          key: `starterPackSkeleton-${index}`,
-        }),
-      )
-    } else if (suggestedSPsError || !suggestedSPs) {
-      // just get rid of the section
-      i.pop()
-    } else {
-      suggestedSPs.starterPacks.map((s, position) => {
-        i.push({
-          type: 'starterPack',
-          key: s.uri,
-          view: s,
-          recommendation: {
-            recId: suggestedSPs.recId,
-            position,
-          },
-        })
-      })
-    }
-    return i
-  }, [
-    suggestedSPs,
-    l,
-    isLoadingSuggestedSPs,
-    suggestedSPsError,
-    isRefetchingSuggestedSPs,
-  ])
   const feedPreviewsModule = useMemo(() => {
     const i: ExploreScreenItems[] = []
     i.push(...feedPreviewSlices)
@@ -718,21 +679,45 @@ export function Explore({
     ]
   }, [showInterestsNux])
 
+  const topicChipsBarModule = useMemo<ExploreScreenItems>(
+    () => ({
+      type: 'topicChipsBar',
+      key: 'topic-chips-bar',
+    }),
+    [],
+  )
+
+  const findPeopleActionRowModule = useMemo<ExploreScreenItems>(
+    () => ({
+      type: 'findPeopleActionRow',
+      key: 'find-people-action-row',
+    }),
+    [],
+  )
+
   const items = useMemo<ExploreScreenItems[]>(() => {
     const i: ExploreScreenItems[] = []
 
     // Dynamic module ordering
-
     i.push(topBorder)
+    i.push(findPeopleActionRowModule)
+    i.push(topicChipsBarModule)
     i.push(...interestsNuxModule)
 
     i.push({type: 'liveEventFeedsBanner', key: 'liveEventFeedsBanner'})
 
     if (useFullExperience) {
-      i.push(trendingTopicsModule)
-      i.push(...suggestedFeedsModule)
-      i.push(...suggestedFollowsModule)
-      i.push(...feedPreviewsModule)
+      if (selectedInterest) {
+        i.push(...suggestedFollowsModule)
+        i.push(trendingTopicsModule)
+        i.push(...suggestedFeedsModule)
+        i.push(...feedPreviewsModule)
+      } else {
+        i.push(trendingTopicsModule)
+        i.push(...suggestedFeedsModule)
+        i.push(...suggestedFollowsModule)
+        i.push(...feedPreviewsModule)
+      }
     } else {
       i.push(...suggestedFollowsModule)
     }
@@ -740,6 +725,9 @@ export function Explore({
     return i
   }, [
     topBorder,
+    findPeopleActionRowModule,
+    topicChipsBarModule,
+    selectedInterest,
     suggestedFollowsModule,
     suggestedFeedsModule,
     trendingTopicsModule,
@@ -1057,6 +1045,89 @@ export function Explore({
         }
         case 'liveEventFeedsBanner': {
           return <ExploreScreenLiveEventFeedsBanner />
+        }
+        case 'findPeopleActionRow': {
+          return (
+            <Link
+              to={{screen: 'FindContactsFlow'}}
+              label={l`Find People on QuantZing`}
+              style={[
+                a.mx_lg,
+                a.my_md,
+                a.p_md,
+                a.rounded_lg,
+                t.atoms.bg_contrast_25,
+                a.border,
+                t.atoms.border_contrast_low,
+                a.flex_row,
+                a.align_center,
+                a.justify_between,
+              ]}>
+              <View style={[a.flex_row, a.align_center, a.gap_md, a.flex_1]}>
+                <View
+                  style={[
+                    a.p_sm,
+                    a.rounded_full,
+                    t.atoms.bg_contrast_50,
+                    a.align_center,
+                    a.justify_center,
+                  ]}>
+                  <PhoneIcon size="sm" style={t.atoms.text_contrast_high} />
+                </View>
+                <View style={[a.flex_1, a.gap_2xs]}>
+                  <Text style={[a.text_sm, a.font_semi_bold]}>
+                    <Trans>Find People</Trans>
+                  </Text>
+                  <Text
+                    style={[
+                      a.text_xs,
+                      a.leading_snug,
+                      t.atoms.text_contrast_medium,
+                    ]}
+                    numberOfLines={1}>
+                    <Trans>Allow contacts / Find friends on QuantZing</Trans>
+                  </Text>
+                </View>
+              </View>
+              <ChevronRightIcon size="sm" style={t.atoms.text_contrast_low} />
+            </Link>
+          )
+        }
+        case 'topicChipsBar': {
+          const topicChips = [
+            'all',
+            'politics',
+            'soccer',
+            'tech',
+            'art',
+            'movies_tv',
+            'ai',
+            'sports',
+            'music',
+            'finance',
+          ]
+          const displayMap: Record<string, string> = {
+            all: l`All`,
+            ...interestsDisplayNames,
+          }
+          return (
+            <View
+              style={[
+                a.pt_xs,
+                a.pb_md,
+                a.border_b,
+                t.atoms.border_contrast_low,
+              ]}>
+              <InterestTabs
+                interests={topicChips}
+                selectedInterest={selectedInterest || 'all'}
+                onSelectTab={topic => {
+                  setSelectedInterest(topic === 'all' ? null : topic)
+                }}
+                interestsDisplayNames={displayMap}
+              />
+            </View>
+          )
         }
       }
     },

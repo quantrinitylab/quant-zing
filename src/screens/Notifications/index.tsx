@@ -37,10 +37,9 @@ import {
   HomeHeaderModeProvider,
   useHomeHeaderMode,
 } from '#/view/com/util/MainScrollProvider'
+import {PressableWithHover} from '#/view/com/util/PressableWithHover'
 import {PageList} from '#/screens/Notifications/components/PageList'
 import * as Pager from '#/screens/Notifications/components/PagerView'
-import {PressableWithHover} from '#/view/com/util/PressableWithHover'
-import {Text} from '#/components/Typography'
 import {
   type RefreshReason,
   useReturnToScreen,
@@ -59,6 +58,7 @@ import {SettingsGear2_Stroke2_Corner0_Rounded as SettingsIcon} from '#/component
 import * as Layout from '#/components/Layout'
 import {Link} from '#/components/Link'
 import {Loader} from '#/components/Loader'
+import {Text} from '#/components/Typography'
 import {type Metrics, useAnalytics} from '#/analytics'
 import {IS_NATIVE, IS_WEB} from '#/env'
 
@@ -82,7 +82,7 @@ export function NotificationsScreen({}: Props) {
         onPress={() => openComposer({logContext: 'Fab'})}
         icon={<EditBigIcon size="lg" fill={t.palette.white} />}
         accessibilityRole="button"
-        accessibilityLabel={l({message: 'New post', context: 'action'})}
+        accessibilityLabel={l({message: 'New Zing', context: 'action'})}
         accessibilityHint=""
       />
     </Layout.Screen>
@@ -90,7 +90,6 @@ export function NotificationsScreen({}: Props) {
 }
 
 function NotificationsScreenInner() {
-  const {t: l} = useLingui()
   const ax = useAnalytics()
   const navigation = useNavigation()
   const headerMode = useHomeHeaderMode()
@@ -108,7 +107,7 @@ function NotificationsScreenInner() {
     },
     {
       key: 'people-i-follow',
-      label: 'Verified',
+      label: 'Following',
     },
     {
       key: 'conversations',
@@ -536,12 +535,7 @@ function XNotificationsTabBar({
             accessibilityRole="tab"
             accessibilityState={{selected: isActive}}
             onPress={() => onSelectTab(index)}
-            style={[
-              a.flex_1,
-              a.align_center,
-              a.justify_center,
-              {height: 48},
-            ]}
+            style={[a.flex_1, a.align_center, a.justify_center, {height: 48}]}
             hoverStyle={t.atoms.bg_contrast_25}>
             <Text
               style={[

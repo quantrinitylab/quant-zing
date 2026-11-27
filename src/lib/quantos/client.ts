@@ -3158,7 +3158,7 @@ function formatApkSize(bytes: number): string {
 
 export async function fetchQuantZingAppRelease(): Promise<QuantZingAppRelease> {
   const raw = await quantzingApiFetch<Record<string, any>>(
-    '/api/quantzing/app-release',
+    `/api/quantzing/app-release?t=${Date.now()}`,
     {method: 'GET', timeoutMs: 5000},
   )
 

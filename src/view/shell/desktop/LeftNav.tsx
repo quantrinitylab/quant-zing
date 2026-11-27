@@ -11,7 +11,7 @@ import {plural} from '@lingui/core/macro'
 import {Trans, useLingui} from '@lingui/react/macro'
 import {useNavigation, useNavigationState} from '@react-navigation/native'
 
-import {UNREAD_NOTIFICATION_CAP, VIDEO_FEED_URI} from '#/lib/constants'
+import {UNREAD_NOTIFICATION_CAP} from '#/lib/constants'
 import {useAccountSwitcher} from '#/lib/hooks/useAccountSwitcher'
 import {useOpenComposer} from '#/lib/hooks/useOpenComposer'
 import {
@@ -29,6 +29,7 @@ import {
 } from '#/lib/routes/types'
 import {sanitizeDisplayName} from '#/lib/strings/display-names'
 import {isInvalidHandle, sanitizeHandle} from '#/lib/strings/handles'
+import {isBrowserNonStandaloneWeb} from '#/platform/detection'
 import {emitSoftReset} from '#/state/events'
 import {useHomeBadge} from '#/state/home-badge'
 import {useFetchHandle} from '#/state/queries/handle'
@@ -104,7 +105,6 @@ import {
   UserCircle_Stroke2_Corner0_Rounded as UserCircleIcon,
 } from '#/components/icons/UserCircle'
 import {Verified_Stroke2_Corner2_Rounded as VerifiedIcon} from '#/components/icons/Verified'
-import {VideoClip_Stroke2_Corner0_Rounded as VideoClipIcon} from '#/components/icons/VideoClip'
 import {
   CENTER_COLUMN_OFFSET,
   CENTER_COLUMN_WIDTH,
@@ -119,7 +119,6 @@ import {IS_IOS, IS_NATIVE, IS_WEB} from '#/env'
 import {isFollowingV2HomeDotEnabled} from '#/features/followingV2/eligibility'
 import {useActorStatus} from '#/features/liveNow'
 import {type app} from '#/lexicons'
-import {isBrowserNonStandaloneWeb} from '#/platform/detection'
 import {router} from '#/routes'
 import {getComposeButtonLayout} from './composeButtonLayout'
 
@@ -550,12 +549,6 @@ function NavItem({
       }
       if (isCurrent) {
         emitSoftReset()
-      } else if (IS_NATIVE && navItem === 'reels') {
-        navigation.navigate('VideoFeed', {
-          type: 'feedgen',
-          uri: VIDEO_FEED_URI,
-          sourceInterstitial: 'none',
-        })
       } else {
         const [screen, params] = router.matchPath(href)
         // @ts-expect-error TODO: type matchPath well enough that it can be plugged into navigation.navigate directly
@@ -580,7 +573,11 @@ function NavItem({
         a.transition_color,
         minimal
           ? {padding: 10}
-          : {paddingVertical: 8, paddingHorizontal: 14, alignSelf: 'flex-start'},
+          : {
+              paddingVertical: 8,
+              paddingHorizontal: 14,
+              alignSelf: 'flex-start',
+            },
       ]}
       hoverStyle={t.atoms.bg_contrast_25}
       // @ts-expect-error the function signature differs on web -prf
@@ -825,7 +822,7 @@ function MoreMenuItems({
     }
     return getCurrentRoute(state)
   })
-  const showGetApp = isBrowserNonStandaloneWeb()
+  const showGetApp = IS_WEB && isBrowserNonStandaloneWeb()
 
   const navigateFromMenu = useCallback(
     (
@@ -1135,7 +1132,10 @@ export function DesktopLeftNav({
         leftNavMinimal && a.align_center,
       ]}>
       <View style={[a.w_full, leftNavMinimal && a.align_center, {gap: 1}]}>
-        <BrandLogoHeader minimal={leftNavMinimal} onNavigateTab={onNavigateTab} />
+        <BrandLogoHeader
+          minimal={leftNavMinimal}
+          onNavigateTab={onNavigateTab}
+        />
         <NavItem
           label="Home"
           href="/"
@@ -1157,17 +1157,6 @@ export function DesktopLeftNav({
           icons={{
             inactive: MagnifyingGlassIcon,
             active: MagnifyingGlassFilledIcon,
-          }}
-        />
-        <NavItem
-          label="Reels"
-          href="/video-feed"
-          navItem="reels"
-          onNavigateTab={onNavigateTab}
-          minimal={leftNavMinimal}
-          icons={{
-            inactive: VideoClipIcon,
-            active: VideoClipIcon,
           }}
         />
         <NavItem
@@ -1257,12 +1246,7 @@ export function DesktopLeftNav({
         <ComposeBtn minimal={leftNavMinimal} />
         {!hasSession && !leftNavMinimal ? (
           <View
-            style={[
-              a.mt_lg,
-              a.pt_md,
-              a.border_t,
-              t.atoms.border_contrast_low,
-            ]}>
+            style={[a.mt_lg, a.pt_md, a.border_t, t.atoms.border_contrast_low]}>
             <NavSignupCard />
           </View>
         ) : null}

@@ -21,7 +21,6 @@ import {useThrottledValue} from '#/components/hooks/useThrottledValue'
 import {ArrowsDiagonalOut_Stroke2_Corner0_Rounded as ExpandReelsIcon} from '#/components/icons/ArrowsDiagonal'
 import {ConstrainedImage} from '#/components/images/AutoSizedImage'
 import {PlayButtonIcon} from '#/components/video/PlayButtonIcon'
-import {Text} from '#/components/Typography'
 import {useAnalytics} from '#/analytics'
 import {type app} from '#/lexicons'
 import {GifPresentationControls} from './GifPresentationControls'
@@ -259,29 +258,26 @@ function InnerWrapper({embed, post}: Props) {
             })
           }}
           accessibilityRole="button"
-          accessibilityLabel="Open in Reels"
+          accessibilityLabel="Open in full screen Reels"
+          accessibilityHint=""
           style={({pressed}) => [
             a.absolute,
-            a.flex_row,
             a.align_center,
+            a.justify_center,
             a.rounded_full,
             {
               top: 10,
-              left: 10,
+              right: 10,
               zIndex: 15,
-              gap: 5,
-              paddingHorizontal: 10,
-              paddingVertical: 5,
+              width: 32,
+              height: 32,
               backgroundColor: 'rgba(15, 20, 25, 0.72)',
               borderWidth: 1,
               borderColor: 'rgba(255, 255, 255, 0.22)',
               opacity: pressed ? 0.75 : 1,
             },
           ]}>
-          <ExpandReelsIcon width={12} fill="#FFFFFF" />
-          <Text style={[a.text_xs, a.font_bold, {color: '#FFFFFF', lineHeight: 14}]}>
-            Reels
-          </Text>
+          <ExpandReelsIcon width={14} fill="#FFFFFF" />
         </Pressable>
       )}
     </>

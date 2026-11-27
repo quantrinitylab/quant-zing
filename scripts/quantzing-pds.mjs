@@ -80,6 +80,20 @@ const passwordResetTokens = new Map() // token -> {did, email, expiresAtMs}
 const emailConfirmTokens = new Map() // token -> {did, email, expiresAtMs}
 const accountDeleteTokens = new Map() // token -> {did, expiresAtMs}
 
+const contactSyncStore = new Map() // did -> { syncedAt, phone, matches: [{ did, contactIndex }], dismissedDids: Set<did> }
+const contactPhoneToDid = new Map() // normalized phone -> did
+const contactPhoneHashToDid = new Map() // sha256(phone) -> did
+const contactImportTokens = new Map() // token -> { did, phone, expiresAtMs }
+
+function normalizePhoneNumber(raw) {
+  if (typeof raw !== 'string') return ''
+  const trimmed = raw.trim()
+  const hasPlus = trimmed.startsWith('+')
+  const digits = trimmed.replace(/\D/g, '')
+  if (!digits) return ''
+  return hasPlus ? `+${digits}` : digits
+}
+
 export function pruneSpaceSseTickets() {
   const now = Date.now()
   for (const [t, data] of spaceSseTickets.entries()) {
@@ -511,7 +525,7 @@ export function getAndroidApkMeta() {
     const meta = {
       available: true,
       version,
-      downloadUrl: '/download/quantzing-android.apk',
+      downloadUrl: '/download/quantzing-android.apk?v=' + hash.slice(0, 12),
       sizeBytes: stat.size,
       sizeLabel: formatByteSizeLabel(stat.size),
       sha256: hash,
@@ -3384,18 +3398,334 @@ export function rankReelsItems(items, settings = null, store = null) {
   return result
 }
 
+const SOVEREIGN_TOPIC_KEYWORDS = {
+  politics: [
+    'politic',
+    'policy',
+    'election',
+    'government',
+    'news',
+    'democracy',
+    'geopolitics',
+    'world',
+    'bharat',
+    'minister',
+    'parliament',
+    'civic',
+    'diplomacy',
+  ],
+  soccer: [
+    'soccer',
+    'football',
+    'fifa',
+    'premier',
+    'uefa',
+    'goal',
+    'champions',
+    'striker',
+    'messi',
+    'ronaldo',
+    'arsenal',
+    'chelsea',
+    'liverpool',
+    'barca',
+    'madrid',
+    'manchester',
+    'epl',
+  ],
+  tech: [
+    'tech',
+    'technology',
+    'software',
+    'developer',
+    'code',
+    'engineer',
+    'programming',
+    'web',
+    'quantos',
+    'system',
+    'build',
+    'linux',
+    'cloud',
+    'kernel',
+    'api',
+    'dev',
+    'frontend',
+    'backend',
+    'fullstack',
+    'founder',
+  ],
+  art: [
+    'art',
+    'artist',
+    'design',
+    'illustration',
+    'draw',
+    'creative',
+    'paint',
+    'photo',
+    'graphic',
+    'visual',
+    'sketch',
+    'gallery',
+    'digitalart',
+    '3d',
+    'ui',
+    'ux',
+    'animation',
+  ],
+  movies_tv: [
+    'movie',
+    'movies',
+    'tv',
+    'film',
+    'cinema',
+    'series',
+    'show',
+    'hollywood',
+    'bollywood',
+    'entertainment',
+    'actor',
+    'actress',
+    'director',
+    'screenplay',
+    'netflix',
+    'ott',
+  ],
+  ai: [
+    'ai',
+    'artificial',
+    'intelligence',
+    'agent',
+    'model',
+    'machine learning',
+    'quanty',
+    'llm',
+    'deep learning',
+    'neural',
+    'openai',
+    'anthropic',
+    'transformer',
+    'gpu',
+    'inference',
+    'nlp',
+    'reasoning',
+  ],
+  sports: [
+    'sport',
+    'sports',
+    'athlete',
+    'cricket',
+    'nba',
+    'nfl',
+    'fitness',
+    'tennis',
+    'racing',
+    'f1',
+    'game',
+    'score',
+    'ipl',
+    'badminton',
+    'olympic',
+    'championship',
+  ],
+  music: [
+    'music',
+    'song',
+    'audio',
+    'sound',
+    'album',
+    'band',
+    'guitar',
+    'hiphop',
+    'pop',
+    'rock',
+    'beats',
+    'singer',
+    'producer',
+    'spotify',
+    'track',
+    'dj',
+  ],
+  finance: [
+    'finance',
+    'market',
+    'crypto',
+    'bitcoin',
+    'stocks',
+    'invest',
+    'economy',
+    'trading',
+    'fintech',
+    'capital',
+    'money',
+    'banking',
+    'equity',
+    'fund',
+    'wealth',
+    'inr',
+    'usd',
+    'venture',
+  ],
+  gaming: [
+    'gaming',
+    'game',
+    'gamer',
+    'playstation',
+    'xbox',
+    'nintendo',
+    'steam',
+    'esports',
+    'rpg',
+    'arcade',
+    'twitch',
+    'gameplay',
+    'zelda',
+    'fps',
+    'unity',
+    'unreal',
+  ],
+}
+
 function getSuggestedQuantZingActors(
   storeOrDb,
   viewerDid,
   origin,
   limit = 10,
   actorDid = null,
+  topicOrCategory = null,
 ) {
   const store = unwrapStore(storeOrDb)
-  const accounts = store.getSuggestedAccounts({viewerDid, actorDid, limit})
-  return accounts.map(acc =>
-    buildLocalProfileView(store, acc, viewerDid, origin, false),
-  )
+  const lim = Math.max(1, Number(limit) || 10)
+  const fetchLimit = Math.max(50, lim * 3)
+  const accountMap = new Map()
+
+  // 1. If topic or category is provided, also try full-text or search match for relevant actors
+  const keywords = new Set()
+  if (topicOrCategory && typeof topicOrCategory === 'string') {
+    const rawTokens = topicOrCategory
+      .toLowerCase()
+      .split(/[,|/;\s+]+/)
+      .map(s => s.trim().replace(/^#/, ''))
+      .filter(Boolean)
+
+    for (const token of rawTokens) {
+      if (SOVEREIGN_TOPIC_KEYWORDS[token]) {
+        for (const kw of SOVEREIGN_TOPIC_KEYWORDS[token]) {
+          keywords.add(kw)
+        }
+      } else if (token.length >= 2) {
+        keywords.add(token)
+      }
+    }
+
+    for (const token of rawTokens) {
+      try {
+        const searchResult = store.searchActors({
+          query: token,
+          viewerDid,
+          limit: 20,
+        })
+        if (searchResult?.accounts) {
+          for (const acc of searchResult.accounts) {
+            if (acc && !accountMap.has(acc.did)) {
+              accountMap.set(acc.did, acc)
+            }
+          }
+        }
+      } catch {}
+    }
+  }
+
+  // 2. Fetch standard sovereign suggestions
+  const suggested = store.getSuggestedAccounts({
+    viewerDid,
+    actorDid,
+    limit: fetchLimit,
+  })
+  if (Array.isArray(suggested)) {
+    for (const acc of suggested) {
+      if (acc && !accountMap.has(acc.did)) {
+        accountMap.set(acc.did, acc)
+      }
+    }
+  }
+
+  // 3. Fallback to active accounts so we NEVER return an empty array
+  if (accountMap.size === 0) {
+    try {
+      const rows = store.db
+        .prepare(
+          `SELECT a.* FROM accounts a
+           WHERE a.active != 0 AND a.status NOT IN ('banned', 'suspended')
+           ${viewerDid ? 'AND a.did != ?' : ''}
+           ORDER BY (a.followers_count * 3 + a.posts_count * 2) DESC, a.created_at DESC
+           LIMIT ?`,
+        )
+        .all(...(viewerDid ? [viewerDid, fetchLimit] : [fetchLimit]))
+      for (const r of rows) {
+        const acc = store._rowToAccount(r)
+        if (acc && !accountMap.has(acc.did)) {
+          accountMap.set(acc.did, acc)
+        }
+      }
+    } catch {}
+  }
+
+  if (accountMap.size === 0) {
+    try {
+      const rows = store.db
+        .prepare(
+          `SELECT a.* FROM accounts a
+           WHERE a.active != 0 AND a.status NOT IN ('banned', 'suspended')
+           ORDER BY (a.followers_count * 3 + a.posts_count * 2) DESC, a.created_at DESC
+           LIMIT ?`,
+        )
+        .all(fetchLimit)
+      for (const r of rows) {
+        const acc = store._rowToAccount(r)
+        if (acc && !accountMap.has(acc.did)) {
+          accountMap.set(acc.did, acc)
+        }
+      }
+    } catch {}
+  }
+
+  let accounts = Array.from(accountMap.values())
+
+  // If topic keywords exist, rank matching accounts first
+  if (keywords.size > 0) {
+    const scored = accounts.map(acc => {
+      let score = 0
+      const text =
+        `${acc.handle || ''} ${acc.displayName || ''} ${acc.description || ''} ${acc.department || ''}`.toLowerCase()
+      for (const kw of keywords) {
+        if (text.includes(kw)) {
+          score += 20
+        }
+      }
+      return {acc, score}
+    })
+    scored.sort((a, b) => b.score - a.score)
+    accounts = scored.map(s => s.acc)
+  }
+
+  let actors = accounts
+    .map(acc => buildLocalProfileView(store, acc, viewerDid, origin, false))
+    .filter(Boolean)
+
+  if (actors.length === 0) {
+    actors = accounts.map(acc => ({
+      did: acc.did,
+      handle: acc.handle,
+      displayName: acc.displayName || acc.handle,
+      description: acc.description || '',
+      avatar: blobUrl(origin, acc.did, acc.profile?.avatar),
+      indexedAt: acc.createdAt || new Date().toISOString(),
+    }))
+  }
+
+  return actors.slice(0, lim)
 }
 
 // ---------------------------------------------------------------------------
@@ -8752,13 +9082,27 @@ export async function handleQuantZingPds(req, res) {
     if (nsid === 'app.bsky.actor.getSuggestions' && method === 'GET') {
       const limit = Number(searchParams.get('limit') || 20)
       const cursor = searchParams.get('cursor')
+      const topic =
+        searchParams.get('category') ||
+        searchParams.get('topic') ||
+        searchParams.get('interests') ||
+        req.headers['x-atproto-bsky-topics'] ||
+        ''
       const viewerDid = getOptionalViewerDid(req, store)
-      const all = getSuggestedQuantZingActors(store, viewerDid, origin, 50)
+      const all = getSuggestedQuantZingActors(
+        store,
+        viewerDid,
+        origin,
+        50,
+        null,
+        topic,
+      )
       const page = paginateItems(all, cursor, limit)
       sendJson(req, res, 200, {
         ...(page.cursor ? {cursor: page.cursor} : {}),
         actors: page.items,
         recIdStr: 'quantzing-suggestions-v1',
+        recId: 'quantzing-suggestions-v1',
       })
       return true
     }
@@ -8792,7 +9136,8 @@ export async function handleQuantZingPds(req, res) {
     }
 
     if (
-      (nsid === 'app.bsky.unspecced.getSuggestedUsers' ||
+      (nsid === 'app.bsky.unspecced.getSuggestions' ||
+        nsid === 'app.bsky.unspecced.getSuggestedUsers' ||
         nsid === 'app.bsky.unspecced.getSuggestedUsersForDiscover' ||
         nsid === 'app.bsky.unspecced.getSuggestedUsersForExplore' ||
         nsid === 'app.bsky.unspecced.getSuggestedUsersForSeeMore' ||
@@ -8800,10 +9145,30 @@ export async function handleQuantZingPds(req, res) {
       method === 'GET'
     ) {
       const limit = Number(searchParams.get('limit') || 10)
+      const cursor = searchParams.get('cursor')
+      const topic =
+        searchParams.get('category') ||
+        searchParams.get('topic') ||
+        searchParams.get('interests') ||
+        req.headers['x-atproto-bsky-topics'] ||
+        ''
       const viewerDid = getOptionalViewerDid(req, store)
+      const all = getSuggestedQuantZingActors(
+        store,
+        viewerDid,
+        origin,
+        Math.max(50, limit * 2),
+        null,
+        topic,
+      )
+      const page = cursor
+        ? paginateItems(all, cursor, limit)
+        : {items: all.slice(0, limit), cursor: undefined}
       sendJson(req, res, 200, {
-        actors: getSuggestedQuantZingActors(store, viewerDid, origin, limit),
+        ...(page.cursor ? {cursor: page.cursor} : {}),
+        actors: page.items,
         recIdStr: 'quantzing-discover-v1',
+        recId: 'quantzing-discover-v1',
       })
       return true
     }
@@ -10510,6 +10875,273 @@ export async function handleQuantZingPds(req, res) {
         reportedBy: auth.did,
         createdAt,
       })
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // 7b. Sovereign Contact Sync & Phone Verification (app.bsky.contact.*)
+    // -----------------------------------------------------------------------
+
+    if (nsid === 'app.bsky.contact.getSyncStatus' && method === 'GET') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, auth.message)
+        return true
+      }
+      const sync = contactSyncStore.get(auth.account.did)
+      if (sync && sync.syncedAt) {
+        const activeMatches = (sync.matches || []).filter(
+          m => !sync.dismissedDids?.has(m.did),
+        )
+        sendJson(req, res, 200, {
+          syncStatus: {
+            syncedAt: sync.syncedAt,
+            matchesCount: activeMatches.length,
+          },
+        })
+      } else {
+        sendJson(req, res, 200, {syncStatus: null})
+      }
+      return true
+    }
+
+    if (
+      nsid === 'app.bsky.contact.startPhoneVerification' &&
+      method === 'POST'
+    ) {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, auth.message)
+        return true
+      }
+      const body = await readJsonBody(req)
+      const rawPhone = typeof body?.phone === 'string' ? body.phone.trim() : ''
+      if (!rawPhone) {
+        sendXrpcError(req, res, 400, 'InvalidPhone', 'Phone number is required')
+        return true
+      }
+      const norm = normalizePhoneNumber(rawPhone)
+      if (norm) {
+        contactPhoneToDid.set(norm, auth.account.did)
+        const hash = crypto.createHash('sha256').update(norm).digest('hex')
+        contactPhoneHashToDid.set(hash, auth.account.did)
+        if (norm.startsWith('+')) {
+          const rawDigits = norm.slice(1)
+          contactPhoneToDid.set(rawDigits, auth.account.did)
+          contactPhoneHashToDid.set(
+            crypto.createHash('sha256').update(rawDigits).digest('hex'),
+            auth.account.did,
+          )
+        }
+      }
+      sendJson(req, res, 200, {ok: true})
+      return true
+    }
+
+    if (nsid === 'app.bsky.contact.verifyPhone' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, auth.message)
+        return true
+      }
+      const body = await readJsonBody(req)
+      const rawPhone = typeof body?.phone === 'string' ? body.phone.trim() : ''
+      const norm = normalizePhoneNumber(rawPhone)
+      if (norm) {
+        contactPhoneToDid.set(norm, auth.account.did)
+        const hash = crypto.createHash('sha256').update(norm).digest('hex')
+        contactPhoneHashToDid.set(hash, auth.account.did)
+        if (norm.startsWith('+')) {
+          const rawDigits = norm.slice(1)
+          contactPhoneToDid.set(rawDigits, auth.account.did)
+          contactPhoneHashToDid.set(
+            crypto.createHash('sha256').update(rawDigits).digest('hex'),
+            auth.account.did,
+          )
+        }
+      }
+      const token = 'contact_token_' + crypto.randomBytes(24).toString('hex')
+      contactImportTokens.set(token, {
+        did: auth.account.did,
+        phone: norm,
+        expiresAtMs: Date.now() + 15 * 60 * 1000,
+      })
+      sendJson(req, res, 200, {token})
+      return true
+    }
+
+    if (nsid === 'app.bsky.contact.importContacts' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, auth.message)
+        return true
+      }
+      const body = await readJsonBody(req)
+      const contacts = Array.isArray(body?.contacts)
+        ? body.contacts.slice(0, 1000)
+        : []
+
+      const matchesAndContactIndexes = []
+
+      for (let i = 0; i < contacts.length; i++) {
+        const raw = contacts[i]
+        if (typeof raw !== 'string') continue
+        const norm = normalizePhoneNumber(raw)
+        const hash = norm
+          ? crypto.createHash('sha256').update(norm).digest('hex')
+          : ''
+        const rawHash = crypto
+          .createHash('sha256')
+          .update(raw.trim())
+          .digest('hex')
+
+        let matchedDid =
+          (norm ? contactPhoneToDid.get(norm) : null) ||
+          (hash ? contactPhoneHashToDid.get(hash) : null) ||
+          contactPhoneHashToDid.get(rawHash) ||
+          contactPhoneToDid.get(raw.trim())
+
+        if (!matchedDid) {
+          const directAcc = store.findAccount(raw.trim())
+          if (directAcc) {
+            matchedDid = directAcc.did
+          }
+        }
+
+        if (matchedDid && matchedDid !== auth.account.did) {
+          const acc = store.getAccountByDid(matchedDid)
+          if (acc && !isAccountSuspendedOrBanned(acc)) {
+            const profile = buildLocalProfileView(
+              store,
+              acc,
+              auth.account.did,
+              origin,
+              false,
+            )
+            if (profile) {
+              matchesAndContactIndexes.push({
+                match: profile,
+                contactIndex: i,
+              })
+            }
+          }
+        }
+      }
+
+      let existingSync = contactSyncStore.get(auth.account.did)
+      const dismissedDids = existingSync?.dismissedDids || new Set()
+      const allMatchesMap = new Map()
+      if (existingSync?.matches) {
+        for (const m of existingSync.matches) {
+          allMatchesMap.set(m.did, m)
+        }
+      }
+      for (const item of matchesAndContactIndexes) {
+        allMatchesMap.set(item.match.did, {
+          did: item.match.did,
+          contactIndex: item.contactIndex,
+        })
+      }
+
+      contactSyncStore.set(auth.account.did, {
+        syncedAt: new Date().toISOString(),
+        matches: Array.from(allMatchesMap.values()),
+        dismissedDids,
+      })
+
+      sendJson(req, res, 200, {
+        matchesAndContactIndexes,
+      })
+      return true
+    }
+
+    if (nsid === 'app.bsky.contact.getMatches' && method === 'GET') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, auth.message)
+        return true
+      }
+      const limit = Number(searchParams.get('limit') || 50)
+      const sync = contactSyncStore.get(auth.account.did)
+      const dismissed = sync?.dismissedDids || new Set()
+      const activeMatches = (sync?.matches || []).filter(
+        m => !dismissed.has(m.did),
+      )
+      const matches = []
+      for (const m of activeMatches) {
+        const acc = store.getAccountByDid(m.did)
+        if (acc && !isAccountSuspendedOrBanned(acc)) {
+          const view = buildLocalProfileView(
+            store,
+            acc,
+            auth.account.did,
+            origin,
+            false,
+          )
+          if (view) matches.push(view)
+        }
+      }
+      sendJson(req, res, 200, {
+        matches: matches.slice(0, limit),
+        cursor: undefined,
+      })
+      return true
+    }
+
+    if (nsid === 'app.bsky.contact.dismissMatch' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, auth.message)
+        return true
+      }
+      const body = await readJsonBody(req)
+      const subject =
+        typeof body?.subject === 'string' ? body.subject.trim() : ''
+      let sync = contactSyncStore.get(auth.account.did)
+      if (!sync) {
+        sync = {
+          syncedAt: new Date().toISOString(),
+          matches: [],
+          dismissedDids: new Set(),
+        }
+        contactSyncStore.set(auth.account.did, sync)
+      }
+      if (subject) {
+        if (!sync.dismissedDids) sync.dismissedDids = new Set()
+        sync.dismissedDids.add(subject)
+      }
+      sendJson(req, res, 200, {})
+      return true
+    }
+
+    if (nsid === 'app.bsky.contact.removeData' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, auth.message)
+        return true
+      }
+      contactSyncStore.delete(auth.account.did)
+      for (const [phone, did] of contactPhoneToDid.entries()) {
+        if (did === auth.account.did) {
+          contactPhoneToDid.delete(phone)
+        }
+      }
+      for (const [hash, did] of contactPhoneHashToDid.entries()) {
+        if (did === auth.account.did) {
+          contactPhoneHashToDid.delete(hash)
+        }
+      }
+      sendJson(req, res, 200, {})
+      return true
+    }
+
+    if (nsid === 'app.bsky.contact.sendNotification' && method === 'POST') {
+      const auth = getAuthedContext(req, store)
+      if (auth.error) {
+        sendXrpcError(req, res, auth.status, auth.error, auth.message)
+        return true
+      }
+      sendJson(req, res, 200, {})
       return true
     }
 

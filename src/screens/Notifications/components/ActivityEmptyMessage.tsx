@@ -46,13 +46,13 @@ export function ActivityEmptyMessage() {
     <Text style={[a.text_md, a.leading_snug, a.text_center, {color}]}>
       {IS_WEB ? (
         <Trans>
-          No posts here yet. Click the {bell} bell icon on someone’s profile to
-          keep up with their activity.
+          No notifications here yet. Click the {bell} bell icon on someone’s
+          profile to keep up with their activity.
         </Trans>
       ) : (
         <Trans>
-          No posts here yet. Tap the {bell} bell icon on someone’s profile to
-          keep up with their activity.
+          No notifications here yet. Tap the {bell} bell icon on someone’s
+          profile to keep up with their activity.
         </Trans>
       )}
     </Text>

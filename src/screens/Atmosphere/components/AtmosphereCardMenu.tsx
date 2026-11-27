@@ -255,7 +255,7 @@ export function AtmosphereCardMenu({
                   openComposer({text: item.uri, logContext: 'Other'}),
                 )
               }}>
-              <Menu.ItemText>{l`Post to Bluesky`}</Menu.ItemText>
+              <Menu.ItemText>{l`Post to QuantZing`}</Menu.ItemText>
               <Menu.ItemIcon icon={BlueskyIcon} position="right" />
             </Menu.Item>
             {canSendViaChat && (

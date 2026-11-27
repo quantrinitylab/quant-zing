@@ -30,7 +30,6 @@ import {
   useContactsSyncStatusQuery,
 } from '#/state/queries/find-contacts'
 import {useAppviewClient, usePdsClient, useSession} from '#/state/session'
-import {ErrorScreen} from '#/view/com/util/error/ErrorScreen'
 import {List} from '#/view/com/util/List'
 import {atoms as a, tokens, useGutters, useTheme} from '#/alf'
 import {Admonition} from '#/components/Admonition'
@@ -89,29 +88,18 @@ export function FindContactsSettingsScreen({}: Props) {
         </Layout.Header.Content>
         <Layout.Header.Slot />
       </Layout.Header.Outer>
-      {IS_NATIVE ? (
-        data ? (
-          !data.syncStatus ? (
-            <Intro />
-          ) : (
-            <SyncStatus info={data.syncStatus} refetchStatus={refetch} />
-          )
-        ) : error ? (
-          <ErrorScreen
-            title={_(msg`Error getting the latest data.`)}
-            message={cleanError(error)}
-            onPressTryAgain={refetch}
-          />
+      {data ? (
+        !data.syncStatus ? (
+          <Intro />
         ) : (
-          <View style={[a.flex_1, a.justify_center, a.align_center]}>
-            <Loader size="xl" />
-          </View>
+          <SyncStatus info={data.syncStatus} refetchStatus={refetch} />
         )
+      ) : error ? (
+        <Intro />
       ) : (
-        <ErrorScreen
-          title={_(msg`Not available on this platform.`)}
-          message={_(msg`Please use the native app to import your contacts.`)}
-        />
+        <View style={[a.flex_1, a.justify_center, a.align_center]}>
+          <Loader size="xl" />
+        </View>
       )}
     </Layout.Screen>
   )
@@ -153,7 +141,7 @@ function Intro() {
           </InlineLinkText>
         </Trans>
       </Text>
-      {isAvailable ? (
+      {IS_NATIVE && isAvailable ? (
         <Link
           to={{screen: 'FindContactsFlow'}}
           label={_(msg`Import contacts`)}
@@ -165,14 +153,16 @@ function Intro() {
           </ButtonText>
         </Link>
       ) : (
-        isSuccess && (
-          <Admonition type="error">
-            <Trans>
-              Contact sync is not available on this device, as the app is unable
-              to access your contacts.
-            </Trans>
-          </Admonition>
-        )
+        <Link
+          to={{screen: 'FindContactsFlow'}}
+          label={_(msg`Find people on QuantZing`)}
+          size="large"
+          color="primary"
+          style={[a.flex_1, a.justify_center]}>
+          <ButtonText>
+            <Trans>Find people on QuantZing</Trans>
+          </ButtonText>
+        </Link>
       )}
       <Button
         label={_(msg`Share my profile`)}

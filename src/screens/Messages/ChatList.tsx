@@ -44,11 +44,11 @@ import {
   Inbox_Stroke2_Corner2_Rounded as InboxIcon,
   Inbox_Stroke2_Corner2_Rounded_Large as InboxLargeIcon,
 } from '#/components/icons/Inbox'
+import {MagnifyingGlass_Stroke2_Corner0_Rounded as MagnifyingGlassIcon} from '#/components/icons/MagnifyingGlass'
 import {
   MessagePlus_Stroke2_Corner0_Rounded as MessagePlusIcon,
   MessagePlus_Stroke2_Corner0_Rounded as NewChatIcon,
 } from '#/components/icons/Message'
-import {MagnifyingGlass_Stroke2_Corner0_Rounded as MagnifyingGlassIcon} from '#/components/icons/MagnifyingGlass'
 import {SettingsGear2_Stroke2_Corner0_Rounded as SettingsIcon} from '#/components/icons/SettingsGear2'
 import * as Layout from '#/components/Layout'
 import {Link} from '#/components/Link'
@@ -90,7 +90,7 @@ export function MessagesScreen(props: Props) {
 
   return (
     <AgeRestrictedScreen
-      screenTitle={l`Chats`}
+      screenTitle={l`Messages`}
       infoText={aaCopy.chatsInfoText}
       rightHeaderSlot={
         aa.flags.chatDisabled ? null : (
@@ -504,9 +504,19 @@ export function ChatList({
       ListHeaderComponent={
         <>
           {chatStatus?.chatDisabled && (
-            <ChatDisabled shape="banner" style={[isWithinSplitView && a.mb_sm]} />
+            <ChatDisabled
+              shape="banner"
+              style={[isWithinSplitView && a.mb_sm]}
+            />
           )}
-          <View style={[a.px_md, a.py_sm, a.border_b, t.atoms.border_contrast_low, a.gap_sm]}>
+          <View
+            style={[
+              a.px_md,
+              a.py_sm,
+              a.border_b,
+              t.atoms.border_contrast_low,
+              a.gap_sm,
+            ]}>
             <View
               style={[
                 a.flex_row,
@@ -518,18 +528,18 @@ export function ChatList({
                 t.atoms.bg_contrast_25,
                 {borderWidth: 1, borderColor: t.palette.contrast_100},
               ]}>
-              <MagnifyingGlassIcon size="xs" style={{color: t.palette.contrast_500}} />
+              <MagnifyingGlassIcon
+                size="xs"
+                style={{color: t.palette.contrast_500}}
+              />
               <TextInput
                 value={dmSearch}
                 onChangeText={setDmSearch}
+                accessibilityLabel={l`Search Direct Messages`}
+                accessibilityHint=""
                 placeholder="Search Direct Messages..."
                 placeholderTextColor={t.palette.contrast_500}
-                style={[
-                  a.flex_1,
-                  a.text_sm,
-                  t.atoms.text,
-                  {padding: 0},
-                ]}
+                style={[a.flex_1, a.text_sm, t.atoms.text, {padding: 0}]}
               />
             </View>
             <View style={[a.flex_row, a.align_center, a.gap_xs]}>
@@ -543,9 +553,14 @@ export function ChatList({
                   {paddingVertical: 5},
                   dmFilter === 'all'
                     ? {backgroundColor: '#1D9BF0'}
-                    : [t.atoms.bg_contrast_25, {borderWidth: 1, borderColor: t.palette.contrast_100}],
+                    : [
+                        t.atoms.bg_contrast_25,
+                        {borderWidth: 1, borderColor: t.palette.contrast_100},
+                      ],
                 ]}
-                hoverStyle={dmFilter === 'all' ? undefined : t.atoms.bg_contrast_50}>
+                hoverStyle={
+                  dmFilter === 'all' ? undefined : t.atoms.bg_contrast_50
+                }>
                 <Text
                   style={[
                     a.text_sm,
@@ -567,9 +582,14 @@ export function ChatList({
                   {paddingVertical: 5},
                   dmFilter === 'unread'
                     ? {backgroundColor: '#1D9BF0'}
-                    : [t.atoms.bg_contrast_25, {borderWidth: 1, borderColor: t.palette.contrast_100}],
+                    : [
+                        t.atoms.bg_contrast_25,
+                        {borderWidth: 1, borderColor: t.palette.contrast_100},
+                      ],
                 ]}
-                hoverStyle={dmFilter === 'unread' ? undefined : t.atoms.bg_contrast_50}>
+                hoverStyle={
+                  dmFilter === 'unread' ? undefined : t.atoms.bg_contrast_50
+                }>
                 <Text
                   style={[
                     a.text_sm,
@@ -634,7 +654,9 @@ export function ChatList({
       }
       ListEmptyComponent={
         <EmptyState
-          message={dmFilter === 'unread' ? 'No unread messages' : 'No messages found'}
+          message={
+            dmFilter === 'unread' ? 'No unread messages' : 'No messages found'
+          }
           icon={InboxLargeIcon}
           iconSize="3xl"
           style={[a.py_2xl]}
@@ -709,7 +731,7 @@ export function Header({
         <>
           <Layout.Header.Content align="left">
             <Layout.Header.TitleText>
-              <Trans>Chats</Trans>
+              <Trans>Messages</Trans>
             </Layout.Header.TitleText>
           </Layout.Header.Content>
 
@@ -749,7 +771,7 @@ export function Header({
           <Layout.Header.MenuButton />
           <Layout.Header.Content align="left">
             <Layout.Header.TitleText>
-              <Trans>Chats</Trans>
+              <Trans>Messages</Trans>
             </Layout.Header.TitleText>
           </Layout.Header.Content>
           <InboxRequests count={requestCount} variant="ghost" />

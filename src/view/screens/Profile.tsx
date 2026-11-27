@@ -18,6 +18,7 @@ import {useQueryClient} from '@tanstack/react-query'
 import {useOpenComposer} from '#/lib/hooks/useOpenComposer'
 import {useRequireEmailVerification} from '#/lib/hooks/useRequireEmailVerification'
 import {useSetTitle} from '#/lib/hooks/useSetTitle'
+import {fetchArticles, type QuantZingArticleRecord} from '#/lib/quantos/client'
 import {getProfileTabIndex} from '#/lib/routes/profile-tabs'
 import {
   type CommonNavigatorParams,
@@ -48,19 +49,16 @@ import {getProfileBannerSafeAreaCoverHeight} from '#/screens/Profile/Header/layo
 import {ProfileFeedSection} from '#/screens/Profile/Sections/Feed'
 import {ProfileLabelsSection} from '#/screens/Profile/Sections/Labels'
 import {atoms as a, useBreakpoints, useTheme} from '#/alf'
-import {Circle_And_Square_Stroke1_Corner0_Rounded_Filled as CircleAndSquareIcon} from '#/components/icons/CircleAndSquare'
 import {EditBig_Stroke2_Corner2_Rounded as EditBigIcon} from '#/components/icons/EditBig'
 import {Heart2_Stroke1_Corner0_Rounded as HeartIcon} from '#/components/icons/Heart2'
 import {Image_Stroke1_Corner0_Rounded as ImageIcon} from '#/components/icons/Image'
 import {Message_Stroke1_Corner0_Rounded_Filled as MessageIcon} from '#/components/icons/Message'
+import {PageText_Stroke2_Corner0_Rounded as PageIcon} from '#/components/icons/Page'
 import {VideoClip_Stroke1_Corner0_Rounded as VideoIcon} from '#/components/icons/VideoClip'
 import * as Layout from '#/components/Layout'
 import {ScreenHider} from '#/components/moderation/ScreenHider'
-import {PageText_Stroke2_Corner0_Rounded as PageIcon} from '#/components/icons/Page'
 import {Text} from '#/components/Typography'
-import {fetchArticles, type QuantZingArticleRecord} from '#/lib/quantos/client'
 import {type app} from '#/lexicons'
-import {navigate} from '#/Navigation'
 
 interface SectionRef {
   scrollToTop: () => void
@@ -97,10 +95,10 @@ export function ProfileScreen(props: Props) {
 
 function ProfileArticlesSection({
   did,
-  headerHeight,
+  headerHeight: _headerHeight,
   isFocused,
-  scrollElRef,
-  setScrollViewTag,
+  scrollElRef: _scrollElRef,
+  setScrollViewTag: _setScrollViewTag,
 }: {
   did: string
   headerHeight: number
@@ -167,7 +165,9 @@ function ProfileArticlesSection({
               borderColor: t.palette.contrast_100,
             },
           ]}>
-          <Text style={[a.text_md, a.font_bold, t.atoms.text]}>{art.title}</Text>
+          <Text style={[a.text_md, a.font_bold, t.atoms.text]}>
+            {art.title}
+          </Text>
           {art.subtitle && (
             <Text style={[a.text_sm, t.atoms.text_contrast_medium]}>
               {art.subtitle}
@@ -341,7 +341,7 @@ function ProfileScreenLoaded({
   const feedGenCount = profile.associated?.feedgens || 0
   const showFeedsTab = isMe || feedGenCount > 0
   const starterPackCount = profile.associated?.starterPacks || 0
-  const showStarterPacksTab = isMe || starterPackCount > 0
+  const _showStarterPacksTab = isMe || starterPackCount > 0
   // subtract starterpack count from list count, since starterpacks are a type of list
   const listCount = (profile.associated?.lists || 0) - starterPackCount
   // Lists are public, so direct links can bypass the logged-in-only tab visibility.
@@ -481,7 +481,7 @@ function ProfileScreenLoaded({
   const navToWizard = useCallback(() => {
     navigation.navigate('StarterPackWizard', {})
   }, [navigation])
-  const wrappedNavToWizard = requireEmailVerification(navToWizard, {
+  const _wrappedNavToWizard = requireEmailVerification(navToWizard, {
     instructions: [
       <Trans key="nav">
         Before creating a Starter Pack, you must first verify your email.
@@ -576,12 +576,12 @@ function ProfileScreenLoaded({
                 scrollElRef={scrollElRef as ListRef}
                 ignoreFilterFor={profile.did}
                 setScrollViewTag={setScrollViewTag}
-                emptyStateMessage={_(msg`No posts yet`)}
+                emptyStateMessage={_(msg`No Zings yet`)}
                 emptyStateButton={
                   isMe
                     ? {
-                        label: _(msg`Write a post`),
-                        text: _(msg`Write a post`),
+                        label: _(msg`Post a Zing`),
+                        text: _(msg`Post a Zing`),
                         onPress: () =>
                           openComposer({logContext: 'ProfileFeed'}),
                         size: 'small',
@@ -645,12 +645,12 @@ function ProfileScreenLoaded({
                 scrollElRef={scrollElRef as ListRef}
                 ignoreFilterFor={profile.did}
                 setScrollViewTag={setScrollViewTag}
-                emptyStateMessage={_(msg`No video posts yet`)}
+                emptyStateMessage={_(msg`No video Zings yet`)}
                 emptyStateButton={
                   isMe
                     ? {
-                        label: _(msg`Post a video`),
-                        text: _(msg`Post a video`),
+                        label: _(msg`Post a video Zing`),
+                        text: _(msg`Post a video Zing`),
                         onPress: () =>
                           openComposer({logContext: 'ProfileFeed'}),
                         size: 'small',

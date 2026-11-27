@@ -34,16 +34,16 @@ export function AboutAtmosphereDialog({
             </Text>
             <Text style={[a.text_md, a.leading_snug]}>
               <Trans>
-                The Atmosphere is an open network of connected apps. Bluesky is
-                one of them, so you’re already part of it!
+                The Atmosphere is an open network of connected apps. QuantZing
+                is one of them, so you’re already part of it!
               </Trans>
             </Text>
           </View>
           <Text style={[a.text_md, a.leading_snug]}>
             <Trans>
-              You can use your Bluesky account to explore other Atmosphere apps
-              for blogging, photos, livestreams, and more. You don't have to
-              start over with a new account every time you try something new.
+              You can use your QuantZing account to explore other Atmosphere
+              apps for blogging, photos, livestreams, and more. You don't have
+              to start over with a new account every time you try something new.
             </Trans>
           </Text>
           <Text style={[a.text_md, a.leading_snug]}>

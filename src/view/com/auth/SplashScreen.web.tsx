@@ -24,6 +24,14 @@ import {TimesLarge_Stroke2_Corner0_Rounded as TimesIcon} from '#/components/icon
 import {InlineLinkText} from '#/components/Link'
 import {Text} from '#/components/Typography'
 
+interface DeferredInstallPrompt {
+  prompt?: () => Promise<void>
+  userChoice?: Promise<{outcome?: string}>
+}
+type WindowWithInstall = Window & {
+  __qzDeferredInstall?: DeferredInstallPrompt | null
+}
+
 export const SplashScreen = ({
   onDismiss,
   onPressSignin,
@@ -46,6 +54,9 @@ export const SplashScreen = ({
   const [showClipOverlay, setShowClipOverlay] = useState(false)
   const [canInstallPwa, setCanInstallPwa] = useState(false)
   const [apkAvailable, setApkAvailable] = useState(false)
+  const [apkDownloadUrl, setApkDownloadUrl] = useState(
+    '/download/quantzing-android.apk',
+  )
   const showDownloadCta = isBrowserNonStandaloneWeb()
 
   useEffect(() => {
@@ -60,16 +71,28 @@ export const SplashScreen = ({
     if (!showDownloadCta) return
 
     const syncInstall = () => {
-      setCanInstallPwa(Boolean((window as any).__qzDeferredInstall))
+      setCanInstallPwa(
+        Boolean((window as unknown as WindowWithInstall).__qzDeferredInstall),
+      )
     }
     syncInstall()
     window.addEventListener('qz-install-ready', syncInstall)
 
-    fetch('/api/quantzing/app-release')
+    fetch('/api/quantzing/app-release', {cache: 'no-store'})
       .then(r => (r.ok ? r.json() : null))
-      .then(data => {
-        if (data?.androidApkAvailable) setApkAvailable(true)
-      })
+      .then(
+        (
+          data: {
+            androidApkAvailable?: boolean
+            android?: {downloadUrl?: string}
+          } | null,
+        ) => {
+          if (data?.androidApkAvailable) setApkAvailable(true)
+          if (data?.android?.downloadUrl) {
+            setApkDownloadUrl(data.android.downloadUrl)
+          }
+        },
+      )
       .catch(() => {})
 
     return () => {
@@ -85,13 +108,14 @@ export const SplashScreen = ({
 
   const onPressInstallDirect = useCallback(async () => {
     if (typeof window !== 'undefined') {
-      const deferred = (window as any).__qzDeferredInstall
+      const win = window as unknown as WindowWithInstall
+      const deferred = win.__qzDeferredInstall
       if (deferred && typeof deferred.prompt === 'function') {
         try {
           await deferred.prompt()
           const choice = await deferred.userChoice
           if (choice?.outcome === 'accepted') {
-            ;(window as any).__qzDeferredInstall = null
+            win.__qzDeferredInstall = null
             setCanInstallPwa(false)
             return
           }
@@ -103,11 +127,11 @@ export const SplashScreen = ({
 
   const onPressAndroidDirect = useCallback(() => {
     if (apkAvailable && typeof window !== 'undefined') {
-      window.location.href = '/download/quantzing-android.apk'
+      window.location.href = apkDownloadUrl
       return
     }
     onPressOpenDownload()
-  }, [apkAvailable, onPressOpenDownload])
+  }, [apkAvailable, apkDownloadUrl, onPressOpenDownload])
 
   const onPressExplorePublic = useCallback(() => {
     setGuestBrowseAllowed(true)
@@ -129,6 +153,7 @@ export const SplashScreen = ({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Close"
+          accessibilityHint=""
           style={{
             position: 'absolute',
             top: 16,
@@ -330,7 +355,10 @@ export const SplashScreen = ({
                       </Text>
                     </View>
                     <Text
-                      style={[a.text_xs, {color: colors.muted, lineHeight: 16}]}>
+                      style={[
+                        a.text_xs,
+                        {color: colors.muted, lineHeight: 16},
+                      ]}>
                       Install directly on Android, iPhone, or Desktop right from
                       QuantZing — Play Store &amp; App Store coming soon.
                     </Text>
@@ -340,6 +368,7 @@ export const SplashScreen = ({
                         onPress={() => void onPressInstallDirect()}
                         accessibilityRole="button"
                         accessibilityLabel="Install QuantZing App"
+                        accessibilityHint=""
                         style={({pressed}) => [
                           a.flex_1,
                           a.flex_row,
@@ -371,6 +400,7 @@ export const SplashScreen = ({
                         onPress={onPressAndroidDirect}
                         accessibilityRole="button"
                         accessibilityLabel="Direct Android APK download"
+                        accessibilityHint=""
                         style={({pressed}) => [
                           a.flex_1,
                           a.flex_row,
@@ -407,12 +437,21 @@ export const SplashScreen = ({
                   onPress={onPressExplorePublic}
                   accessibilityRole="button"
                   accessibilityLabel="Explore public Zings"
+                  accessibilityHint=""
                   style={({pressed}) => [
-                    {paddingTop: 4, alignSelf: 'flex-start', opacity: pressed ? 0.7 : 1},
+                    {
+                      paddingTop: 4,
+                      alignSelf: 'flex-start',
+                      opacity: pressed ? 0.7 : 1,
+                    },
                     web({cursor: 'pointer'}),
                   ]}>
                   <Text
-                    style={[a.text_xs, a.font_semi_bold, {color: colors.muted}]}>
+                    style={[
+                      a.text_xs,
+                      a.font_semi_bold,
+                      {color: colors.muted},
+                    ]}>
                     Explore public Zings →
                   </Text>
                 </Pressable>
@@ -479,9 +518,7 @@ function Footer() {
           {item.label}
         </InlineLinkText>
       ))}
-      <Text style={[a.text_xs, {color: colors.muted}]}>
-        © 2026 QuantZing
-      </Text>
+      <Text style={[a.text_xs, {color: colors.muted}]}>© 2026 QuantZing</Text>
       <AppLanguageDropdown />
     </View>
   )
