@@ -9,7 +9,7 @@ import Animated, {
 import {useSift} from '@bsky.app/sift'
 import {msg} from '@lingui/core/macro'
 import {useLingui} from '@lingui/react'
-import {Plural, Trans} from '@lingui/react/macro'
+import {Plural, Trans, useLingui as useLinguiMacro} from '@lingui/react/macro'
 
 import {
   createFullHandle,
@@ -37,6 +37,7 @@ const DEFAULT_QUANTZING_DOMAIN = '.quantzing.com'
 
 export function StepHandle() {
   const {_} = useLingui()
+  const {t: l} = useLinguiMacro()
   const ax = useAnalytics()
   const t = useTheme()
   const {state, dispatch} = useSignupContext()
@@ -299,7 +300,7 @@ export function StepHandle() {
           isNextDisabled={isNextDisabled}
           onBackPress={onBackPress}
           onNextPress={() => void onNextPress()}
-          overrideNextText={!requiresCaptcha ? 'Create account' : undefined}
+          overrideNextText={!requiresCaptcha ? l`Create account` : undefined}
         />
       </Animated.View>
     </>

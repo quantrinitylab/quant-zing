@@ -1,13 +1,10 @@
 import {View} from 'react-native'
-import {Image} from 'expo-image'
-import {msg} from '@lingui/core/macro'
-import {useLingui} from '@lingui/react'
 
 import {atoms as a, useTheme} from '#/alf'
 import {Text} from '#/components/Typography'
-import {PROP_1, PROP_2, PROP_3} from './images'
 import {
   Dot,
+  FeatureCard,
   useValuePropText,
   type ValuePropositionPagerProps,
 } from './ValuePropositionPager.shared'
@@ -17,44 +14,11 @@ export function ValuePropositionPager({
   avatarUri,
 }: ValuePropositionPagerProps) {
   const t = useTheme()
-  const {_} = useLingui()
-
-  const image = [PROP_1[t.name], PROP_2[t.name], PROP_3[t.name]][step]
-
-  const {title, description, alt} = useValuePropText(step)
+  const {title, description} = useValuePropText(step)
 
   return (
     <View>
-      <View
-        style={[
-          a.relative,
-          a.align_center,
-          a.justify_center,
-          a.pointer_events_none,
-        ]}>
-        <Image
-          source={image}
-          style={[a.w_full, {aspectRatio: 1}]}
-          alt={alt}
-          accessibilityIgnoresInvertColors={false} // I guess we do need it to blend into the background
-        />
-        {step === 1 && (
-          <Image
-            source={avatarUri}
-            style={[
-              a.z_10,
-              a.absolute,
-              a.rounded_full,
-              {
-                width: `${(80 / 393) * 100}%`,
-                height: `${(80 / 393) * 100}%`,
-              },
-            ]}
-            accessibilityIgnoresInvertColors
-            alt={_(msg`Your profile picture`)}
-          />
-        )}
-      </View>
+      <FeatureCard page={step} avatarUri={avatarUri} />
 
       <View style={[a.mt_4xl, a.gap_2xl, a.align_center]}>
         <View style={[a.flex_row, a.gap_sm]}>

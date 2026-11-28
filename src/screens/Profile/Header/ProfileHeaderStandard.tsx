@@ -30,6 +30,8 @@ import {DebugFieldDisplay} from '#/components/DebugFieldDisplay'
 import {useDialogControl} from '#/components/Dialog'
 import {MessageProfileButton} from '#/components/dms/MessageProfileButton'
 import {ArrowShareRight_Stroke2_Corner2_Rounded as ArrowShareRight} from '#/components/icons/ArrowShareRight'
+import {Calendar_Stroke2_Corner0_Rounded as CalendarIcon} from '#/components/icons/Calendar'
+import {type Props as SVGIconProps} from '#/components/icons/common'
 import {PlusLarge_Stroke2_Corner0_Rounded as Plus} from '#/components/icons/Plus'
 import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
 import {
@@ -46,7 +48,6 @@ import {InviteFriendsDialog} from '#/features/inviteFriends'
 import {useActorStatus} from '#/features/liveNow'
 import {ProfileHeaderLinks} from '#/features/profileLinks'
 import {type app} from '#/lexicons'
-import {Calendar_Stroke2_Corner0_Rounded as CalendarIcon} from '#/components/icons/Calendar'
 import {ProfileHeaderDisplayName} from './DisplayName'
 import {EditProfileDialog} from './EditProfileDialog'
 import {ProfileHeaderHandle} from './Handle'
@@ -74,6 +75,7 @@ let ProfileHeaderStandard = ({
   const t = useTheme()
   const {currentAccount} = useSession()
   const {_} = useLingui()
+  const {gtMobile} = useBreakpoints()
   const moderation = useMemo(
     () => moderateProfile(profile, moderationOpts),
     [profile, moderationOpts],
@@ -132,7 +134,7 @@ let ProfileHeaderStandard = ({
           pointerEvents={IS_IOS ? 'auto' : 'box-none'}>
           <View
             style={[
-              {paddingLeft: 90},
+              {paddingLeft: gtMobile ? 90 : 76, minHeight: 36},
               a.flex_row,
               a.align_center,
               a.justify_end,
@@ -182,7 +184,10 @@ let ProfileHeaderStandard = ({
 
               {joinedDate && (
                 <View style={[a.flex_row, a.align_center, a.gap_xs, a.pt_2xs]}>
-                  <CalendarIcon size="xs" style={{color: t.palette.contrast_500}} />
+                  <CalendarIcon
+                    size="xs"
+                    style={{color: t.palette.contrast_500}}
+                  />
                   <Text style={[a.text_sm, {color: t.palette.contrast_500}]}>
                     Joined {joinedDate}
                   </Text>
@@ -375,6 +380,7 @@ export function HeaderStandardButtons({
             testID="profileHeaderEditProfileButton"
             size="small"
             color="secondary"
+            accessibilityHint=""
             onPress={() => {
               haptics.tap()
               editProfileControl.open()
@@ -392,6 +398,7 @@ export function HeaderStandardButtons({
               size="small"
               color="secondary"
               shape="round"
+              accessibilityHint=""
               // expand the 33pt button toward a 44pt touch target, capped
               // horizontally at half the 4pt row gap so the target cannot
               // overlap the neighboring buttons' own targets
@@ -415,6 +422,7 @@ export function HeaderStandardButtons({
             size="small"
             color="secondary"
             label={_(msg`Unblock`)}
+            accessibilityHint=""
             disabled={!hasSession}
             onPress={() => unblockPromptControl.open()}>
             <ButtonText>
@@ -443,6 +451,7 @@ export function HeaderStandardButtons({
               testID={profile.viewer?.following ? 'unfollowBtn' : 'followBtn'}
               size="small"
               color={profile.viewer?.following ? 'secondary' : 'primary'}
+              accessibilityHint=""
               label={
                 profile.viewer?.following
                   ? _(msg`Unfollow ${profile.handle}`)
@@ -473,6 +482,7 @@ export function HeaderStandardButtons({
           variant="solid"
           shape="round"
           label={`Ask Quanty about @${profile.handle}`}
+          accessibilityHint=""
           style={[a.justify_center]}
           onPress={onPressAskQuanty}>
           <ButtonIcon icon={QuantySparkleIcon} size="md" />
@@ -496,6 +506,11 @@ export function HeaderStandardButtons({
   )
 }
 
-function QuantySparkleIcon(props: any) {
-  return <SparkleIcon {...props} style={[{color: '#1D9BF0'}, props.style, {color: '#1D9BF0'}]} />
+function QuantySparkleIcon(props: SVGIconProps) {
+  return (
+    <SparkleIcon
+      {...props}
+      style={[{color: '#1D9BF0'}, props.style, {color: '#1D9BF0'}]}
+    />
+  )
 }

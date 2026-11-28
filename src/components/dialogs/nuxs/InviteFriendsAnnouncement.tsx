@@ -1,15 +1,15 @@
 import {useCallback} from 'react'
 import {View} from 'react-native'
-import {Image} from 'expo-image'
+import {LinearGradient} from 'expo-linear-gradient'
 import {Trans, useLingui} from '@lingui/react/macro'
 
 import {useCallOnce} from '#/lib/once'
 import {Nux} from '#/state/queries/nuxs'
 import {atoms as a, useTheme, web} from '#/alf'
-import {themes} from '#/alf/themes'
 import {Button, ButtonText} from '#/components/Button'
 import * as Dialog from '#/components/Dialog'
 import {useNuxDialogContext} from '#/components/dialogs/nuxs'
+import {PersonGroup_Stroke2_Corner2_Rounded as PersonGroupIcon} from '#/components/icons/Person'
 import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
 import {Text} from '#/components/Typography'
 import {useAnalytics} from '#/analytics'
@@ -98,34 +98,47 @@ function Announcement({
               a.w_full,
               a.relative,
               a.overflow_hidden,
+              a.align_center,
+              a.justify_center,
               {
                 borderTopLeftRadius: a.rounded_md.borderRadius,
                 borderTopRightRadius: a.rounded_md.borderRadius,
+                aspectRatio: 754 / 440,
+                backgroundColor: '#16181C',
+                borderColor: '#2F3336',
+                borderBottomWidth: 1,
               },
             ]}>
-            {/* The image is the full header background; the tag sits on top of it. */}
-            <Image
-              accessibilityIgnoresInvertColors
-              source={require('../../../../assets/images/invite_friends_announcement_nux.webp')}
-              style={[a.w_full, {aspectRatio: 754 / 440}]}
-              alt={l`An illustration of the QuantZing app with a paper airplane flying out of it, representing inviting friends`}
+            <LinearGradient
+              colors={['#16181C', '#1D2734', '#16181C']}
+              start={{x: 0, y: 0}}
+              end={{x: 1, y: 1}}
+              style={[a.absolute, a.inset_0]}
             />
+            <View
+              style={[
+                a.align_center,
+                a.justify_center,
+                a.rounded_full,
+                {
+                  width: 80,
+                  height: 80,
+                  backgroundColor: 'rgba(29, 155, 240, 0.12)',
+                  borderColor: 'rgba(29, 155, 240, 0.3)',
+                  borderWidth: 1,
+                },
+              ]}>
+              <PersonGroupIcon size="3xl" fill="#1D9BF0" />
+            </View>
             <View
               style={[
                 a.absolute,
                 a.align_center,
                 {top: 0, left: 0, right: 0, paddingTop: IS_WEB ? 24 : 20},
               ]}>
-              {/* Pinned to the light palette: the header illustration has a
-                  fixed light background, so the tag must stay dark in any
-                  theme to remain legible. */}
               <View style={[a.flex_row, a.align_center, a.gap_xs]}>
-                <SparkleIcon fill={themes.lightPalette.primary_800} size="sm" />
-                <Text
-                  style={[
-                    a.font_semi_bold,
-                    {color: themes.lightPalette.primary_800},
-                  ]}>
+                <SparkleIcon fill="#1D9BF0" size="sm" />
+                <Text style={[a.font_semi_bold, {color: '#1D9BF0'}]}>
                   <Trans>New Feature</Trans>
                 </Text>
               </View>

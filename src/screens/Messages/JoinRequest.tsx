@@ -1,7 +1,6 @@
 import {useEffect} from 'react'
 import {View} from 'react-native'
-import {ImageBackground} from 'expo-image'
-import {type ThemeName} from '@bsky.app/alf'
+import {LinearGradient} from 'expo-linear-gradient'
 import {moderateProfile} from '@bsky/sdk/moderation'
 import {Trans, useLingui} from '@lingui/react/macro'
 
@@ -12,34 +11,17 @@ import {useJoinLinkPreviewsQuery} from '#/state/queries/join-links'
 import {useActiveGroupChatJoinRequest} from '#/state/shell/landing'
 import {LoggedOutScreenState} from '#/view/com/auth/LoggedOut'
 import {LogomarkWithType} from '#/view/icons/LogomarkWithType'
-import {atoms as a, useBreakpoints, useTheme} from '#/alf'
+import {atoms as a, useTheme} from '#/alf'
 import {AvatarBubbles} from '#/components/AvatarBubbles'
 import {Button, ButtonText} from '#/components/Button'
 import {ChainLinkBroken_Stroke2_Corner0_Rounded as ChainLinkBrokenIcon} from '#/components/icons/ChainLink'
+import {Message_Stroke2_Corner0_Rounded as MessageIcon} from '#/components/icons/Message'
 import {PersonGroup_Stroke2_Corner2_Rounded as PersonGroupIcon} from '#/components/icons/Person'
 import {ProfileBadges} from '#/components/ProfileBadges'
 import {Text} from '#/components/Typography'
 import {useAnalytics} from '#/analytics'
 import {chat} from '#/lexicons'
 import * as bsky from '#/types/bsky'
-
-const desktopDarkBg = require('../../../assets/images/chat-desktop-bg-dark.webp')
-const desktopDimBg = require('../../../assets/images/chat-desktop-bg-dim.webp')
-const desktopLightBg = require('../../../assets/images/chat-desktop-bg-light.webp')
-const mobileDarkBg = require('../../../assets/images/chat-mobile-bg-dark.webp')
-const mobileDimBg = require('../../../assets/images/chat-mobile-bg-dim.webp')
-const mobileLightBg = require('../../../assets/images/chat-mobile-bg-light.webp')
-
-function getBackgroundImage(themeName: ThemeName, gtMobile: boolean) {
-  switch (themeName) {
-    case 'dark':
-      return gtMobile ? desktopDarkBg : mobileDarkBg
-    case 'dim':
-      return gtMobile ? desktopDimBg : mobileDimBg
-    default:
-      return gtMobile ? desktopLightBg : mobileLightBg
-  }
-}
 
 type Props = {
   setScreenState: (state: LoggedOutScreenState) => void
@@ -50,7 +32,6 @@ export function JoinRequest({setScreenState}: Props) {
   const {t: l} = useLingui()
   const ax = useAnalytics()
 
-  const {gtMobile, gtTablet} = useBreakpoints()
   const moderationOpts = useModerationOpts()
 
   useEffect(() => {
@@ -66,16 +47,35 @@ export function JoinRequest({setScreenState}: Props) {
     hasSession: false,
   })
 
-  const background = getBackgroundImage(t.name, gtMobile)
-
   const joinLinkPreview = data?.joinLinkPreviews[0]
 
   return (
-    <View style={[a.util_screen_outer, a.w_full, t.atoms.bg_contrast_25]}>
-      <ImageBackground
-        source={background}
-        style={[a.util_screen_outer, a.w_full, a.flex_1, a.justify_center]}
-        contentFit={gtTablet ? 'contain' : 'cover'}>
+    <View style={[a.util_screen_outer, a.w_full, {backgroundColor: '#16181C'}]}>
+      <View
+        style={[
+          a.util_screen_outer,
+          a.w_full,
+          a.flex_1,
+          a.justify_center,
+          a.relative,
+          a.overflow_hidden,
+        ]}>
+        <LinearGradient
+          colors={['#16181C', '#0D0E10', '#16181C']}
+          start={{x: 0, y: 0}}
+          end={{x: 1, y: 1}}
+          style={[a.absolute, a.inset_0]}
+        />
+        <View
+          style={[a.absolute, {top: -50, right: -50, opacity: 0.06}]}
+          pointerEvents="none">
+          <MessageIcon width={320} height={320} fill="#1D9BF0" />
+        </View>
+        <View
+          style={[a.absolute, {bottom: -50, left: -50, opacity: 0.04}]}
+          pointerEvents="none">
+          <PersonGroupIcon width={280} height={280} fill="#1D9BF0" />
+        </View>
         <View
           style={[
             a.util_screen_outer,
@@ -231,7 +231,7 @@ export function JoinRequest({setScreenState}: Props) {
             </Wrapper>
           ) : null}
         </View>
-      </ImageBackground>
+      </View>
     </View>
   )
 }

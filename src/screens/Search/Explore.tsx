@@ -1,5 +1,5 @@
 import {useCallback, useMemo, useRef, useState} from 'react'
-import {View} from 'react-native'
+import {Pressable, View} from 'react-native'
 import {Trans, useLingui} from '@lingui/react/macro'
 import {type ViewabilityConfig} from '@react-native/virtualized-lists'
 import {useQueryClient} from '@tanstack/react-query'
@@ -40,7 +40,7 @@ import {
 import {ExploreInterestsCard} from '#/screens/Search/modules/ExploreInterestsCard'
 import {ExploreTrendingTopics} from '#/screens/Search/modules/ExploreTrendingTopics'
 import {ExploreTrendingVideos} from '#/screens/Search/modules/ExploreTrendingVideos'
-import {atoms as a, native, platform, useTheme} from '#/alf'
+import {atoms as a, native, platform, useTheme, web} from '#/alf'
 import {Admonition} from '#/components/Admonition'
 import {Button} from '#/components/Button'
 import * as FeedCard from '#/components/FeedCard'
@@ -213,6 +213,10 @@ type ExploreScreenItems =
       key: string
     }
   | {
+      type: 'categoryTabsBar'
+      key: 'category-tabs-bar'
+    }
+  | {
       type: 'topicChipsBar'
       key: 'topic-chips-bar'
     }
@@ -233,6 +237,28 @@ export function Explore({
   const {data: preferences, error: preferencesError} = usePreferencesQuery()
   const moderationOpts = useModerationOpts()
   const [selectedInterest, setSelectedInterest] = useState<string | null>(null)
+  type ExploreCategory =
+    'for-you' | 'trending' | 'news' | 'sports' | 'entertainment'
+  const [selectedCategory, setSelectedCategory] =
+    useState<ExploreCategory>('for-you')
+
+  const onSelectCategory = useCallback(
+    (cat: ExploreCategory) => {
+      setSelectedCategory(cat)
+      if (cat === 'trending') {
+        setSelectedInterest(null)
+      } else if (cat === 'sports') {
+        setSelectedInterest('sports')
+      } else if (cat === 'entertainment') {
+        setSelectedInterest('movies_tv')
+      } else if (cat === 'news') {
+        setSelectedInterest('news')
+      } else {
+        setSelectedInterest(null)
+      }
+    },
+    [setSelectedCategory, setSelectedInterest],
+  )
 
   /*
    * Begin special language handling
@@ -679,6 +705,14 @@ export function Explore({
     ]
   }, [showInterestsNux])
 
+  const categoryTabsBarModule = useMemo<ExploreScreenItems>(
+    () => ({
+      type: 'categoryTabsBar',
+      key: 'category-tabs-bar',
+    }),
+    [],
+  )
+
   const topicChipsBarModule = useMemo<ExploreScreenItems>(
     () => ({
       type: 'topicChipsBar',
@@ -700,6 +734,7 @@ export function Explore({
 
     // Dynamic module ordering
     i.push(topBorder)
+    i.push(categoryTabsBarModule)
     i.push(findPeopleActionRowModule)
     i.push(topicChipsBarModule)
     i.push(...interestsNuxModule)
@@ -707,7 +742,26 @@ export function Explore({
     i.push({type: 'liveEventFeedsBanner', key: 'liveEventFeedsBanner'})
 
     if (useFullExperience) {
-      if (selectedInterest) {
+      if (selectedCategory === 'trending') {
+        i.push(trendingTopicsModule)
+        i.push({type: 'trendingVideos', key: 'trending-videos'})
+        i.push(...suggestedFeedsModule)
+        i.push(...suggestedFollowsModule)
+        i.push(...feedPreviewsModule)
+      } else if (selectedCategory === 'news') {
+        i.push(trendingTopicsModule)
+        i.push(...suggestedFeedsModule)
+        i.push(...suggestedFollowsModule)
+        i.push(...feedPreviewsModule)
+      } else if (
+        selectedCategory === 'sports' ||
+        selectedCategory === 'entertainment'
+      ) {
+        i.push(...suggestedFollowsModule)
+        i.push(trendingTopicsModule)
+        i.push(...suggestedFeedsModule)
+        i.push(...feedPreviewsModule)
+      } else if (selectedInterest) {
         i.push(...suggestedFollowsModule)
         i.push(trendingTopicsModule)
         i.push(...suggestedFeedsModule)
@@ -725,8 +779,10 @@ export function Explore({
     return i
   }, [
     topBorder,
+    categoryTabsBarModule,
     findPeopleActionRowModule,
     topicChipsBarModule,
+    selectedCategory,
     selectedInterest,
     suggestedFollowsModule,
     suggestedFeedsModule,
@@ -786,7 +842,7 @@ export function Explore({
           )
         }
         case 'trendingTopics': {
-          return <ExploreTrendingTopics />
+          return <ExploreTrendingTopics categoryFilter={selectedCategory} />
         }
         case 'trendingVideos': {
           return <ExploreTrendingVideos />
@@ -1046,11 +1102,80 @@ export function Explore({
         case 'liveEventFeedsBanner': {
           return <ExploreScreenLiveEventFeedsBanner />
         }
+        case 'categoryTabsBar': {
+          const categories: {id: ExploreCategory; label: string}[] = [
+            {id: 'for-you', label: l`For you`},
+            {id: 'trending', label: l`Trending`},
+            {id: 'news', label: l`News`},
+            {id: 'sports', label: l`Sports`},
+            {id: 'entertainment', label: l`Entertainment`},
+          ]
+          return (
+            <View
+              style={[
+                a.flex_row,
+                a.border_b,
+                t.atoms.border_contrast_low,
+                a.px_md,
+                a.align_center,
+                a.justify_between,
+                t.atoms.bg,
+              ]}>
+              {categories.map(cat => {
+                const isSelected = selectedCategory === cat.id
+                return (
+                  <Pressable
+                    key={cat.id}
+                    accessibilityRole="tab"
+                    accessibilityLabel={cat.label}
+                    accessibilityHint=""
+                    accessibilityState={{selected: isSelected}}
+                    onPress={() => onSelectCategory(cat.id)}
+                    style={[
+                      a.flex_1,
+                      a.align_center,
+                      a.justify_center,
+                      a.pt_md,
+                      a.pb_sm,
+                      a.relative,
+                      web({cursor: 'pointer'}),
+                    ]}>
+                    <Text
+                      style={[
+                        a.text_sm,
+                        isSelected
+                          ? [a.font_bold, t.atoms.text]
+                          : [a.font_medium, t.atoms.text_contrast_medium],
+                        a.text_center,
+                      ]}>
+                      {cat.label}
+                    </Text>
+                    {isSelected && (
+                      <View
+                        style={[
+                          a.absolute,
+                          {
+                            bottom: 0,
+                            height: 3,
+                            width: 36,
+                            borderRadius: 99,
+                            backgroundColor: '#1D9BF0',
+                          },
+                        ]}
+                      />
+                    )}
+                  </Pressable>
+                )
+              })}
+            </View>
+          )
+        }
         case 'findPeopleActionRow': {
           return (
             <Link
               to={{screen: 'FindContactsFlow'}}
               label={l`Find People on QuantZing`}
+              accessibilityHint=""
               style={[
                 a.mx_lg,
                 a.my_md,
@@ -1094,20 +1219,35 @@ export function Explore({
           )
         }
         case 'topicChipsBar': {
-          const topicChips = [
-            'all',
-            'politics',
-            'soccer',
-            'tech',
-            'art',
-            'movies_tv',
-            'ai',
-            'sports',
-            'music',
-            'finance',
-          ]
+          const categoryTopicChips: Record<ExploreCategory, string[]> = {
+            'for-you': [
+              'all',
+              'tech',
+              'ai',
+              'finance',
+              'sports',
+              'music',
+              'art',
+            ],
+            trending: ['all', 'trending', 'viral', 'news', 'crypto'],
+            news: ['all', 'news', 'politics', 'world', 'business'],
+            sports: ['all', 'sports', 'soccer', 'basketball', 'cricket', 'f1'],
+            entertainment: ['all', 'movies_tv', 'music', 'gaming', 'art'],
+          }
+          const topicChips =
+            categoryTopicChips[selectedCategory] ||
+            categoryTopicChips['for-you']
           const displayMap: Record<string, string> = {
             all: l`All`,
+            trending: l`Trending`,
+            viral: l`Viral`,
+            crypto: l`Crypto`,
+            world: l`World`,
+            business: l`Business`,
+            basketball: l`Basketball`,
+            cricket: l`Cricket`,
+            f1: l`F1`,
+            gaming: l`Gaming`,
             ...interestsDisplayNames,
           }
           return (
@@ -1122,7 +1262,19 @@ export function Explore({
                 interests={topicChips}
                 selectedInterest={selectedInterest || 'all'}
                 onSelectTab={topic => {
-                  setSelectedInterest(topic === 'all' ? null : topic)
+                  if (topic === 'all') {
+                    if (selectedCategory === 'sports') {
+                      setSelectedInterest('sports')
+                    } else if (selectedCategory === 'entertainment') {
+                      setSelectedInterest('movies_tv')
+                    } else if (selectedCategory === 'news') {
+                      setSelectedInterest('news')
+                    } else {
+                      setSelectedInterest(null)
+                    }
+                  } else {
+                    setSelectedInterest(topic)
+                  }
                 }}
                 interestsDisplayNames={displayMap}
               />
@@ -1140,6 +1292,8 @@ export function Explore({
       t.palette.negative_400,
       focusSearchInput,
       selectedInterest,
+      selectedCategory,
+      onSelectCategory,
       moderationOpts,
       interestsDisplayNames,
       useFullExperience,

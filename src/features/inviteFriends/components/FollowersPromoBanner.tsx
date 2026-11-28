@@ -1,9 +1,9 @@
 import {useEffect, useEffectEvent} from 'react'
 import {Pressable, View} from 'react-native'
-import {Image} from 'expo-image'
 import {useLingui} from '@lingui/react/macro'
 
-import {atoms as a, useTheme} from '#/alf'
+import {atoms as a} from '#/alf'
+import {PersonGroup_Stroke2_Corner2_Rounded as PersonGroupIcon} from '#/components/icons/Person'
 import {TimesLarge_Stroke2_Corner0_Rounded as TimesIcon} from '#/components/icons/Times'
 import {Text} from '#/components/Typography'
 import {useAnalytics} from '#/analytics'
@@ -16,7 +16,6 @@ export function FollowersPromoBanner({
   onDismiss: () => void
 }) {
   const {t: l} = useLingui()
-  const t = useTheme()
   const ax = useAnalytics()
 
   const onSeen = useEffectEvent(() => {
@@ -50,7 +49,7 @@ export function FollowersPromoBanner({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={l`Find and invite friends`}
-          accessibilityHint={l`Opens the find and invite friends settings`}
+          accessibilityHint=""
           onPress={handlePress}
           style={({pressed}) => [
             a.flex_row,
@@ -59,24 +58,36 @@ export function FollowersPromoBanner({
             {
               height: 80,
               borderRadius: 16,
-              backgroundColor: t.palette.primary_50,
+              backgroundColor: '#16181C',
+              borderColor: '#2F3336',
+              borderWidth: 1,
               paddingHorizontal: 16,
               paddingVertical: 16,
               opacity: pressed ? 0.85 : 1,
             },
           ]}>
-          <Image
-            accessibilityIgnoresInvertColors
-            source={require('../../../../assets/images/invite_friends_promo_banner.webp')}
-            style={{width: 126, height: 64, marginRight: 16}}
-            contentFit="contain"
-          />
+          <View
+            style={[
+              a.align_center,
+              a.justify_center,
+              a.rounded_md,
+              {
+                width: 48,
+                height: 48,
+                backgroundColor: '#202327',
+                borderColor: '#2F3336',
+                borderWidth: 1,
+                marginRight: 16,
+              },
+            ]}>
+            <PersonGroupIcon size="lg" fill="#1D9BF0" />
+          </View>
           <Text
             style={[
               a.flex_1,
               a.text_md,
               a.font_bold,
-              {color: t.palette.primary_700, lineHeight: 19.5},
+              {color: '#FFFFFF', lineHeight: 19.5},
             ]}>
             {l`Import contacts or invite your friends`}
           </Text>
@@ -84,7 +95,7 @@ export function FollowersPromoBanner({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={l`Dismiss`}
-          accessibilityHint={l`Hides the invite friends promo banner`}
+          accessibilityHint=""
           onPress={handleDismiss}
           hitSlop={12}
           style={({pressed}) => [
@@ -96,7 +107,7 @@ export function FollowersPromoBanner({
               opacity: pressed ? 0.5 : 1,
             },
           ]}>
-          <TimesIcon width={12} height={12} fill={t.palette.contrast_500} />
+          <TimesIcon width={12} height={12} fill="#71767B" />
         </Pressable>
       </View>
     </View>

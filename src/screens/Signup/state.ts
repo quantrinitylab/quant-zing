@@ -30,11 +30,7 @@ type SubmitTask = {
 }
 
 type ErrorField =
-  | 'invite-code'
-  | 'email'
-  | 'handle'
-  | 'password'
-  | 'date-of-birth'
+  'invite-code' | 'email' | 'handle' | 'password' | 'date-of-birth'
 
 export type SignupState = {
   analytics?: AnalyticsContextType
@@ -43,6 +39,7 @@ export type SignupState = {
   activeStep: SignupStep
   screenTransitionDirection: 'Forward' | 'Backward'
 
+  displayName: string
   serviceUrl: string
   serviceDescription?: ServiceDescription
   userDomain: string
@@ -70,6 +67,7 @@ export type SignupAction =
   | {type: 'next'}
   | {type: 'finish'}
   | {type: 'setStep'; value: SignupStep}
+  | {type: 'setDisplayName'; value: string}
   | {type: 'setServiceUrl'; value: string}
   | {type: 'setServiceDescription'; value: ServiceDescription | undefined}
   | {type: 'setEmail'; value: string}
@@ -90,6 +88,7 @@ export const initialState: SignupState = {
   activeStep: SignupStep.INFO,
   screenTransitionDirection: 'Forward',
 
+  displayName: '',
   serviceUrl: DEFAULT_SERVICE,
   serviceDescription: undefined,
   userDomain: DEFAULT_QUANTZING_DOMAIN,
@@ -166,6 +165,11 @@ export function reducer(s: SignupState, a: SignupAction): SignupState {
       next.userDomain =
         a.value?.availableUserDomains?.[0] || DEFAULT_QUANTZING_DOMAIN
       next.isLoading = false
+      break
+    }
+
+    case 'setDisplayName': {
+      next.displayName = a.value
       break
     }
 
@@ -272,6 +276,38 @@ function classifyExpectedSignupError(e: unknown): string | undefined {
   return undefined
 }
 
+let pendingOnboardingDisplayName = ''
+
+export function setPendingOnboardingDisplayName(name: string) {
+  pendingOnboardingDisplayName = name
+  try {
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      window.sessionStorage.setItem('pendingOnboardingDisplayName', name)
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export function consumePendingOnboardingDisplayName(): string {
+  let name = pendingOnboardingDisplayName
+  pendingOnboardingDisplayName = ''
+  try {
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      const stored = window.sessionStorage.getItem(
+        'pendingOnboardingDisplayName',
+      )
+      if (stored) {
+        name = stored
+        window.sessionStorage.removeItem('pendingOnboardingDisplayName')
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return name
+}
+
 export function useSubmitSignup() {
   const ax = useAnalytics()
   const {t: l} = useLingui()
@@ -365,6 +401,7 @@ export function useSubmitSignup() {
 
         clearRequestedAccount()
         setShowLoggedOut(false)
+        setPendingOnboardingDisplayName(state.displayName.trim())
 
         /*
          * Must happen last so that if the user has multiple tabs open and

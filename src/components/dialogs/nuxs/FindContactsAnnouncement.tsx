@@ -1,6 +1,5 @@
 import {useCallback} from 'react'
 import {View} from 'react-native'
-import {Image} from 'expo-image'
 import {LinearGradient} from 'expo-linear-gradient'
 import {msg} from '@lingui/core/macro'
 import {useLingui} from '@lingui/react'
@@ -15,6 +14,7 @@ import {
   createIsEnabledCheck,
   isExistingUserAsOf,
 } from '#/components/dialogs/nuxs/utils'
+import {Contacts_Stroke2_Corner2_Rounded as ContactsIcon} from '#/components/icons/Contacts'
 import {Text} from '#/components/Typography'
 import {useAnalytics} from '#/analytics'
 import {IS_E2E, IS_NATIVE, IS_WEB} from '#/env'
@@ -64,22 +64,35 @@ export function FindContactsAnnouncement() {
         ]}>
         <View style={[a.align_center, a.pt_3xl]}>
           <LinearGradient
-            colors={[t.palette.primary_200, t.atoms.bg.backgroundColor]}
-            locations={[0, 1]}
+            colors={['#16181C', '#1D2734', '#16181C']}
+            locations={[0, 0.5, 1]}
             start={{x: 0, y: 0}}
             end={{x: 0, y: 1}}
             style={[a.absolute, a.inset_0]}
           />
-          <View style={[a.w_full, a.pt_sm, a.px_5xl, a.pb_4xl]}>
-            <Image
-              accessibilityIgnoresInvertColors
-              source={require('../../../../assets/images/find_friends_illustration.webp')}
-              style={[a.w_full, {aspectRatio: 1278 / 661}]}
-              alt={_(
-                msg`An illustration depicting user avatars flowing from a contact book into the QuantZing app`,
-              )}
-              useAppleWebpCodec
-            />
+          <View
+            style={[
+              a.w_full,
+              a.align_center,
+              a.justify_center,
+              a.pt_sm,
+              a.pb_4xl,
+            ]}>
+            <View
+              style={[
+                a.align_center,
+                a.justify_center,
+                a.rounded_full,
+                {
+                  width: 80,
+                  height: 80,
+                  backgroundColor: 'rgba(29, 155, 240, 0.12)',
+                  borderColor: 'rgba(29, 155, 240, 0.3)',
+                  borderWidth: 1,
+                },
+              ]}>
+              <ContactsIcon width={40} height={40} fill="#1D9BF0" />
+            </View>
           </View>
         </View>
         <View style={[a.align_center, a.px_xl, a.gap_5xl]}>

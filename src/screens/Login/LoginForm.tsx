@@ -320,6 +320,7 @@ export const LoginForm = ({
           <Button
             testID="loginBackButton"
             label={l`Back`}
+            accessibilityHint=""
             color="secondary"
             size="large"
             shape="default"
@@ -351,6 +352,7 @@ export const LoginForm = ({
         ) : !serviceDescription ? (
           <Button
             label="Connecting to QuantZing..."
+            accessibilityHint=""
             size="large"
             color="secondary"
             style={[a.rounded_full]}
@@ -390,12 +392,13 @@ export const LoginForm = ({
           !gtMobile && a.text_center,
           t.atoms.text_contrast_medium,
         ]}>
-        New to QuantZing?{' '}
+        <Trans>Don't have an account?</Trans>{' '}
         <InlineLinkText
-          label="Create a QuantZing account"
+          label={l`Create account`}
+          accessibilityHint=""
           style={[a.text_sm, a.font_semi_bold, {color: linkColor}]}
           {...createStaticClick(() => onPressCreateAccount())}>
-          Create account
+          <Trans>Create account</Trans>
         </InlineLinkText>
       </Text>
     </FormContainer>

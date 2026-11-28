@@ -2,15 +2,12 @@ import {useEffect, useRef, useState} from 'react'
 import {View} from 'react-native'
 import PagerView from 'react-native-pager-view'
 import {type PagerViewOnPageSelectedEvent} from 'react-native-pager-view'
-import {Image} from 'expo-image'
-import {msg} from '@lingui/core/macro'
-import {useLingui} from '@lingui/react'
 
 import {atoms as a, tokens, useTheme} from '#/alf'
 import {Text} from '#/components/Typography'
-import {PROP_1, PROP_2, PROP_3} from './images'
 import {
   Dot,
+  FeatureCard,
   useValuePropText,
   type ValuePropositionPagerProps,
 } from './ValuePropositionPager.shared'
@@ -20,7 +17,6 @@ export function ValuePropositionPager({
   setStep,
   avatarUri,
 }: ValuePropositionPagerProps) {
-  const t = useTheme()
   const [activePage, setActivePage] = useState(step)
   const ref = useRef<PagerView>(null)
 
@@ -37,8 +33,6 @@ export function ValuePropositionPager({
     ref.current?.setPage(step)
   }, [step])
 
-  const images = [PROP_1[t.name], PROP_2[t.name], PROP_3[t.name]]
-
   return (
     <View style={[a.h_full, {marginHorizontal: tokens.space.xl * -1}]}>
       <PagerView
@@ -53,65 +47,20 @@ export function ValuePropositionPager({
           }
         }}>
         {([0, 1, 2] as const).map(page => (
-          <Page
-            key={page}
-            page={page}
-            image={images[page]}
-            avatarUri={avatarUri}
-          />
+          <Page key={page} page={page} avatarUri={avatarUri} />
         ))}
       </PagerView>
     </View>
   )
 }
 
-function Page({
-  page,
-  image,
-  avatarUri,
-}: {
-  page: 0 | 1 | 2
-  image: string
-  avatarUri?: string
-}) {
-  const {_} = useLingui()
+function Page({page, avatarUri}: {page: 0 | 1 | 2; avatarUri?: string}) {
   const t = useTheme()
-  const {title, description, alt} = useValuePropText(page)
+  const {title, description} = useValuePropText(page)
 
   return (
     <View key={page}>
-      <View
-        style={[
-          a.relative,
-          a.align_center,
-          a.justify_center,
-          a.pointer_events_none,
-        ]}>
-        <Image
-          source={image}
-          style={[a.w_full, a.aspect_square]}
-          alt={alt}
-          accessibilityIgnoresInvertColors={false} // I guess we do need it to blend into the background
-          useAppleWebpCodec
-        />
-        {page === 1 && (
-          <Image
-            source={avatarUri}
-            style={[
-              a.z_10,
-              a.absolute,
-              a.rounded_full,
-              {
-                width: `${(80 / 393) * 100}%`,
-                height: `${(80 / 393) * 100}%`,
-              },
-            ]}
-            accessibilityIgnoresInvertColors
-            useAppleWebpCodec
-            alt={_(msg`Your profile picture`)}
-          />
-        )}
-      </View>
+      <FeatureCard page={page} avatarUri={avatarUri} />
 
       <View style={[a.mt_4xl, a.gap_2xl, a.px_xl, a.align_center]}>
         <View style={[a.flex_row, a.gap_sm]}>

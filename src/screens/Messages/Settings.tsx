@@ -45,7 +45,7 @@ export function MessagesSettingsScreen(props: Props) {
 
   return (
     <AgeRestrictedScreen
-      screenTitle={l`Chat settings`}
+      screenTitle={l`Messages settings`}
       infoText={aaCopy.chatsInfoText}>
       <MessagesSettingsScreenInner {...props} />
     </AgeRestrictedScreen>
@@ -144,7 +144,7 @@ export function MessagesSettingsScreenInner({}: Props) {
         <Layout.Header.BackButton />
         <Layout.Header.Content>
           <Layout.Header.TitleText>
-            <Trans>Chat Settings</Trans>
+            <Trans>Messages Settings</Trans>
           </Layout.Header.TitleText>
         </Layout.Header.Content>
         <Layout.Header.Slot />
@@ -257,7 +257,7 @@ export function MessagesSettingsScreenInner({}: Props) {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={l`Settings for notifications for new messages`}
-              accessibilityHint={undefined}
+              accessibilityHint=""
               style={[a.flex_row, a.align_start, a.justify_between, a.gap_sm]}
               onPress={() => {
                 chatDialogControl.open()
@@ -278,7 +278,7 @@ export function MessagesSettingsScreenInner({}: Props) {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={l`Settings for notifications for new message requests`}
-              accessibilityHint={undefined}
+              accessibilityHint=""
               style={[a.flex_row, a.align_start, a.justify_between, a.gap_sm]}
               onPress={() => {
                 chatRequestDialogControl.open()
@@ -327,7 +327,7 @@ export function MessagesSettingsScreenInner({}: Props) {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={l`Export my chat data`}
-              accessibilityHint={undefined}
+              accessibilityHint=""
               style={[a.flex_row, a.align_center, a.justify_between, a.gap_sm]}
               onPress={() => {
                 exportCarControl.open()

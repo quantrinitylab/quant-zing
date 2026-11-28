@@ -37,6 +37,7 @@ import {
   useOnboardingInternalState,
 } from '#/screens/Onboarding/state'
 import {bulkWriteFollows} from '#/screens/Onboarding/util'
+import {consumePendingOnboardingDisplayName} from '#/screens/Signup/state'
 import {atoms as a, useBreakpoints} from '#/alf'
 import {Button, ButtonIcon, ButtonText} from '#/components/Button'
 import {ArrowRight_Stroke2_Corner0_Rounded as ArrowRight} from '#/components/icons/Arrow'
@@ -165,7 +166,8 @@ export function StepFinished() {
               }
             }
 
-            next.displayName = ''
+            const pendingName = consumePendingOnboardingDisplayName()
+            next.displayName = pendingName || next.displayName || ''
 
             if (!next.createdAt) {
               next.createdAt = toDatetimeString(new Date())
@@ -287,6 +289,7 @@ function ValueProposition({
             color="secondary"
             size="small"
             label={_(msg`Skip introduction and start using your account`)}
+            accessibilityHint=""
             onPress={() => {
               ax.metric('onboarding:valueProp:skipPressed', {})
               finishOnboarding()
@@ -313,6 +316,7 @@ function ValueProposition({
               color="secondary"
               size="large"
               label={_(msg`Skip introduction and start using your account`)}
+              accessibilityHint=""
               onPress={() => finishOnboarding()}>
               <ButtonText>
                 <Trans>Skip</Trans>
@@ -330,6 +334,7 @@ function ValueProposition({
                 ? _(msg`Complete onboarding and start using your account`)
                 : _(msg`Next`)
             }
+            accessibilityHint=""
             onPress={onPress}>
             <ButtonText>
               {saving ? (

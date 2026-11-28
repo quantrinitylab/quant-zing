@@ -1,6 +1,6 @@
 import {useState} from 'react'
 import {View} from 'react-native'
-import {Image} from 'expo-image'
+import {LinearGradient} from 'expo-linear-gradient'
 import {moderateProfile, type ModerationOpts} from '@bsky/sdk/moderation'
 import {Plural, Trans, useLingui} from '@lingui/react/macro'
 
@@ -29,6 +29,7 @@ import {ArrowRight_Stroke2_Corner0_Rounded as ArrowRightIcon} from '#/components
 import {ArrowShareRight_Stroke2_Corner2_Rounded as ArrowShareRightIcon} from '#/components/icons/ArrowShareRight'
 import {ChainLinkBroken_Stroke2_Corner0_Rounded as ChainLinkBrokenIcon} from '#/components/icons/ChainLink'
 import {EditBig_Stroke2_Corner2_Rounded as EditIcon} from '#/components/icons/EditBig'
+import {PersonGroup_Stroke2_Corner2_Rounded as PersonGroupIcon} from '#/components/icons/Person'
 import {Loader} from '#/components/Loader'
 import * as Toast from '#/components/Toast'
 import {Text} from '#/components/Typography'
@@ -37,8 +38,6 @@ import {IS_WEB} from '#/env'
 import {type chat} from '#/lexicons'
 import {CopyTextButton} from './CopyTextButton'
 import {EditTextButton} from './EditTextButton'
-
-const infoImage = require('../../../../assets/images/chat-invite-friends.webp')
 
 enum Step {
   INFO,
@@ -174,19 +173,46 @@ export function InviteLinkDialog({
   switch (step) {
     case Step.INFO: {
       image = (
-        <Image
-          source={infoImage}
+        <View
           style={[
             web(a.rounded_md),
             native(a.rounded_xl),
             a.mb_lg,
             a.w_full,
-            {aspectRatio: 706 / 418},
+            a.align_center,
+            a.justify_center,
+            a.overflow_hidden,
+            {
+              aspectRatio: 706 / 418,
+              backgroundColor: '#16181C',
+              borderColor: '#2F3336',
+              borderWidth: 1,
+            },
             web({marginTop: 4}),
             native({marginTop: -8}),
-          ]}
-          accessibilityIgnoresInvertColors
-        />
+          ]}>
+          <LinearGradient
+            colors={['#16181C', '#1C2732', '#16181C']}
+            start={{x: 0, y: 0}}
+            end={{x: 1, y: 1}}
+            style={[a.absolute, a.inset_0]}
+          />
+          <View
+            style={[
+              a.align_center,
+              a.justify_center,
+              a.rounded_full,
+              {
+                width: 72,
+                height: 72,
+                backgroundColor: 'rgba(29, 155, 240, 0.12)',
+                borderColor: 'rgba(29, 155, 240, 0.3)',
+                borderWidth: 1,
+              },
+            ]}>
+            <PersonGroupIcon size="3xl" fill="#1D9BF0" />
+          </View>
+        </View>
       )
       header = l`Invite link`
       content = (
@@ -314,7 +340,10 @@ export function InviteLinkDialog({
     case Step.MANAGE: {
       const linkEnabled = joinLink?.enabledStatus === 'enabled'
       const linkDisabled = joinLink?.enabledStatus === 'disabled'
-      const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://quantzing.quantrinity.in'
+      const origin =
+        typeof window !== 'undefined' && window.location?.origin
+          ? window.location.origin
+          : 'https://quantzing.quantrinity.in'
       const joinLinkURI = joinLink?.code
         ? `${origin}/chat/${joinLink.code}`
         : `${origin}/`

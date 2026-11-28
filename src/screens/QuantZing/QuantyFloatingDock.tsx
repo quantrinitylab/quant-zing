@@ -5,6 +5,7 @@ import {
   Pressable,
   ScrollView,
   TextInput,
+  type TextInputKeyPressEvent,
   View,
 } from 'react-native'
 import {
@@ -210,12 +211,13 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
   const handleOpenFullQuanty = useCallback(
     (carryPrompt?: string) => {
       setIsOpen(false)
-      const params: Record<string, any> = {}
+      const params: Record<string, string> = {}
       if (carryPrompt?.trim()) params.prompt = carryPrompt.trim()
       if (attachedPost) {
-        params.postUri = attachedPost.uri
-        params.postText = attachedPost.text
-        params.authorHandle = attachedPost.authorHandle
+        if (attachedPost.uri) params.postUri = attachedPost.uri
+        if (attachedPost.text) params.postText = attachedPost.text
+        if (attachedPost.authorHandle)
+          params.authorHandle = attachedPost.authorHandle
       }
       try {
         navigation.dispatch(
@@ -242,7 +244,11 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
   const handleQuickSend = useCallback(
     async (
       overridePrompt?: string,
-      overridePostContext?: {uri?: string; text?: string; authorHandle?: string} | null,
+      overridePostContext?: {
+        uri?: string
+        text?: string
+        authorHandle?: string
+      } | null,
     ) => {
       const text = stripEmojisAndSymbols((overridePrompt ?? prompt).trim())
       if (!text || isLoading) return
@@ -250,7 +256,9 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
       const inferredMode = text.startsWith('/') ? 'control' : 'ask'
       const currentThreadId = activeThreadIdRef.current
       const activePostContext =
-        overridePostContext !== undefined ? overridePostContext : attachedPostRef.current
+        overridePostContext !== undefined
+          ? overridePostContext
+          : attachedPostRef.current
 
       const userMsg: QuantyThreadMessage = {
         id: `qu_${Date.now()}`,
@@ -359,8 +367,7 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
           const fallback = await askQuanty({
             prompt: text,
             mode: 'ask',
-            ownerId:
-              currentAccount?.did || currentAccount?.handle || undefined,
+            ownerId: currentAccount?.did || currentAccount?.handle || undefined,
             history: historySnapshot,
           })
           const assistantMsg: QuantyThreadMessage = {
@@ -424,12 +431,33 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
     ).slice(0, 4)
   }, [prompt])
 
-  if (
-    !IS_WEB ||
-    !gtMobile ||
-    isOnQuantyRoute ||
-    (!hasSession && leftNavMinimal)
-  ) {
+  const isMobile = !gtMobile
+  const isEligibleMobileThreadRoute = useMemo(() => {
+    if (activeRoute === 'PostThread' || activeRoute === 'Articles') {
+      return true
+    }
+    if (IS_WEB && typeof window !== 'undefined') {
+      const path = window.location.pathname.toLowerCase()
+      if (
+        path.includes('/post/') ||
+        path.startsWith('/articles') ||
+        path.includes('/article/')
+      ) {
+        return true
+      }
+    }
+    return false
+  }, [activeRoute])
+
+  if (!IS_WEB || isOnQuantyRoute) {
+    return null
+  }
+
+  if (isMobile && !isEligibleMobileThreadRoute) {
+    return null
+  }
+
+  if (!isMobile && !hasSession && leftNavMinimal) {
     return null
   }
 
@@ -446,16 +474,25 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
         style={[
           web({
             position: 'fixed',
-            right: 20,
-            bottom: 18,
+            right: isMobile ? 16 : 20,
+            bottom: isMobile ? 74 : 18,
             zIndex: 40,
           }),
         ]}>
         <Pressable
           testID="quantyFloatingDockPill"
           accessibilityRole="button"
-          accessibilityLabel="Open Quanty"
-          onPress={() => setIsOpen(true)}
+          accessibilityLabel={
+            isMobile ? 'Summarize with Quanty' : 'Open Quanty'
+          }
+          accessibilityHint=""
+          onPress={() => {
+            if (isMobile) {
+              handleOpenFullQuanty('Summarize this Zing thread and discussion')
+            } else {
+              setIsOpen(true)
+            }
+          }}
           onHoverIn={() => setHovered(true)}
           onHoverOut={() => setHovered(false)}
           style={[
@@ -464,8 +501,8 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
             a.gap_xs,
             a.rounded_full,
             {
-              paddingHorizontal: 16,
-              paddingVertical: 10,
+              paddingHorizontal: isMobile ? 14 : 16,
+              paddingVertical: isMobile ? 8 : 10,
               backgroundColor: pillBg,
               borderWidth: 1,
               borderColor: colors.border,
@@ -476,9 +513,14 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
               transition: 'background-color 140ms ease',
             }),
           ]}>
-          <SparkleIcon size="sm" fill={colors.text} />
-          <Text style={[a.text_sm, a.font_bold, {color: colors.text}]}>
-            Quanty
+          <SparkleIcon size={isMobile ? 'xs' : 'sm'} fill={colors.accent} />
+          <Text
+            style={[
+              isMobile ? a.text_xs : a.text_sm,
+              a.font_bold,
+              {color: colors.text},
+            ]}>
+            {isMobile ? 'Summarize with Quanty' : 'Quanty'}
           </Text>
         </Pressable>
       </View>
@@ -491,8 +533,9 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
       style={[
         a.overflow_hidden,
         {
-          width: 380,
-          height: 520,
+          width: isMobile ? undefined : 380,
+          maxWidth: 380,
+          height: isMobile ? 460 : 520,
           borderRadius: 20,
           backgroundColor: colors.bg,
           borderWidth: 1,
@@ -500,8 +543,9 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
         },
         web({
           position: 'fixed',
-          right: 20,
-          bottom: 18,
+          right: isMobile ? 16 : 20,
+          left: isMobile ? 16 : undefined,
+          bottom: isMobile ? 74 : 18,
           zIndex: 50,
           boxShadow: dockShadow,
         }),
@@ -532,6 +576,7 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="New chat"
+              accessibilityHint=""
               onPress={() => updateSharedMessages([], null)}
               hitSlop={8}
               style={[
@@ -548,6 +593,7 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Expand Quanty"
+            accessibilityHint=""
             onPress={() => handleOpenFullQuanty(prompt)}
             hitSlop={8}
             style={[
@@ -563,6 +609,7 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Close Quanty"
+            accessibilityHint=""
             onPress={() => setIsOpen(false)}
             hitSlop={8}
             style={[
@@ -620,6 +667,7 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
                   key={idx}
                   accessibilityRole="button"
                   accessibilityLabel={q}
+                  accessibilityHint=""
                   onPress={() => void handleQuickSend(q)}
                   style={[
                     a.px_md,
@@ -634,11 +682,7 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
                     web({cursor: 'pointer'}),
                   ]}>
                   <Text
-                    style={[
-                      a.text_xs,
-                      a.font_semi_bold,
-                      {color: colors.text},
-                    ]}>
+                    style={[a.text_xs, a.font_semi_bold, {color: colors.text}]}>
                     {q}
                   </Text>
                 </Pressable>
@@ -661,10 +705,7 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
                       },
                     ]}>
                     <Text
-                      style={[
-                        a.text_xs,
-                        {color: colors.text, lineHeight: 19},
-                      ]}>
+                      style={[a.text_xs, {color: colors.text, lineHeight: 19}]}>
                       {stripEmojisAndSymbols(msg.content)}
                     </Text>
                   </View>
@@ -677,11 +718,7 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
                 <View style={[a.flex_row, a.align_center, a.gap_2xs]}>
                   <SparkleIcon size="xs" fill={colors.text} />
                   <Text
-                    style={[
-                      a.text_xs,
-                      a.font_semi_bold,
-                      {color: colors.text},
-                    ]}>
+                    style={[a.text_xs, a.font_semi_bold, {color: colors.text}]}>
                     Quanty
                   </Text>
                 </View>
@@ -736,6 +773,7 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
               key={hint.command}
               accessibilityRole="button"
               accessibilityLabel={`${hint.command} ${hint.title}`}
+              accessibilityHint=""
               onPress={() => {
                 if (hint.autoRunOnSelect) {
                   void handleQuickSend(hint.command)
@@ -783,7 +821,9 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
             ]}>
             <View style={[a.flex_row, a.align_center, a.gap_xs, {flex: 1}]}>
               <SparkleIcon size="xs" fill={colors.accent} />
-              <Text numberOfLines={1} style={[a.text_xs, {color: colors.text, flex: 1}]}>
+              <Text
+                numberOfLines={1}
+                style={[a.text_xs, {color: colors.text, flex: 1}]}>
                 <Text style={[a.font_semi_bold, {color: colors.accent}]}>
                   @{attachedPost.authorHandle || 'zing'}:{' '}
                 </Text>
@@ -793,6 +833,7 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Remove attached post"
+              accessibilityHint=""
               onPress={() => setAttachedPost(null)}
               style={[{padding: 4}, web({cursor: 'pointer'})]}>
               <CloseIcon size="xs" fill={colors.muted} />
@@ -808,6 +849,8 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
               <Pressable
                 key={chip.label}
                 accessibilityRole="button"
+                accessibilityLabel={chip.label}
+                accessibilityHint=""
                 onPress={() => void handleQuickSend(chip.p, attachedPost)}
                 style={[
                   a.px_xs,
@@ -820,7 +863,9 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
                   },
                   web({cursor: 'pointer'}),
                 ]}>
-                <Text style={[a.text_2xs, {color: colors.text}]}>{chip.label}</Text>
+                <Text style={[a.text_2xs, {color: colors.text}]}>
+                  {chip.label}
+                </Text>
               </Pressable>
             ))}
           </View>
@@ -846,6 +891,8 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
           ]}>
           <TextInput
             testID="quantyFloatingDockInput"
+            accessibilityLabel="Ask anything"
+            accessibilityHint=""
             value={prompt}
             onChangeText={setPrompt}
             onFocus={() => setInputFocused(true)}
@@ -854,14 +901,26 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
             placeholderTextColor={colors.muted}
             multiline={true}
             returnKeyType="send"
-            onKeyPress={(e: any) => {
+            onKeyPress={(e: TextInputKeyPressEvent) => {
               if (
                 IS_WEB &&
                 e?.nativeEvent?.key === 'Enter' &&
-                !e?.nativeEvent?.shiftKey &&
-                !e?.shiftKey
+                !(
+                  'shiftKey' in e.nativeEvent &&
+                  Boolean(
+                    (e.nativeEvent as unknown as {shiftKey?: boolean}).shiftKey,
+                  )
+                )
               ) {
-                e.preventDefault?.()
+                if (
+                  'preventDefault' in e &&
+                  typeof (e as unknown as {preventDefault?: () => void})
+                    .preventDefault === 'function'
+                ) {
+                  ;(
+                    e as unknown as {preventDefault: () => void}
+                  ).preventDefault()
+                }
                 void handleQuickSend()
               }
             }}
@@ -881,13 +940,14 @@ export function QuantyFloatingDock({routeName}: {routeName?: string}) {
                 paddingBottom: 5,
                 lineHeight: 20,
               },
-              web({outlineStyle: 'none', resize: 'none'} as any),
+              web({outlineStyle: 'none'}),
             ]}
           />
           <Pressable
             testID="quantyFloatingDockSendBtn"
             accessibilityRole="button"
             accessibilityLabel="Send prompt"
+            accessibilityHint=""
             disabled={isLoading || !prompt.trim()}
             onPress={() => void handleQuickSend()}
             style={[

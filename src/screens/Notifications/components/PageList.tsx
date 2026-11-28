@@ -1,4 +1,4 @@
-import {useEffect, useEffectEvent, useRef, useState} from 'react'
+import {useEffect, useEffectEvent, useMemo, useRef, useState} from 'react'
 import {ActivityIndicator, View} from 'react-native'
 import {type SharedValue} from 'react-native-reanimated'
 import {Trans, useLingui} from '@lingui/react/macro'
@@ -43,11 +43,66 @@ import {atoms as a, native, useTheme, web} from '#/alf'
 import {ButtonText} from '#/components/Button'
 import {useIsFindContactsFeatureEnabledBasedOnGeolocation} from '#/components/contacts/country-allowlist'
 import {EnvelopeNotification_Filled_Corner2_Rounded as EnvelopeNotificationIcon} from '#/components/icons/brands/EnvelopeNotification'
+import {VerifiedCheck} from '#/components/icons/brands/VerifiedCheck'
 import {Link} from '#/components/Link'
 import {Text} from '#/components/Typography'
 import {useAnalytics} from '#/analytics'
 import {IS_NATIVE} from '#/env'
 import type * as bsky from '#/types/bsky'
+
+function isActorVerified(actor?: unknown): boolean {
+  if (!actor || typeof actor !== 'object') return false
+  const a = actor as {
+    verification?: {
+      verifiedStatus?: string
+      trustedVerifierStatus?: string
+    }
+    viewer?: {
+      verified?: boolean
+    }
+    associated?: {
+      verified?: boolean
+    }
+    verified?: boolean
+  }
+  return (
+    a.verification?.verifiedStatus === 'valid' ||
+    a.verification?.trustedVerifierStatus === 'valid' ||
+    Boolean(a.viewer?.verified) ||
+    Boolean(a.associated?.verified) ||
+    Boolean(a.verified)
+  )
+}
+
+function isNotificationFromVerified(item: NotificationView): boolean {
+  if ('actors' in item && Array.isArray(item.actors)) {
+    if (item.actors.some(isActorVerified)) return true
+  }
+  if ('actor' in item && isActorVerified(item.actor)) {
+    return true
+  }
+  if (
+    (item.type === 'reply' ||
+      item.type === 'quote' ||
+      item.type === 'mention') &&
+    isActorVerified(item.post?.author)
+  ) {
+    return true
+  }
+  if (item.type === 'subscribedPost' && Array.isArray(item.items)) {
+    if (
+      item.items.some(
+        sub => isActorVerified(sub.actor) || isActorVerified(sub.post?.author),
+      )
+    ) {
+      return true
+    }
+  }
+  if ('post' in item && isActorVerified(item.post?.author)) {
+    return true
+  }
+  return false
+}
 
 type Row =
   | {type: 'section'; key: string; section: 'today' | 'earlier'}
@@ -175,8 +230,19 @@ export function PageList({
 
   const notifications = data?.pages.flatMap(page => page.notifications) ?? []
 
+  const isVerifiedTab = pageIndex === 1 || feed === 'people-i-follow'
+
+  const filteredNotifications = useMemo(() => {
+    if (!isVerifiedTab) return notifications
+    return notifications.filter(isNotificationFromVerified)
+  }, [isVerifiedTab, notifications])
+
+  const displayNotifications = isVerifiedTab
+    ? filteredNotifications
+    : notifications
+
   const isEmpty =
-    isFetched && !isError && notifications.length === 0 && !hasNextPage
+    isFetched && !isError && displayNotifications.length === 0 && !hasNextPage
   useEffect(() => {
     onEmptyChange?.(isEmpty)
   }, [isEmpty, onEmptyChange])
@@ -230,10 +296,10 @@ export function PageList({
   })
 
   let rows: Row[]
-  if (notifications.length === 0) {
+  if (displayNotifications.length === 0) {
     rows = [getPlaceholderRow({isError, isEmpty})]
   } else {
-    rows = buildRows(notifications, feed)
+    rows = buildRows(displayNotifications, feed)
     if (isError) {
       rows.push({type: 'loadMoreError', key: 'loadMoreError'})
     }
@@ -334,7 +400,7 @@ export function PageList({
                     ) : feed === 'activity' ? (
                       <ActivityEmptyMessage />
                     ) : (
-                      <EmptyMessage feed={feed} />
+                      <EmptyMessage feed={feed} isVerifiedTab={isVerifiedTab} />
                     )}
                   </View>
                 )
@@ -592,6 +658,7 @@ function NoNotifications() {
         <Link
           to={{screen: 'FindContactsSettings'}}
           label={l`Find friends`}
+          accessibilityHint=""
           size="tiny"
           color="primary_subtle"
           style={[{height: 24, paddingVertical: 0}]}>
@@ -609,20 +676,52 @@ function NoNotifications() {
  */
 function EmptyMessage({
   feed,
+  isVerifiedTab,
 }: {
   feed: Exclude<GroupedNotificationsFeed, 'activity'>
+  isVerifiedTab?: boolean
 }) {
   const t = useTheme()
   // The macro only compiles `l` from this component's own `useLingui`
   const {t: l} = useLingui()
 
+  if (isVerifiedTab || feed === 'people-i-follow') {
+    return (
+      <View style={[a.align_center, a.gap_md, a.px_lg]}>
+        <VerifiedCheck width={56} height={56} fill="#1D9BF0" />
+        <Text
+          accessibilityRole="header"
+          style={[
+            a.text_2xl,
+            a.font_bold,
+            a.leading_snug,
+            a.text_center,
+            t.atoms.text,
+            {maxWidth: 340},
+          ]}>
+          <Trans>Nothing to see here — yet</Trans>
+        </Text>
+        <Text
+          style={[
+            a.text_sm,
+            a.leading_snug,
+            a.text_center,
+            t.atoms.text_contrast_medium,
+            {maxWidth: 320},
+          ]}>
+          <Trans>
+            Likes, mentions, reposts, and a whole lot more from verified
+            accounts will appear here.
+          </Trans>
+        </Text>
+      </View>
+    )
+  }
+
   let message: string
   switch (feed) {
     case 'all':
       message = l`No notifications yet`
-      break
-    case 'people-i-follow':
-      message = l`No notifications from people you follow yet`
       break
     case 'followers':
       message = l`No followers to show yet`

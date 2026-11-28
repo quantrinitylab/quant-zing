@@ -1,10 +1,10 @@
 import {View} from 'react-native'
-import {Image} from 'expo-image'
 import {Trans, useLingui} from '@lingui/react/macro'
 
 import {atoms as a, web} from '#/alf'
 import {Button, ButtonText} from '#/components/Button'
 import * as Dialog from '#/components/Dialog'
+import {Globe_Stroke2_Corner0_Rounded as GlobeIcon} from '#/components/icons/Globe'
 import {Text} from '#/components/Typography'
 
 export function AboutAtmosphereDialog({
@@ -21,12 +21,34 @@ export function AboutAtmosphereDialog({
         label={l`What is the Atmosphere?`}
         style={[a.overflow_hidden, web({maxWidth: 440})]}
         contentContainerStyle={[a.px_0, a.pt_0, a.pb_0]}>
-        <Image
-          source={require('../../../../assets/images/atmosphere-tab-banner.webp')}
-          contentFit="cover"
-          style={[a.w_full, {aspectRatio: (724 * 3) / 2 / 418}]}
-          accessible={false}
-        />
+        <View
+          style={[
+            a.w_full,
+            a.align_center,
+            a.justify_center,
+            a.py_2xl,
+            {
+              backgroundColor: '#16181C',
+              borderBottomWidth: 1,
+              borderBottomColor: '#2F3336',
+            },
+          ]}>
+          <View
+            style={[
+              a.align_center,
+              a.justify_center,
+              a.rounded_full,
+              {
+                width: 60,
+                height: 60,
+                backgroundColor: 'rgba(29, 155, 240, 0.14)',
+                borderWidth: 1,
+                borderColor: 'rgba(29, 155, 240, 0.35)',
+              },
+            ]}>
+            <GlobeIcon size="xl" fill="#1D9BF0" />
+          </View>
+        </View>
         <View style={[a.p_2xl, a.gap_2xl]}>
           <View style={[a.gap_sm]}>
             <Text role="heading" style={[a.text_2xl, a.font_bold]}>

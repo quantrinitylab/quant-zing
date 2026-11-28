@@ -1,8 +1,7 @@
 import {useCallback, useState} from 'react'
 import {View} from 'react-native'
 import {useSafeAreaInsets} from 'react-native-safe-area-context'
-import {Image} from 'expo-image'
-import {type ThemeName} from '@bsky.app/alf'
+import {LinearGradient} from 'expo-linear-gradient'
 import {Trans, useLingui} from '@lingui/react/macro'
 import {useNavigation} from '@react-navigation/native'
 
@@ -22,6 +21,7 @@ import {useNuxDialogContext} from '#/components/dialogs/nuxs'
 import {ChainLink_Stroke2_Corner0_Rounded as ChainLinkIcon} from '#/components/icons/ChainLink'
 import {type Props as SVGIconProps} from '#/components/icons/common'
 import {Group3_Stroke2_Corner0_Rounded as GroupIcon} from '#/components/icons/Group'
+import {Message_Stroke2_Corner0_Rounded as MessageIcon} from '#/components/icons/Message'
 import {Shield_Stroke2_Corner0_Rounded as ShieldIcon} from '#/components/icons/Shield'
 import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
 import {Text} from '#/components/Typography'
@@ -38,17 +38,6 @@ export const enabled = createIsEnabledCheck(props => {
     )
   )
 })
-
-function getHero(theme: ThemeName) {
-  switch (theme) {
-    case 'light':
-      return require('../../../../assets/images/groupchats_announcement_light.webp')
-    case 'dark':
-      return require('../../../../assets/images/groupchats_announcement_dark.webp')
-    case 'dim':
-      return require('../../../../assets/images/groupchats_announcement_dim.webp')
-  }
-}
 
 export function GroupChatsAnnouncement() {
   const t = useTheme()
@@ -140,17 +129,42 @@ export function GroupChatsAnnouncement() {
               native: [a.pt_xl, a.pb_md, a.px_sm],
             }),
           ]}>
-          <Image
-            accessibilityIgnoresInvertColors
-            source={getHero(t.name)}
-            style={[a.w_full, {aspectRatio: 343 / 230}]}
-            alt={l({
-              message: `Four message bubbles representing a group chat. First message: "Did you hear the news? QuantZing has group chats now!" Second message: "omg, no way" Third message: "Wow, 50 people in one chat!" Fourth message: "You can send invite links too!"`,
-              comment:
-                'This is alt text for a marketing image which transcribes English text that appears in the image',
-            })}
-            useAppleWebpCodec
-          />
+          <View
+            style={[
+              a.w_full,
+              a.align_center,
+              a.justify_center,
+              a.overflow_hidden,
+              {
+                aspectRatio: 343 / 180,
+                backgroundColor: '#16181C',
+                borderColor: '#2F3336',
+                borderWidth: 1,
+                borderRadius: 24,
+              },
+            ]}>
+            <LinearGradient
+              colors={['#16181C', '#1E2836', '#16181C']}
+              start={{x: 0, y: 0}}
+              end={{x: 1, y: 1}}
+              style={[a.absolute, a.inset_0]}
+            />
+            <View
+              style={[
+                a.align_center,
+                a.justify_center,
+                a.rounded_full,
+                {
+                  width: 72,
+                  height: 72,
+                  backgroundColor: 'rgba(29, 155, 240, 0.12)',
+                  borderColor: 'rgba(29, 155, 240, 0.3)',
+                  borderWidth: 1,
+                },
+              ]}>
+              <MessageIcon size="3xl" fill="#1D9BF0" />
+            </View>
+          </View>
         </View>
         <View style={[a.px_xl, a.pt_2xl, a.gap_2xl]}>
           <View style={[a.align_center, a.gap_sm]}>

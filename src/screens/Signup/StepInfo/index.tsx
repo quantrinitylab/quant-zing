@@ -17,6 +17,7 @@ import {type DateFieldRef} from '#/components/forms/DateField/types'
 import {PasswordField} from '#/components/forms/PasswordField'
 import * as TextField from '#/components/forms/TextField'
 import {Envelope_Stroke2_Corner0_Rounded as Envelope} from '#/components/icons/Envelope'
+import {Person_Stroke2_Corner0_Rounded as Person} from '#/components/icons/Person'
 import {Ticket_Stroke2_Corner0_Rounded as Ticket} from '#/components/icons/Ticket'
 import {createStaticClick, SimpleInlineLinkText} from '#/components/Link'
 import {Loader} from '#/components/Loader'
@@ -81,6 +82,8 @@ export function StepInfo({
    */
   const prevEmailValueRef = useRef<string>(state.email)
 
+  const nameInputRef = useRef<React.ComponentRef<typeof TextInput>>(null)
+  const inviteCodeInputRef = useRef<React.ComponentRef<typeof TextInput>>(null)
   const emailInputRef = useRef<React.ComponentRef<typeof TextInput>>(null)
   const passwordInputRef = useRef<React.ComponentRef<typeof TextInput>>(null)
   const birthdateInputRef = useRef<DateFieldRef>(null)
@@ -195,6 +198,36 @@ export function StepInfo({
           </View>
         ) : state.serviceDescription ? (
           <>
+            <View>
+              <TextField.LabelText>
+                <Trans>Name</Trans>
+              </TextField.LabelText>
+              <TextField.Root>
+                <TextField.Icon icon={Person} />
+                <TextField.Input
+                  testID="nameInput"
+                  inputRef={nameInputRef}
+                  onChangeText={value => {
+                    dispatch({type: 'setDisplayName', value})
+                  }}
+                  label={l`Name`}
+                  placeholder={l`Your name`}
+                  value={state.displayName}
+                  autoCapitalize="words"
+                  autoComplete="name"
+                  returnKeyType="next"
+                  submitBehavior={native('submit')}
+                  onSubmitEditing={native(() => {
+                    if (state.serviceDescription?.inviteCodeRequired) {
+                      inviteCodeInputRef.current?.focus()
+                    } else {
+                      emailInputRef.current?.focus()
+                    }
+                  })}
+                  accessibilityHint={l`Enter your name`}
+                />
+              </TextField.Root>
+            </View>
             {state.serviceDescription.inviteCodeRequired && (
               <View>
                 <TextField.LabelText>
@@ -203,6 +236,7 @@ export function StepInfo({
                 <TextField.Root isInvalid={state.errorField === 'invite-code'}>
                   <TextField.Icon icon={Ticket} />
                   <TextField.Input
+                    inputRef={inviteCodeInputRef}
                     onChangeText={value => {
                       dispatch({type: 'setInviteCode', value: value.trim()})
                       if (
@@ -212,7 +246,7 @@ export function StepInfo({
                         dispatch({type: 'clearError'})
                       }
                     }}
-                    label="Invite code"
+                    label={l`Invite code`}
                     value={state.inviteCode}
                     autoCapitalize="none"
                     autoComplete="email"
@@ -222,6 +256,7 @@ export function StepInfo({
                     onSubmitEditing={native(() =>
                       emailInputRef.current?.focus(),
                     )}
+                    accessibilityHint={l`Enter your invite code`}
                   />
                 </TextField.Root>
               </View>
@@ -333,6 +368,7 @@ export function StepInfo({
                               Have we got your location wrong?{' '}
                               <SimpleInlineLinkText
                                 label={l`Tap here to update your location with GPS.`}
+                                accessibilityHint=""
                                 {...createStaticClick(() => {
                                   locationControl.open()
                                 })}>

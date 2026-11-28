@@ -1,6 +1,6 @@
 import {useCallback} from 'react'
 import {View} from 'react-native'
-import {Image} from 'expo-image'
+import {LinearGradient} from 'expo-linear-gradient'
 import {msg} from '@lingui/core/macro'
 import {useLingui} from '@lingui/react'
 import {Trans} from '@lingui/react/macro'
@@ -11,6 +11,7 @@ import {Button, ButtonText} from '#/components/Button'
 import * as Dialog from '#/components/Dialog'
 import {useNuxDialogContext} from '#/components/dialogs/nuxs'
 import {Sparkle_Stroke2_Corner0_Rounded as SparkleIcon} from '#/components/icons/Sparkle'
+import {VerifiedCheck} from '#/components/icons/VerifiedCheck'
 import {VerifierCheck} from '#/components/icons/VerifierCheck'
 import {Link} from '#/components/Link'
 import {Span, Text} from '#/components/Typography'
@@ -72,22 +73,36 @@ export function InitialVerificationAnnouncement() {
               a.w_full,
               a.rounded_md,
               a.overflow_hidden,
-              t.atoms.bg_contrast_25,
-              {minHeight: 100},
+              a.align_center,
+              a.justify_center,
+              {
+                aspectRatio: 353 / 140,
+                backgroundColor: '#16181C',
+                borderColor: '#2F3336',
+                borderWidth: 1,
+              },
             ]}>
-            <Image
-              accessibilityIgnoresInvertColors
-              source={require('../../../../assets/images/initial_verification_announcement_1.png')}
-              style={[
-                {
-                  aspectRatio: 353 / 160,
-                },
-              ]}
-              alt={_(
-                msg`An illustration showing that QuantZing selects trusted verifiers, and trusted verifiers in turn verify individual user accounts.`,
-              )}
-              useAppleWebpCodec
+            <LinearGradient
+              colors={['#16181C', '#1A232E', '#16181C']}
+              start={{x: 0, y: 0}}
+              end={{x: 1, y: 1}}
+              style={[a.absolute, a.inset_0]}
             />
+            <View
+              style={[
+                a.align_center,
+                a.justify_center,
+                a.rounded_full,
+                {
+                  width: 56,
+                  height: 56,
+                  backgroundColor: 'rgba(29, 155, 240, 0.12)',
+                  borderColor: 'rgba(29, 155, 240, 0.3)',
+                  borderWidth: 1,
+                },
+              ]}>
+              <VerifiedCheck width={28} height={28} fill="#1D9BF0" />
+            </View>
           </View>
 
           <View style={[a.gap_xs]}>
@@ -107,22 +122,40 @@ export function InitialVerificationAnnouncement() {
               a.w_full,
               a.rounded_md,
               a.overflow_hidden,
-              t.atoms.bg_contrast_25,
-              {minHeight: 100},
+              a.align_center,
+              a.justify_center,
+              {
+                aspectRatio: 353 / 140,
+                backgroundColor: '#16181C',
+                borderColor: '#2F3336',
+                borderWidth: 1,
+              },
             ]}>
-            <Image
-              accessibilityIgnoresInvertColors
-              source={require('../../../../assets/images/initial_verification_announcement_2.png')}
-              style={[
-                {
-                  aspectRatio: 353 / 196,
-                },
-              ]}
-              alt={_(
-                msg`An mockup of a iPhone showing the QuantZing app open to the profile of a verified user with a blue checkmark next to their display name.`,
-              )}
-              useAppleWebpCodec
+            <LinearGradient
+              colors={['#16181C', '#1D242D', '#16181C']}
+              start={{x: 0, y: 0}}
+              end={{x: 1, y: 1}}
+              style={[a.absolute, a.inset_0]}
             />
+            <View
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.gap_sm,
+                a.px_lg,
+                a.py_md,
+                a.rounded_full,
+                {
+                  backgroundColor: '#202327',
+                  borderColor: '#2F3336',
+                  borderWidth: 1,
+                },
+              ]}>
+              <Text style={[a.font_bold, a.text_md, {color: '#FFFFFF'}]}>
+                QuantZing
+              </Text>
+              <VerifiedCheck width={18} height={18} fill="#1D9BF0" />
+            </View>
           </View>
 
           <View style={[a.gap_sm]}>

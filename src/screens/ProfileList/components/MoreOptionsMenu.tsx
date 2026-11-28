@@ -1,6 +1,6 @@
 import {AtUri} from '@atproto/syntax'
-import {useLingui} from '@lingui/react/macro'
-import {Trans} from '@lingui/react/macro'
+import {useLingui, Trans} from '@lingui/react/macro'
+
 import {useNavigation} from '@react-navigation/native'
 
 import {getHomeNavigationAction} from '#/lib/routes/navigation'
@@ -390,7 +390,7 @@ export function MoreOptionsMenu({
             authorDid: list.creator.did,
             url: shareLink,
             title: l({
-              message: `“${list.name}” list by @${list.creator.handle} on Bluesky`,
+              message: `“${list.name}” list by @${list.creator.handle} on QuantZing`,
               comment:
                 'Prefilled subject line when sharing a list to email or Reddit',
             }),

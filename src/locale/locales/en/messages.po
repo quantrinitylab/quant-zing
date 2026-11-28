@@ -23,17 +23,27 @@ msgid "“{0}”"
 msgstr "“{0}”"
 
 #. Prefilled subject line when sharing a feed to email or Reddit
+#: src/screens/CustomFeed/components/CustomFeedHeader.tsx:434
+#~ msgid "“{0}” feed by @{1} on Bluesky"
+#~ msgstr "“{0}” feed by @{1} on QuantZing"
+
+#. Prefilled subject line when sharing a feed to email or Reddit
 #. placeholder {0}: info.displayName
 #. placeholder {1}: info.creatorHandle
 #: src/screens/CustomFeed/components/CustomFeedHeader.tsx:434
-msgid "“{0}” feed by @{1} on Bluesky"
+msgid "“{0}” feed by @{1} on QuantZing"
 msgstr "“{0}” feed by @{1} on QuantZing"
+
+#. Prefilled subject line when sharing a list to email or Reddit
+#: src/screens/ProfileList/components/MoreOptionsMenu.tsx:392
+#~ msgid "“{0}” list by @{1} on Bluesky"
+#~ msgstr "“{0}” list by @{1} on QuantZing"
 
 #. Prefilled subject line when sharing a list to email or Reddit
 #. placeholder {0}: list.name
 #. placeholder {1}: list.creator.handle
 #: src/screens/ProfileList/components/MoreOptionsMenu.tsx:392
-msgid "“{0}” list by @{1} on Bluesky"
+msgid "“{0}” list by @{1} on QuantZing"
 msgstr "“{0}” list by @{1} on QuantZing"
 
 #. Accessibility label for a category (e.g. Art, Video Games, Sports, etc.) that shows suggested accounts for the user to follow. The tab is currently selected.
@@ -268,7 +278,7 @@ msgid "{0, plural, other {+# more}}"
 msgstr "{0, plural, other {+# more}}"
 
 #. placeholder {0}: aaRegionConfig.minAccessAge
-#: src/screens/Signup/StepInfo/index.tsx:323
+#: src/screens/Signup/StepInfo/index.tsx:358
 msgid "{0, plural, other {You must be # years of age or older to create an account in your region.}}"
 msgstr "{0, plural, other {You must be # years of age or older to create an account in your region.}}"
 
@@ -333,7 +343,7 @@ msgid "{0} is live"
 msgstr "{0} is live"
 
 #. placeholder {0}: createFullHandle(draftValue, userDomain)
-#: src/screens/Signup/StepHandle/index.tsx:240
+#: src/screens/Signup/StepHandle/index.tsx:241
 msgid "{0} is not available"
 msgstr "{0} is not available"
 
@@ -686,9 +696,7 @@ msgid "{formatted} ago"
 msgstr "{formatted} ago"
 
 #. '{postCount} {posts}', e.g., '1.2K posts'
-#. '{postCount} {posts}', e.g., '1.2K posts'
 #: src/components/interstitials/FeedTrendingTopics.tsx:254
-#: src/screens/Search/modules/ExploreTrendingTopics.tsx:213
 msgid "{formattedPostCount} {postCount, plural, one {post} other {posts}}"
 msgstr "{formattedPostCount} {postCount, plural, one {Zing} other {Zings}}"
 
@@ -961,9 +969,7 @@ msgid "{profileName} joined QuantZing using a Starter Pack just now"
 msgstr "{profileName} joined QuantZing using a Starter Pack just now"
 
 #. The trending topic rank, i.e. "1. March Madness", "2. The Bachelor"
-#. The trending topic rank, i.e. "1. March Madness", "2. The Bachelor"
 #: src/components/interstitials/FeedTrendingTopics.tsx:239
-#: src/screens/Search/modules/ExploreTrendingTopics.tsx:188
 msgid "{rank}."
 msgstr "{rank}."
 
@@ -1012,7 +1018,7 @@ msgstr "{total, plural, one {# photo} other {# photos}}"
 msgid "{unreadCount, plural, one {# unread update} other {# unread updates}}"
 msgstr "{unreadCount, plural, one {# unread update} other {# unread updates}}"
 
-#: src/components/verification/VerifierDialog.tsx:62
+#: src/components/verification/VerifierDialog.tsx:60
 msgid "{userName} is a trusted verifier"
 msgstr "{userName} is a trusted verifier"
 
@@ -1278,8 +1284,12 @@ msgid "7 days"
 msgstr "7 days"
 
 #: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:27
-msgid "A collection of popular feeds you can find on QuantZing, including News, Booksky, Game Dev, Blacksky, and Fountain Pens"
-msgstr "A collection of popular feeds you can find on QuantZing, including News, Booksky, Game Dev, Blacksky, and Fountain Pens"
+#~ msgid "A collection of popular feeds you can find on QuantZing, including News, Booksky, Game Dev, Blacksky, and Fountain Pens"
+#~ msgstr "A collection of popular feeds you can find on QuantZing, including News, Booksky, Game Dev, Blacksky, and Fountain Pens"
+
+#: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:34
+msgid "A collection of popular feeds you can find on QuantZing, including News, Markets, Tech, and Science"
+msgstr "A collection of popular feeds you can find on QuantZing, including News, Markets, Tech, and Science"
 
 #: src/components/Gallery/Storybook.tsx:44
 msgid "A horizontal strip of any content. Each item keeps its own width and height, and the strip is as tall as the tallest one."
@@ -1355,7 +1365,7 @@ msgstr "A network error occurred. Please check your internet connection."
 msgid "A new code has been sent"
 msgstr "A new code has been sent"
 
-#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:95
+#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:110
 msgid "A new form of verification"
 msgstr "A new form of verification"
 
@@ -1533,8 +1543,8 @@ msgid "Account unavailable"
 msgstr "Account unavailable"
 
 #: src/screens/Messages/ConversationSettings/MemberMenu.tsx:109
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:94
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:347
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:96
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:349
 #: src/view/com/profile/ProfileMenu.tsx:210
 msgctxt "toast"
 msgid "Account unblocked"
@@ -1555,7 +1565,7 @@ msgctxt "toast"
 msgid "Account unmuted"
 msgstr "Account unmuted"
 
-#: src/components/verification/VerifierDialog.tsx:101
+#: src/components/verification/VerifierDialog.tsx:108
 msgid "Accounts with a scalloped blue check mark <0><1/></0> can verify others. These trusted verifiers are selected by QuantZing."
 msgstr "Accounts with a scalloped blue check mark <0><1/></0> can verify others. These trusted verifiers are selected by QuantZing."
 
@@ -1748,7 +1758,7 @@ msgstr "Add people"
 msgid "Add people to list"
 msgstr "Add people to list"
 
-#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:185
+#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:199
 msgid "Add people with a link"
 msgstr "Add people with a link"
 
@@ -1919,7 +1929,7 @@ msgstr "alice@example.com"
 #: src/components/dms/ReactionsDialog.tsx:292
 #: src/screens/Atmosphere/AppsTab.tsx:37
 #: src/screens/Onboarding/StepSuggestedAccounts/index.tsx:205
-#: src/screens/Search/Explore.tsx:1110
+#: src/screens/Search/Explore.tsx:1245
 msgid "All"
 msgstr "All"
 
@@ -1982,7 +1992,7 @@ msgstr "Allow anyone to reply"
 msgid "Allow Contacts"
 msgstr "Allow Contacts"
 
-#: src/screens/Search/Explore.tsx:1088
+#: src/screens/Search/Explore.tsx:1217
 msgid "Allow contacts / Find friends on QuantZing"
 msgstr "Allow contacts / Find friends on QuantZing"
 
@@ -2171,23 +2181,23 @@ msgstr "An error occurred. {0}"
 #~ msgstr "An illustration depicting user avatars flowing from a contact book into the QuantZing app"
 
 #: src/components/dialogs/nuxs/FindContactsAnnouncement.tsx:79
-msgid "An illustration depicting user avatars flowing from a contact book into the QuantZing app"
-msgstr "An illustration depicting user avatars flowing from a contact book into the QuantZing app"
+#~ msgid "An illustration depicting user avatars flowing from a contact book into the QuantZing app"
+#~ msgstr "An illustration depicting user avatars flowing from a contact book into the QuantZing app"
 
-#: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:45
+#: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:52
 msgid "An illustration of several QuantZing Zings alongside Rezing, like, and comment icons"
 msgstr "An illustration of several QuantZing Zings alongside Rezing, like, and comment icons"
 
 #: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:111
-msgid "An illustration of the QuantZing app with a paper airplane flying out of it, representing inviting friends"
-msgstr "An illustration of the QuantZing app with a paper airplane flying out of it, representing inviting friends"
+#~ msgid "An illustration of the QuantZing app with a paper airplane flying out of it, representing inviting friends"
+#~ msgstr "An illustration of the QuantZing app with a paper airplane flying out of it, representing inviting friends"
 
 #: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:87
 #: src/components/verification/VerifierDialog.tsx:89
-msgid "An illustration showing that QuantZing selects trusted verifiers, and trusted verifiers in turn verify individual user accounts."
-msgstr "An illustration showing that QuantZing selects trusted verifiers, and trusted verifiers in turn verify individual user accounts."
+#~ msgid "An illustration showing that QuantZing selects trusted verifiers, and trusted verifiers in turn verify individual user accounts."
+#~ msgstr "An illustration showing that QuantZing selects trusted verifiers, and trusted verifiers in turn verify individual user accounts."
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:196
+#: src/screens/Messages/components/InviteLinkDialog.tsx:222
 msgid "An invite link lets people join this group chat without being added directly. You control who can join the chat. You can disable the link at any time."
 msgstr "An invite link lets people join this group chat without being added directly. You control who can join the chat. You can disable the link at any time."
 
@@ -2214,8 +2224,8 @@ msgid "An issue occurred, please try again."
 msgstr "An issue occurred, please try again."
 
 #: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:122
-msgid "An mockup of a iPhone showing the QuantZing app open to the profile of a verified user with a blue checkmark next to their display name."
-msgstr "An mockup of a iPhone showing the QuantZing app open to the profile of a verified user with a blue checkmark next to their display name."
+#~ msgid "An mockup of a iPhone showing the QuantZing app open to the profile of a verified user with a blue checkmark next to their display name."
+#~ msgstr "An mockup of a iPhone showing the QuantZing app open to the profile of a verified user with a blue checkmark next to their display name."
 
 #: src/components/moderation/ModerationDetailsDialog.tsx:154
 #: src/lib/moderation/useModerationCauseDescription.ts:142
@@ -2246,7 +2256,7 @@ msgstr "Animated GIF"
 msgid "Announcement"
 msgstr "Announcement"
 
-#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:39
+#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:40
 msgid "Announcing verification on QuantZing"
 msgstr "Announcing verification on QuantZing"
 
@@ -2267,8 +2277,8 @@ msgstr "Anyone"
 msgid "Anyone can join"
 msgstr "Anyone can join"
 
+#: src/screens/Messages/components/InviteLinkDialog.tsx:150
 #: src/screens/Messages/components/InviteLinkDialog.tsx:151
-#: src/screens/Messages/components/InviteLinkDialog.tsx:152
 msgid "Anyone can join instantly"
 msgstr "Anyone can join instantly"
 
@@ -2276,8 +2286,8 @@ msgstr "Anyone can join instantly"
 msgid "Anyone can reply"
 msgstr "Anyone can reply"
 
+#: src/screens/Messages/components/InviteLinkDialog.tsx:155
 #: src/screens/Messages/components/InviteLinkDialog.tsx:156
-#: src/screens/Messages/components/InviteLinkDialog.tsx:157
 msgid "Anyone can request to join"
 msgstr "Anyone can request to join"
 
@@ -2287,7 +2297,7 @@ msgstr "Anyone can request to join"
 msgid "Anyone who follows me"
 msgstr "Anyone who follows me"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:477
+#: src/screens/Messages/components/InviteLinkDialog.tsx:503
 msgid "Anyone who has it will no longer be able to join or request to join. You can always create a new one."
 msgstr "Anyone who has it will no longer be able to join or request to join. You can always create a new one."
 
@@ -2630,8 +2640,8 @@ msgid "Available"
 msgstr "Available"
 
 #: src/screens/Onboarding/StepProfile/index.tsx:327
-msgid "Avatar creator"
-msgstr "Avatar creator"
+#~ msgid "Avatar creator"
+#~ msgstr "Avatar creator"
 
 #: src/screens/ModerationInbox/components/util/reportActionLabel.ts:55
 msgid "Awaiting review"
@@ -2650,13 +2660,13 @@ msgstr "Awaiting review"
 #: src/screens/Login/ForgotPasswordForm.tsx:112
 #: src/screens/Login/ForgotPasswordForm.tsx:117
 #: src/screens/Login/LoginForm.tsx:322
-#: src/screens/Login/LoginForm.tsx:334
+#: src/screens/Login/LoginForm.tsx:335
 #: src/screens/Login/SetNewPasswordForm.tsx:136
 #: src/screens/Login/SetNewPasswordForm.tsx:142
 #: src/screens/Messages/components/ChatDisabled.tsx:161
 #: src/screens/Messages/components/ChatDisabled.tsx:163
-#: src/screens/Messages/components/InviteLinkDialog.tsx:274
-#: src/screens/Messages/components/InviteLinkDialog.tsx:302
+#: src/screens/Messages/components/InviteLinkDialog.tsx:300
+#: src/screens/Messages/components/InviteLinkDialog.tsx:328
 #: src/screens/Messages/Inbox.tsx:233
 #: src/screens/Profile/Header/Shell.tsx:180
 #: src/screens/Settings/components/ChangePasswordDialog.tsx:267
@@ -2695,6 +2705,10 @@ msgstr "Based on your network, we think you're in <0>{geolocationString}</0>. Th
 #: src/components/ageAssurance/AgeAssuranceAccountCard.tsx:242
 msgid "Based on your network, we think you're in <0>{region}</0>. This estimate may be inaccurate if you're using a VPN."
 msgstr "Based on your network, we think you're in <0>{region}</0>. This estimate may be inaccurate if you're using a VPN."
+
+#: src/screens/Search/Explore.tsx:1251
+msgid "Basketball"
+msgstr "Basketball"
 
 #: src/view/screens/Lists.tsx:35
 #: src/view/screens/ModerationModlists.tsx:35
@@ -2793,7 +2807,7 @@ msgstr "Birthday"
 #: src/components/moderation/BlockDialog.tsx:216
 #: src/components/moderation/BlockDialog.tsx:222
 #: src/screens/Messages/ConversationSettings/MemberMenu.tsx:227
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:218
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:220
 msgid "Block"
 msgstr "Block"
 
@@ -2908,20 +2922,20 @@ msgstr "Blogging"
 #~ msgstr "bloomscrolling booksky"
 
 #: src/screens/CustomFeed/components/CustomFeedHeader.tsx:557
-msgid "Bluesky"
-msgstr "QuantZing"
+#~ msgid "Bluesky"
+#~ msgstr "QuantZing"
 
 #: src/screens/Login/components/HostingProviderDialog.tsx:236
-msgid "Bluesky is an open network where you can choose your hosting provider. If you're a developer, you can host your own server."
-msgstr "QuantZing is an open network where you can choose your hosting provider. If you're a developer, you can host your own server."
+#~ msgid "Bluesky is an open network where you can choose your hosting provider. If you're a developer, you can host your own server."
+#~ msgstr "QuantZing is an open network where you can choose your hosting provider. If you're a developer, you can host your own server."
 
 #: src/screens/Onboarding/StepFindContactsIntro/index.tsx:43
 #~ msgid "Bluesky is more fun with friends"
 #~ msgstr "QuantZing is more fun with friends"
 
 #: src/screens/Atmosphere/components/AtmosphereNux.tsx:106
-msgid "Bluesky is part of an open ecosystem of hundreds of apps and integrations. Your account unlocks them all."
-msgstr "QuantZing is part of an open ecosystem of hundreds of apps and integrations. Your account unlocks them all."
+#~ msgid "Bluesky is part of an open ecosystem of hundreds of apps and integrations. Your account unlocks them all."
+#~ msgstr "QuantZing is part of an open ecosystem of hundreds of apps and integrations. Your account unlocks them all."
 
 #: src/screens/ModerationInbox/Notice.tsx:94
 #: src/screens/ModerationInbox/Report.tsx:72
@@ -2933,8 +2947,8 @@ msgstr "QuantZing Moderation Service"
 #~ msgstr "QuantZing needs camera access to scan QR codes from other profiles."
 
 #: src/components/StarterPack/ProfileStarterPacks.tsx:338
-msgid "Bluesky will choose a set of recommended accounts from people in your network."
-msgstr "QuantZing will choose a set of recommended accounts from people in your network."
+#~ msgid "Bluesky will choose a set of recommended accounts from people in your network."
+#~ msgstr "QuantZing will choose a set of recommended accounts from people in your network."
 
 #: src/lib/moderation/useLabelBehaviorDescription.ts:56
 msgid "Blur images"
@@ -2956,7 +2970,7 @@ msgstr "Books"
 msgid "Breaking site rules"
 msgstr "Breaking site rules"
 
-#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:194
+#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:208
 msgid "Bring up to 50 friends together in one chat."
 msgstr "Bring up to 50 friends together in one chat."
 
@@ -3006,13 +3020,17 @@ msgstr "Browse suggested people"
 
 #. placeholder {0}: trend.displayName
 #: src/components/interstitials/FeedTrendingTopics.tsx:211
-#: src/screens/Search/modules/ExploreTrendingTopics.tsx:168
+#: src/screens/Search/modules/ExploreTrendingTopics.tsx:202
 msgid "Browse topic {0}"
 msgstr "Browse topic {0}"
 
 #: src/components/TrendingTopics.tsx:206
 msgid "Browse topic {displayName}"
 msgstr "Browse topic {displayName}"
+
+#: src/screens/Search/Explore.tsx:1250
+msgid "Business"
+msgstr "Business"
 
 #: src/screens/Bookmarks.tsx:398
 msgid "Button to go back to the home timeline"
@@ -3030,7 +3048,7 @@ msgstr "Buttons and text fields work without starting a drag. Type, select text 
 #: src/components/moderation/ReportDialog/index.tsx:1104
 #: src/screens/Messages/JoinRequest.tsx:185
 #: src/screens/Search/components/StarterPackCard.tsx:114
-#: src/screens/Search/Explore.tsx:982
+#: src/screens/Search/Explore.tsx:1042
 msgid "By {0}"
 msgstr "By {0}"
 
@@ -3051,7 +3069,7 @@ msgstr "by @{0}"
 
 #. The group chat creator, in the format 'By {displayName}'.
 #. placeholder {0}: createSanitizedDisplayName( joinLinkPreview.owner, true, moderateProfile(joinLinkPreview.owner, moderationOpts).ui( 'displayName', ), )
-#. placeholder {0}: info.creatorHandle === TRENDING_HANDLE ? l`Bluesky` : sanitizeHandle(info.creatorHandle, '@')
+#. placeholder {0}: info.creatorHandle === TRENDING_HANDLE ? l`QuantZing` : sanitizeHandle(info.creatorHandle, '@')
 #: src/components/intents/GroupChatJoinDialog.tsx:384
 #: src/screens/CustomFeed/components/CustomFeedHeader.tsx:545
 msgid "By <0>{0}</0>"
@@ -3101,8 +3119,8 @@ msgstr "Camera access needed"
 #: src/components/dialogs/lists/CreateListFromStarterPackDialog.tsx:198
 #: src/components/dialogs/lists/CreateOrEditListDialog.tsx:301
 #: src/components/dialogs/lists/CreateOrEditListDialog.tsx:309
-#: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:175
-#: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:181
+#: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:192
+#: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:198
 #: src/components/Menu/index.tsx:386
 #: src/components/moderation/BlockDialog.tsx:233
 #: src/components/Prompt.tsx:152
@@ -3114,8 +3132,8 @@ msgstr "Camera access needed"
 #: src/features/profileLinks/components/LinkFormDialog.tsx:273
 #: src/lib/media/picker.tsx:38
 #: src/screens/Deactivated.tsx:154
-#: src/screens/Messages/components/InviteLinkDialog.tsx:499
-#: src/screens/Messages/components/InviteLinkDialog.tsx:503
+#: src/screens/Messages/components/InviteLinkDialog.tsx:525
+#: src/screens/Messages/components/InviteLinkDialog.tsx:529
 #: src/screens/Messages/ConversationSettings/prompts.tsx:100
 #: src/screens/Messages/ConversationSettings/prompts.tsx:124
 #: src/screens/Messages/ConversationSettings/prompts.tsx:148
@@ -3157,7 +3175,7 @@ msgstr "Cancel reactivation and sign out"
 msgid "Cancel reply"
 msgstr "Cancel reply"
 
-#: src/screens/Search/Shell.tsx:616
+#: src/screens/Search/Shell.tsx:613
 msgid "Cancel search"
 msgstr "Cancel search"
 
@@ -3391,13 +3409,12 @@ msgstr "Chat requests"
 #: src/screens/Messages/ChatList.tsx:103
 #: src/screens/Messages/ChatList.tsx:850
 #: src/screens/Messages/ChatList.tsx:860
-#: src/screens/Messages/Settings.tsx:48
 msgid "Chat settings"
 msgstr "Chat settings"
 
 #: src/screens/Messages/Settings.tsx:147
-msgid "Chat Settings"
-msgstr "Chat Settings"
+#~ msgid "Chat Settings"
+#~ msgstr "Chat Settings"
 
 #: src/components/dms/getSystemMessageInfo.ts:133
 msgid "Chat title changed"
@@ -3500,7 +3517,7 @@ msgstr "Choose Zing languages"
 msgid "Choose this color as your avatar"
 msgstr "Choose this color as your avatar"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:241
+#: src/screens/Messages/components/InviteLinkDialog.tsx:267
 msgid "Choose who can join this group chat and how."
 msgstr "Choose who can join this group chat and how."
 
@@ -3517,7 +3534,7 @@ msgstr "Choose your hosting provider"
 msgid "Choose your own timeline! Feeds built by the community help you find content you love."
 msgstr "Choose your own timeline! Feeds built by the community help you find content you love."
 
-#: src/screens/Signup/StepInfo/index.tsx:278
+#: src/screens/Signup/StepInfo/index.tsx:313
 msgid "Choose your password"
 msgstr "Choose your password"
 
@@ -3640,8 +3657,8 @@ msgstr "Click to retry failed message"
 #: src/components/dialogs/lists/UserAddRemoveListsDialog.tsx:147
 #: src/components/dialogs/NewskieDialog/index.tsx:154
 #: src/components/dialogs/NewskieDialog/index.tsx:160
-#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:179
-#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:188
+#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:212
+#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:221
 #: src/components/dialogs/SearchablePeopleList.tsx:336
 #: src/components/dialogs/StarterPackDialog.tsx:181
 #: src/components/dms/AddMembersFlow.tsx:384
@@ -3663,7 +3680,7 @@ msgstr "Click to retry failed message"
 #: src/components/StarterPack/Wizard/WizardEditListDialog.tsx:125
 #: src/components/TrendingTopics.tsx:55
 #: src/components/verification/VerificationsDialog.tsx:147
-#: src/components/verification/VerifierDialog.tsx:148
+#: src/components/verification/VerifierDialog.tsx:155
 #: src/components/WhoCanReply.tsx:258
 #: src/components/WhoCanReply.tsx:265
 #: src/features/gifPicker/components/GifPickerErrorBoundary.tsx:45
@@ -3671,8 +3688,8 @@ msgstr "Click to retry failed message"
 #: src/features/liveNow/components/EditLiveDialog.tsx:218
 #: src/screens/Atmosphere/components/PhotoDialog/index.tsx:232
 #: src/screens/Atmosphere/components/PhotoDialog/index.tsx:238
-#: src/screens/Messages/components/InviteLinkDialog.tsx:523
-#: src/screens/Messages/components/InviteLinkDialog.tsx:528
+#: src/screens/Messages/components/InviteLinkDialog.tsx:549
+#: src/screens/Messages/components/InviteLinkDialog.tsx:554
 #: src/screens/Profile/Header/PronounsDialog.tsx:104
 #: src/view/com/feeds/MissingFeed.tsx:211
 #: src/view/com/feeds/MissingFeed.tsx:218
@@ -3701,7 +3718,7 @@ msgstr "Close banner"
 #: src/components/dialogs/NotificationSettingsDialog.tsx:102
 #: src/components/moderation/BlockDialog.tsx:230
 #: src/components/verification/VerificationsDialog.tsx:139
-#: src/components/verification/VerifierDialog.tsx:141
+#: src/components/verification/VerifierDialog.tsx:148
 #: src/features/gifPicker/components/GifPickerErrorBoundary.tsx:36
 msgid "Close dialog"
 msgstr "Close dialog"
@@ -3793,7 +3810,7 @@ msgstr "Communication sent"
 msgid "Community Guidelines"
 msgstr "Community Guidelines"
 
-#: src/screens/Onboarding/StepFinished/index.tsx:330
+#: src/screens/Onboarding/StepFinished/index.tsx:334
 msgid "Complete onboarding and start using your account"
 msgstr "Complete onboarding and start using your account"
 
@@ -3849,7 +3866,7 @@ msgid "Connecting to service..."
 msgstr "Connecting to service..."
 
 #: src/screens/Login/ForgotPasswordForm.tsx:131
-#: src/screens/Login/LoginForm.tsx:360
+#: src/screens/Login/LoginForm.tsx:362
 msgid "Connecting…"
 msgstr "Connecting…"
 
@@ -3983,7 +4000,7 @@ msgstr "Context menu backdrop, click to close the menu."
 #: src/screens/Login/components/ConfirmHostingProviderDialog.tsx:149
 #: src/screens/Login/components/ConfirmHostingProviderDialog.tsx:152
 #: src/screens/Onboarding/StepInterests/index.tsx:87
-#: src/screens/Onboarding/StepProfile/index.tsx:302
+#: src/screens/Onboarding/StepProfile/index.tsx:262
 #: src/screens/Onboarding/StepSuggestedAccounts/index.tsx:309
 #: src/screens/Onboarding/StepSuggestedStarterpacks/index.tsx:132
 msgid "Continue"
@@ -4012,7 +4029,7 @@ msgid "Continue to group name"
 msgstr "Continue to group name"
 
 #: src/screens/Onboarding/StepInterests/index.tsx:80
-#: src/screens/Onboarding/StepProfile/index.tsx:299
+#: src/screens/Onboarding/StepProfile/index.tsx:258
 #: src/screens/Onboarding/StepSuggestedAccounts/index.tsx:306
 #: src/screens/Onboarding/StepSuggestedStarterpacks/index.tsx:129
 #: src/screens/Signup/BackNextButtons.tsx:61
@@ -4054,7 +4071,7 @@ msgstr "Conversation with {authorName}"
 msgid "Copied build version to clipboard"
 msgstr "Copied build version to clipboard"
 
-#: src/screens/Search/Shell.tsx:536
+#: src/screens/Search/Shell.tsx:532
 msgid "Copied link to clipboard"
 msgstr "Copied link to clipboard"
 
@@ -4395,7 +4412,10 @@ msgstr "Create a Starter Pack for me"
 
 #: src/components/WelcomeModal.tsx:157
 #: src/components/WelcomeModal.tsx:169
+#: src/screens/Login/LoginForm.tsx:397
+#: src/screens/Login/LoginForm.tsx:401
 #: src/screens/Messages/JoinRequest.tsx:314
+#: src/screens/Signup/StepHandle/index.tsx:303
 #: src/view/com/auth/NativeSplashScreen.tsx:115
 #: src/view/com/auth/NativeSplashScreen.tsx:131
 #: src/view/com/auth/SplashScreen.web.tsx:241
@@ -4420,8 +4440,8 @@ msgid "Create an account without using this Starter Pack"
 msgstr "Create an account without using this Starter Pack"
 
 #: src/screens/Onboarding/StepProfile/index.tsx:315
-msgid "Create an avatar instead"
-msgstr "Create an avatar instead"
+#~ msgid "Create an avatar instead"
+#~ msgstr "Create an avatar instead"
 
 #: src/components/StarterPack/ProfileStarterPacks.tsx:213
 msgid "Create another"
@@ -4484,7 +4504,7 @@ msgstr "Create ZingSpace"
 #. placeholder {0}: formatDateTime(i18n, appPassword.createdAt, { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', })
 #. placeholder {0}: formatDateTime(i18n, createdAt, { dateStyle: 'long', timeStyle: 'short', })
 #. placeholder {0}: i18n.date(createdAt, { month: 'long', day: 'numeric', year: 'numeric', })
-#: src/screens/Messages/components/InviteLinkDialog.tsx:354
+#: src/screens/Messages/components/InviteLinkDialog.tsx:380
 #: src/screens/Messages/ConversationSettings/index.tsx:513
 #: src/screens/Settings/AppPasswords.tsx:175
 msgid "Created {0}"
@@ -4506,6 +4526,14 @@ msgstr "Creator has been blocked"
 #: src/screens/ModerationInbox/components/util/reportActionLabel.ts:44
 msgid "Credentials revoked"
 msgstr "Credentials revoked"
+
+#: src/screens/Search/Explore.tsx:1252
+msgid "Cricket"
+msgstr "Cricket"
+
+#: src/screens/Search/Explore.tsx:1248
+msgid "Crypto"
+msgstr "Crypto"
 
 #: src/lib/interests.ts:64
 msgid "Culture"
@@ -4560,7 +4588,7 @@ msgstr "Dark"
 msgid "Dark theme"
 msgstr "Dark theme"
 
-#: src/screens/Signup/StepInfo/index.tsx:307
+#: src/screens/Signup/StepInfo/index.tsx:342
 msgid "Date of birth"
 msgstr "Date of birth"
 
@@ -4790,8 +4818,8 @@ msgstr "Direct message"
 msgid "Direct message from {authorName}"
 msgstr "Direct message from {authorName}"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:384
-#: src/screens/Messages/components/InviteLinkDialog.tsx:389
+#: src/screens/Messages/components/InviteLinkDialog.tsx:410
+#: src/screens/Messages/components/InviteLinkDialog.tsx:415
 msgid "Disable"
 msgstr "Disable"
 
@@ -4817,8 +4845,8 @@ msgstr "Disable Email 2FA"
 msgid "Disable haptic feedback"
 msgstr "Disable haptic feedback"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:487
-#: src/screens/Messages/components/InviteLinkDialog.tsx:493
+#: src/screens/Messages/components/InviteLinkDialog.tsx:513
+#: src/screens/Messages/components/InviteLinkDialog.tsx:519
 msgid "Disable link"
 msgstr "Disable link"
 
@@ -4830,7 +4858,7 @@ msgstr "Disable quote Zings of this Zing"
 msgid "Disable replies entirely"
 msgstr "Disable replies entirely"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:474
+#: src/screens/Messages/components/InviteLinkDialog.tsx:500
 msgid "Disable this invite link?"
 msgstr "Disable this invite link?"
 
@@ -4876,7 +4904,7 @@ msgstr "Disconnect Germ DM"
 msgid "Discover"
 msgstr "Discover"
 
-#: src/screens/Search/Explore.tsx:459
+#: src/screens/Search/Explore.tsx:489
 msgid "Discover feeds"
 msgstr "Discover feeds"
 
@@ -4891,7 +4919,7 @@ msgstr "Discover new custom feeds"
 msgid "Discover New Feeds"
 msgstr "Discover New Feeds"
 
-#: src/screens/Atmosphere/components/AtmosphereNux.tsx:94
+#: src/screens/Atmosphere/components/AtmosphereNux.tsx:87
 msgid "Discover the Atmosphere"
 msgstr "Discover the Atmosphere"
 
@@ -4900,11 +4928,11 @@ msgid "Discover top creators, follow topics you love, or invite friends directly
 msgstr "Discover top creators, follow topics you love, or invite friends directly to QuantZing."
 
 #: src/components/Dialog/index.tsx:619
-#: src/features/inviteFriends/components/FollowersPromoBanner.tsx:86
+#: src/features/inviteFriends/components/FollowersPromoBanner.tsx:97
 msgid "Dismiss"
 msgstr "Dismiss"
 
-#: src/components/contacts/FindContactsBannerNUX.tsx:78
+#: src/components/contacts/FindContactsBannerNUX.tsx:83
 msgid "Dismiss banner"
 msgstr "Dismiss banner"
 
@@ -4916,7 +4944,7 @@ msgstr "Dismiss error"
 msgid "Dismiss getting started guide"
 msgstr "Dismiss getting started guide"
 
-#: src/screens/Atmosphere/components/AtmosphereNux.tsx:129
+#: src/screens/Atmosphere/components/AtmosphereNux.tsx:120
 msgid "Dismiss info banner"
 msgstr "Dismiss info banner"
 
@@ -4946,7 +4974,7 @@ msgstr "Dismisses the QR scanner"
 msgid "Display larger alt text badges"
 msgstr "Display larger alt text badges"
 
-#: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:33
+#: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:40
 msgid "Ditch the trolls and clickbait. Find real people and conversations that matter to you."
 msgstr "Ditch the trolls and clickbait. Find real people and conversations that matter to you."
 
@@ -4970,6 +4998,10 @@ msgstr "Domain verified!"
 #: src/components/dialogs/EmailDialog/screens/Verify.tsx:383
 msgid "Don't have a code or need a new one? <0>Click here.</0>"
 msgstr "Don't have a code or need a new one? <0>Click here.</0>"
+
+#: src/screens/Login/LoginForm.tsx:395
+msgid "Don't have an account?"
+msgstr "Don't have an account?"
 
 #: src/screens/Settings/components/DeleteAccountDialog.tsx:277
 msgid "Don’t see a code? <0>Click here to resend.</0>"
@@ -5012,8 +5044,6 @@ msgstr "Don't worry! All existing messages and settings are saved and will be av
 #: src/screens/Login/components/HostingProviderDialog.tsx:253
 #: src/screens/Login/components/HostingProviderDialog.tsx:255
 #: src/screens/ModerationInbox/components/AccountStatus.tsx:152
-#: src/screens/Onboarding/StepProfile/index.tsx:355
-#: src/screens/Onboarding/StepProfile/index.tsx:358
 #: src/screens/Profile/Header/PronounsDialog.tsx:216
 #: src/screens/Profile/Header/PronounsDialog.tsx:223
 #: src/screens/Settings/components/AddAppPasswordDialog.tsx:215
@@ -5147,7 +5177,7 @@ msgstr "e.g. they/them"
 msgid "e.g. Users that repeatedly reply with ads."
 msgstr "e.g. Users that repeatedly reply with ads."
 
-#: src/screens/Notifications/components/PageList.tsx:538
+#: src/screens/Notifications/components/PageList.tsx:607
 msgctxt "Notifications section header"
 msgid "Earlier"
 msgstr "Earlier"
@@ -5220,7 +5250,7 @@ msgstr "Edit invite link"
 msgid "Edit link"
 msgstr "Edit link"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:368
+#: src/screens/Messages/components/InviteLinkDialog.tsx:394
 msgid "Edit link settings"
 msgstr "Edit link settings"
 
@@ -5264,12 +5294,12 @@ msgstr "Edit Zing interaction settings"
 #: src/screens/Profile/Header/EditProfileDialog.tsx:372
 #: src/screens/Profile/Header/EditProfileDialog.tsx:379
 #: src/screens/Profile/Header/ProfileHeaderLabeler.tsx:323
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:382
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:385
 msgid "Edit profile"
 msgstr "Edit profile"
 
 #: src/screens/Profile/Header/ProfileHeaderLabeler.tsx:326
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:384
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:387
 msgid "Edit Profile"
 msgstr "Edit Profile"
 
@@ -5314,7 +5344,7 @@ msgstr "Either the creator of this list has blocked you or you have blocked the 
 #. Share target that opens the email app
 #: src/components/ShareDialog/SharePlatformIcon.tsx:183
 #: src/screens/Settings/AccountSettings.tsx:69
-#: src/screens/Signup/StepInfo/index.tsx:231
+#: src/screens/Signup/StepInfo/index.tsx:266
 msgid "Email"
 msgstr "Email"
 
@@ -5519,9 +5549,17 @@ msgid "Enter your birthdate"
 msgstr "Enter your birthdate"
 
 #: src/screens/Login/ForgotPasswordForm.tsx:89
-#: src/screens/Signup/StepInfo/index.tsx:251
+#: src/screens/Signup/StepInfo/index.tsx:286
 msgid "Enter your email address"
 msgstr "Enter your email address"
+
+#: src/screens/Signup/StepInfo/index.tsx:259
+msgid "Enter your invite code"
+msgstr "Enter your invite code"
+
+#: src/screens/Signup/StepInfo/index.tsx:227
+msgid "Enter your name"
+msgstr "Enter your name"
 
 #: src/screens/Login/LoginForm.tsx:248
 #: src/screens/Settings/components/DeleteAccountDialog.tsx:297
@@ -5532,7 +5570,8 @@ msgstr "Enter your password"
 msgid "Enters full screen"
 msgstr "Enters full screen"
 
-#: src/screens/Search/modules/ExploreTrendingTopics.tsx:267
+#: src/screens/Search/Explore.tsx:1115
+#: src/screens/Search/modules/ExploreTrendingTopics.tsx:289
 msgid "Entertainment"
 msgstr "Entertainment"
 
@@ -5703,7 +5742,7 @@ msgstr "Explicit sexual images."
 
 #: src/Navigation.tsx:989
 #: src/screens/Atmosphere/index.tsx:50
-#: src/screens/Search/Shell.tsx:573
+#: src/screens/Search/Shell.tsx:569
 #: src/view/shell/bottom-bar/BottomBar.tsx:253
 #: src/view/shell/Drawer.tsx:715
 msgid "Explore"
@@ -5757,6 +5796,10 @@ msgstr "External Media Preferences"
 msgid "Extremist content"
 msgstr "Extremist content"
 
+#: src/screens/Search/Explore.tsx:1253
+msgid "F1"
+msgstr "F1"
+
 #: src/screens/Messages/components/RequestButtons.tsx:244
 msgctxt "toast"
 msgid "Failed to accept chat"
@@ -5789,7 +5832,7 @@ msgstr "Failed to change handle. Please try again."
 
 #: src/components/Lightbox/Lightbox.web.tsx:308
 #: src/features/inviteFriends/InviteFriendsDialogInner.tsx:126
-#: src/screens/Search/Shell.tsx:537
+#: src/screens/Search/Shell.tsx:533
 msgid "Failed to copy link"
 msgstr "Failed to copy link"
 
@@ -5803,7 +5846,7 @@ msgstr "Failed to create app password. Please try again."
 msgid "Failed to create conversation"
 msgstr "Failed to create conversation"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:104
+#: src/screens/Messages/components/InviteLinkDialog.tsx:103
 msgid "Failed to create invite link"
 msgstr "Failed to create invite link"
 
@@ -5830,7 +5873,7 @@ msgstr "Failed to delete Zing, please try again"
 msgid "Failed to delete Starter Pack"
 msgstr "Failed to delete Starter Pack"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:130
+#: src/screens/Messages/components/InviteLinkDialog.tsx:129
 msgid "Failed to disable invite link"
 msgstr "Failed to disable invite link"
 
@@ -5843,11 +5886,11 @@ msgstr "Failed to disconnect Germ DM. Error: {0}"
 msgid "Failed to edit group chat name"
 msgstr "Failed to edit group chat name"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:117
+#: src/screens/Messages/components/InviteLinkDialog.tsx:116
 msgid "Failed to edit invite link"
 msgstr "Failed to edit invite link"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:140
+#: src/screens/Messages/components/InviteLinkDialog.tsx:139
 msgid "Failed to enable invite link"
 msgstr "Failed to enable invite link"
 
@@ -5883,16 +5926,16 @@ msgstr "Failed to leave group chat"
 msgid "Failed to load conversations"
 msgstr "Failed to load conversations"
 
-#: src/screens/Search/Explore.tsx:530
-#: src/screens/Search/Explore.tsx:575
-#: src/screens/Search/Explore.tsx:621
+#: src/screens/Search/Explore.tsx:560
+#: src/screens/Search/Explore.tsx:605
+#: src/screens/Search/Explore.tsx:651
 msgid "Failed to load feeds"
 msgstr "Failed to load feeds"
 
-#: src/screens/Search/Explore.tsx:500
-#: src/screens/Search/Explore.tsx:544
-#: src/screens/Search/Explore.tsx:589
-#: src/screens/Search/Explore.tsx:635
+#: src/screens/Search/Explore.tsx:530
+#: src/screens/Search/Explore.tsx:574
+#: src/screens/Search/Explore.tsx:619
+#: src/screens/Search/Explore.tsx:665
 msgid "Failed to load feeds preferences"
 msgstr "Failed to load feeds preferences"
 
@@ -5918,14 +5961,14 @@ msgstr "Failed to load preference."
 msgid "Failed to load profiles"
 msgstr "Failed to load profiles"
 
-#: src/screens/Search/Explore.tsx:493
-#: src/screens/Search/Explore.tsx:537
-#: src/screens/Search/Explore.tsx:582
-#: src/screens/Search/Explore.tsx:628
+#: src/screens/Search/Explore.tsx:523
+#: src/screens/Search/Explore.tsx:567
+#: src/screens/Search/Explore.tsx:612
+#: src/screens/Search/Explore.tsx:658
 msgid "Failed to load suggested feeds"
 msgstr "Failed to load suggested feeds"
 
-#: src/screens/Search/Explore.tsx:397
+#: src/screens/Search/Explore.tsx:427
 msgid "Failed to load suggested follows"
 msgstr "Failed to load suggested follows"
 
@@ -6272,7 +6315,7 @@ msgctxt "search"
 msgid "Filters"
 msgstr "Filters"
 
-#: src/screens/Onboarding/StepFinished/index.tsx:336
+#: src/screens/Onboarding/StepFinished/index.tsx:341
 msgid "Finalizing"
 msgstr "Finalizing"
 
@@ -6297,7 +6340,7 @@ msgstr "Finance"
 msgid "Find accounts to follow"
 msgstr "Find accounts to follow"
 
-#: src/features/inviteFriends/components/FollowersPromoBanner.tsx:52
+#: src/features/inviteFriends/components/FollowersPromoBanner.tsx:51
 #: src/screens/Settings/FindContactsSettings.tsx:86
 #: src/screens/Settings/Settings.tsx:238
 #: src/screens/Settings/Settings.tsx:241
@@ -6309,8 +6352,8 @@ msgstr "Find and invite friends"
 msgid "Find Contacts"
 msgstr "Find Contacts"
 
-#: src/screens/Notifications/components/PageList.tsx:594
-#: src/screens/Notifications/components/PageList.tsx:599
+#: src/screens/Notifications/components/PageList.tsx:663
+#: src/screens/Notifications/components/PageList.tsx:669
 msgid "Find friends"
 msgstr "Find friends"
 
@@ -6321,7 +6364,7 @@ msgstr "Find my friends"
 
 #: src/screens/FindContactsFlowScreen.tsx:249
 #: src/screens/FindContactsFlowScreen.tsx:271
-#: src/screens/Search/Explore.tsx:1079
+#: src/screens/Search/Explore.tsx:1208
 msgid "Find People"
 msgstr "Find People"
 
@@ -6332,7 +6375,7 @@ msgstr "Find people on QuantZing"
 
 #: src/components/contacts/FindContactsFlow.web.tsx:145
 #: src/screens/FindContactsFlowScreen.tsx:146
-#: src/screens/Search/Explore.tsx:1053
+#: src/screens/Search/Explore.tsx:1181
 msgid "Find People on QuantZing"
 msgstr "Find People on QuantZing"
 
@@ -6348,11 +6391,11 @@ msgstr "Find people to follow"
 msgid "Find people you know"
 msgstr "Find people you know"
 
-#: src/screens/Notifications/components/PageList.tsx:588
+#: src/screens/Notifications/components/PageList.tsx:657
 msgid "Find some friends to start getting notifications!"
 msgstr "Find some friends to start getting notifications!"
 
-#: src/components/dialogs/nuxs/FindContactsAnnouncement.tsx:98
+#: src/components/dialogs/nuxs/FindContactsAnnouncement.tsx:111
 msgid "Find your friends"
 msgstr "Find your friends"
 
@@ -6365,7 +6408,7 @@ msgstr "Find your friends"
 msgid "Find your friends on QuantZing by verifying your phone number and matching with your contacts. We protect your information and you control what happens next. <0>Learn more</0>"
 msgstr "Find your friends on QuantZing by verifying your phone number and matching with your contacts. We protect your information and you control what happens next. <0>Learn more</0>"
 
-#: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:31
+#: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:38
 msgid "Find your people"
 msgstr "Find your people"
 
@@ -6418,14 +6461,14 @@ msgstr "Focused {focusCount} times"
 #: src/screens/Messages/ConversationSettings/Member.tsx:170
 #: src/screens/Notifications/components/NotificationItem/Item/profile.tsx:233
 #: src/screens/PostThread/components/ThreadItemAnchorFollowButton.tsx:170
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:461
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:467
 #: src/screens/VideoFeed/index.tsx:1418
 msgid "Follow"
 msgstr "Follow"
 
 #. placeholder {0}: profile.handle
 #: src/screens/PostThread/components/ThreadItemAnchorFollowButton.tsx:157
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:449
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:455
 msgid "Follow {0}"
 msgstr "Follow {0}"
 
@@ -6475,7 +6518,7 @@ msgstr "Follow all accounts"
 #: src/components/ProfileCard.tsx:547
 #: src/screens/Notifications/components/NotificationItem/Item/profile.tsx:229
 #: src/screens/PostThread/components/ThreadItemAnchorFollowButton.tsx:168
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:459
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:465
 msgid "Follow back"
 msgstr "Follow back"
 
@@ -6544,7 +6587,7 @@ msgstr "Followers you know"
 #: src/screens/Atmosphere/index.tsx:48
 #: src/screens/Notifications/components/NotificationItem/Item/profile.tsx:224
 #: src/screens/PostThread/components/ThreadItemAnchorFollowButton.tsx:173
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:457
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:463
 #: src/screens/VideoFeed/index.tsx:1416
 msgid "Following"
 msgstr "Following"
@@ -6559,7 +6602,7 @@ msgstr "Following"
 #. placeholder {0}: sanitizeDisplayName( displayNameOrHandle, moderation.ui('displayName'), )
 #. placeholder {0}: sanitizeDisplayName( displayNameOrHandle, moderation.ui('displayName'), )
 #: src/components/ProfileCard.tsx:496
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:296
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:298
 msgid "Following {0}"
 msgstr "Following {0}"
 
@@ -6628,6 +6671,10 @@ msgstr "For security reasons, you won't be able to view this again. If you lose 
 msgid "For the best experience, we recommend using the theme font."
 msgstr "For the best experience, we recommend using the theme font."
 
+#: src/screens/Search/Explore.tsx:1111
+msgid "For you"
+msgstr "For you"
+
 #: src/components/ProgressGuide/FollowDialog.tsx:131
 #: src/screens/Onboarding/StepSuggestedAccounts/index.tsx:353
 #: src/screens/Search/modules/ExploreSuggestedAccounts.tsx:88
@@ -6640,7 +6687,7 @@ msgstr "For You"
 msgid "Forever"
 msgstr "Forever"
 
-#: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:40
+#: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:47
 msgid "Forget the noise"
 msgstr "Forget the noise"
 
@@ -6651,10 +6698,10 @@ msgstr "Forgot password?"
 
 #. This is alt text for a marketing image which transcribes English text that appears in the image
 #: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:147
-msgid "Four message bubbles representing a group chat. First message: \"Did you hear the news? QuantZing has group chats now!\" Second message: \"omg, no way\" Third message: \"Wow, 50 people in one chat!\" Fourth message: \"You can send invite links too!\""
-msgstr "Four message bubbles representing a group chat. First message: \"Did you hear the news? QuantZing has group chats now!\" Second message: \"omg, no way\" Third message: \"Wow, 50 people in one chat!\" Fourth message: \"You can send invite links too!\""
+#~ msgid "Four message bubbles representing a group chat. First message: \"Did you hear the news? QuantZing has group chats now!\" Second message: \"omg, no way\" Third message: \"Wow, 50 people in one chat!\" Fourth message: \"You can send invite links too!\""
+#~ msgstr "Four message bubbles representing a group chat. First message: \"Did you hear the news? QuantZing has group chats now!\" Second message: \"omg, no way\" Third message: \"Wow, 50 people in one chat!\" Fourth message: \"You can send invite links too!\""
 
-#: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:22
+#: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:29
 msgid "Free your feed"
 msgstr "Free your feed"
 
@@ -6707,6 +6754,7 @@ msgid "Games"
 msgstr "Games"
 
 #: src/lib/interests.ts:69
+#: src/screens/Search/Explore.tsx:1254
 msgid "Gaming"
 msgstr "Gaming"
 
@@ -6714,17 +6762,17 @@ msgstr "Gaming"
 msgid "Generate a Starter Pack"
 msgstr "Generate a Starter Pack"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:237
-#: src/screens/Messages/components/InviteLinkDialog.tsx:275
-#: src/screens/Messages/components/InviteLinkDialog.tsx:303
+#: src/screens/Messages/components/InviteLinkDialog.tsx:263
+#: src/screens/Messages/components/InviteLinkDialog.tsx:301
+#: src/screens/Messages/components/InviteLinkDialog.tsx:329
 msgid "Generate invite link"
 msgstr "Generate invite link"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:445
+#: src/screens/Messages/components/InviteLinkDialog.tsx:471
 msgid "Generate new invite link"
 msgstr "Generate new invite link"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:450
+#: src/screens/Messages/components/InviteLinkDialog.tsx:476
 msgid "Generate new link"
 msgstr "Generate new link"
 
@@ -6840,8 +6888,8 @@ msgstr "Get notified when a label is added to your account and Zings."
 
 #: src/components/dialogs/EmailDialog/screens/VerificationReminder.tsx:71
 #: src/components/dialogs/EmailDialog/screens/VerificationReminder.tsx:81
-#: src/screens/Messages/components/InviteLinkDialog.tsx:217
-#: src/screens/Messages/components/InviteLinkDialog.tsx:224
+#: src/screens/Messages/components/InviteLinkDialog.tsx:243
+#: src/screens/Messages/components/InviteLinkDialog.tsx:250
 msgid "Get started"
 msgstr "Get started"
 
@@ -6855,8 +6903,8 @@ msgid "GIF uploaded"
 msgstr "GIF uploaded"
 
 #: src/screens/Onboarding/StepProfile/index.tsx:257
-msgid "Give your profile a face"
-msgstr "Give your profile a face"
+#~ msgid "Give your profile a face"
+#~ msgstr "Give your profile a face"
 
 #: src/components/moderation/ReportDialog/utils/useReportOptions.ts:140
 msgid "Glorification of violence"
@@ -6981,10 +7029,10 @@ msgstr "Go to user’s profile"
 msgid "Going live is currently disabled for your account"
 msgstr "Going live is currently disabled for your account"
 
-#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:115
-#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:120
-#: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:67
-#: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:73
+#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:104
+#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:109
+#: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:89
+#: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:95
 #: src/screens/Profile/components/GermButton.tsx:293
 #: src/screens/Profile/components/GermButton.tsx:298
 msgid "Got it"
@@ -7016,7 +7064,7 @@ msgstr "Grooming or predatory behavior"
 msgid "Group chat"
 msgstr "Group chat"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:555
+#: src/screens/Messages/components/InviteLinkDialog.tsx:581
 msgid "Group chat invite link dialog"
 msgstr "Group chat invite link dialog"
 
@@ -7051,7 +7099,7 @@ msgctxt "toast"
 msgid "Group chat unmuted"
 msgstr "Group chat unmuted"
 
-#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:175
+#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:189
 msgid "Group Chats"
 msgstr "Group Chats"
 
@@ -7060,7 +7108,7 @@ msgid "Group chats are only available to users 18 and over."
 msgstr "Group chats are only available to users 18 and over."
 
 #. placeholder {0}: convo.details.memberLimit
-#: src/screens/Messages/components/InviteLinkDialog.tsx:203
+#: src/screens/Messages/components/InviteLinkDialog.tsx:229
 msgid "Group chats can only have a maximum of {0, plural, other {# people}}."
 msgstr "Group chats can only have a maximum of {0, plural, other {# people}}."
 
@@ -7158,7 +7206,11 @@ msgstr "Hate speech"
 msgid "Have a code? <0>Click here.</0>"
 msgstr "Have a code? <0>Click here.</0>"
 
-#: src/screens/Signup/StepInfo/index.tsx:332
+#: src/screens/Onboarding/StepProfile/index.tsx:221
+msgid "Have a favorite photo? Upload it now."
+msgstr "Have a favorite photo? Upload it now."
+
+#: src/screens/Signup/StepInfo/index.tsx:367
 msgid "Have we got your location wrong? <0>Tap here to update your location with GPS.</0>"
 msgstr "Have we got your location wrong? <0>Tap here to update your location with GPS.</0>"
 
@@ -7186,8 +7238,8 @@ msgid "Help"
 msgstr "Help"
 
 #: src/screens/Onboarding/StepProfile/index.tsx:260
-msgid "Help people know you're not a bot by uploading a picture or creating an avatar."
-msgstr "Help people know you're not a bot by uploading a picture or creating an avatar."
+#~ msgid "Help people know you're not a bot by uploading a picture or creating an avatar."
+#~ msgstr "Help people know you're not a bot by uploading a picture or creating an avatar."
 
 #: src/screens/Settings/components/AddAppPasswordDialog.tsx:188
 msgid "Here is your app password!"
@@ -7311,10 +7363,10 @@ msgid "Hides the content"
 msgstr "Hides the content"
 
 #: src/features/inviteFriends/components/FollowersPromoBanner.tsx:87
-msgid "Hides the invite friends promo banner"
-msgstr "Hides the invite friends promo banner"
+#~ msgid "Hides the invite friends promo banner"
+#~ msgstr "Hides the invite friends promo banner"
 
-#: src/screens/Atmosphere/components/AtmosphereNux.tsx:130
+#: src/screens/Atmosphere/components/AtmosphereNux.tsx:121
 msgid "Hides this banner permanently"
 msgstr "Hides this banner permanently"
 
@@ -7430,7 +7482,7 @@ msgstr "If none are selected, all languages will be shown in your feeds."
 msgid "If you are 18 years of age or older and want to try again, click the button below and use a different verification method if one is available in your region. If you have questions or concerns, <0>our support team can help.</0>"
 msgstr "If you are 18 years of age or older and want to try again, click the button below and use a different verification method if one is available in your region. If you have questions or concerns, <0>our support team can help.</0>"
 
-#: src/screens/Signup/StepInfo/index.tsx:349
+#: src/screens/Signup/StepInfo/index.tsx:385
 msgid "If you are not yet an adult according to the laws of your country, your parent or legal guardian must read these Terms on your behalf."
 msgstr "If you are not yet an adult according to the laws of your country, your parent or legal guardian must read these Terms on your behalf."
 
@@ -7557,17 +7609,17 @@ msgstr "Impersonation"
 msgid "Import contacts"
 msgstr "Import contacts"
 
-#: src/components/dialogs/nuxs/FindContactsAnnouncement.tsx:116
-#: src/components/dialogs/nuxs/FindContactsAnnouncement.tsx:127
+#: src/components/dialogs/nuxs/FindContactsAnnouncement.tsx:129
+#: src/components/dialogs/nuxs/FindContactsAnnouncement.tsx:140
 msgid "Import Contacts"
 msgstr "Import Contacts"
 
-#: src/features/inviteFriends/components/FollowersPromoBanner.tsx:81
+#: src/features/inviteFriends/components/FollowersPromoBanner.tsx:92
 msgid "Import contacts or invite your friends"
 msgstr "Import contacts or invite your friends"
 
 #: src/components/contacts/FindContactsBannerNUX.tsx:33
-#: src/components/contacts/FindContactsBannerNUX.tsx:72
+#: src/components/contacts/FindContactsBannerNUX.tsx:77
 msgid "Import contacts to find your friends"
 msgstr "Import contacts to find your friends"
 
@@ -7722,7 +7774,7 @@ msgstr "Intro card"
 msgid "Introducing finding friends via contacts"
 msgstr "Introducing finding friends via contacts"
 
-#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:93
+#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:82
 msgid "Introducing group chats"
 msgstr "Introducing group chats"
 
@@ -7774,16 +7826,17 @@ msgstr "Invite"
 msgid "Invite {name} to join QuantZing"
 msgstr "Invite {name} to join QuantZing"
 
-#: src/screens/Signup/StepInfo/index.tsx:201
+#: src/screens/Signup/StepInfo/index.tsx:234
+#: src/screens/Signup/StepInfo/index.tsx:249
 msgid "Invite code"
 msgstr "Invite code"
 
-#: src/screens/Signup/state.ts:382
+#: src/screens/Signup/state.ts:423
 msgid "Invite code not accepted. Check that you input it correctly and try again."
 msgstr "Invite code not accepted. Check that you input it correctly and try again."
 
 #: src/screens/Profile/Header/ProfileHeaderLabeler.tsx:346
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:404
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:408
 #: src/view/shell/Drawer.tsx:138
 msgid "Invite friends"
 msgstr "Invite friends"
@@ -7797,10 +7850,10 @@ msgstr "Invite Friends"
 msgid "Invite friends <0/>"
 msgstr "Invite friends <0/>"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:191
-#: src/screens/Messages/components/InviteLinkDialog.tsx:328
-#: src/screens/Messages/components/InviteLinkDialog.tsx:334
-#: src/screens/Messages/components/InviteLinkDialog.tsx:513
+#: src/screens/Messages/components/InviteLinkDialog.tsx:217
+#: src/screens/Messages/components/InviteLinkDialog.tsx:354
+#: src/screens/Messages/components/InviteLinkDialog.tsx:360
+#: src/screens/Messages/components/InviteLinkDialog.tsx:539
 #: src/screens/Messages/components/MessagesListGroupInfoPanel.tsx:150
 #: src/screens/Messages/ConversationSettings/index.tsx:561
 msgid "Invite link"
@@ -7821,7 +7874,7 @@ msgid "Invite link created"
 msgstr "Invite link created"
 
 #: src/components/dms/getSystemMessageInfo.ts:164
-#: src/screens/Messages/components/InviteLinkDialog.tsx:328
+#: src/screens/Messages/components/InviteLinkDialog.tsx:354
 msgid "Invite link disabled"
 msgstr "Invite link disabled"
 
@@ -7838,7 +7891,7 @@ msgid "Invite people to this Starter Pack!"
 msgstr "Invite people to this Starter Pack!"
 
 #: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:91
-#: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:144
+#: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:161
 msgid "Invite your friends"
 msgstr "Invite your friends"
 
@@ -7862,7 +7915,7 @@ msgstr "Invites, but personal"
 msgid "It looks like some of your contacts have not tried to find you here yet. You can personally invite them by customizing a draft message we will provide."
 msgstr "It looks like some of your contacts have not tried to find you here yet. You can personally invite them by customizing a draft message we will provide."
 
-#: src/screens/Signup/StepInfo/index.tsx:382
+#: src/screens/Signup/StepInfo/index.tsx:418
 msgid "It's correct"
 msgstr "It's correct"
 
@@ -8025,13 +8078,13 @@ msgstr "Last initiated just now"
 msgid "Latest"
 msgstr "Latest"
 
-#: src/screens/Atmosphere/components/AtmosphereNux.tsx:112
-#: src/screens/Atmosphere/components/AtmosphereNux.tsx:124
+#: src/screens/Atmosphere/components/AtmosphereNux.tsx:103
+#: src/screens/Atmosphere/components/AtmosphereNux.tsx:115
 msgid "Learn more"
 msgstr "Learn more"
 
 #: src/components/verification/VerificationsDialog.tsx:169
-#: src/components/verification/VerifierDialog.tsx:137
+#: src/components/verification/VerifierDialog.tsx:144
 #: src/screens/Moderation/VerificationSettings.tsx:50
 #: src/screens/Profile/Header/EditProfileDialog.tsx:454
 #: src/screens/Settings/components/ChangeHandleDialog.tsx:215
@@ -8093,7 +8146,7 @@ msgstr "Learn more about this warning"
 #~ msgstr "Learn more about verification on QuantZing"
 
 #: src/components/verification/VerificationsDialog.tsx:154
-#: src/components/verification/VerifierDialog.tsx:123
+#: src/components/verification/VerifierDialog.tsx:130
 msgctxt "english-only-resource"
 msgid "Learn more about verification on QuantZing"
 msgstr "Learn more about verification on QuantZing"
@@ -8183,7 +8236,7 @@ msgstr "left to go."
 msgid "Let me choose"
 msgstr "Let me choose"
 
-#: src/screens/Onboarding/StepFinished/index.tsx:338
+#: src/screens/Onboarding/StepFinished/index.tsx:343
 msgid "Let's go!"
 msgstr "Let's go!"
 
@@ -8284,6 +8337,10 @@ msgstr "Likes of your rezings"
 #: src/screens/PostThread/components/LikesStat.tsx:31
 msgid "Likes on this post"
 msgstr "Likes on this Zing"
+
+#: src/screens/Notifications/components/PageList.tsx:715
+msgid "Likes, mentions, reposts, and a whole lot more from verified accounts will appear here."
+msgstr "Likes, mentions, rezings, and a whole lot more from verified accounts will appear here."
 
 #: src/screens/ModerationInbox/components/util/noticeLabels.ts:96
 msgid "Limited profile"
@@ -8511,8 +8568,8 @@ msgstr "Livestream options"
 msgid "Load more"
 msgstr "Load more"
 
-#: src/screens/Search/Explore.tsx:519
-#: src/screens/Search/Explore.tsx:610
+#: src/screens/Search/Explore.tsx:549
+#: src/screens/Search/Explore.tsx:640
 msgid "Load more suggested feeds"
 msgstr "Load more suggested feeds"
 
@@ -8893,6 +8950,14 @@ msgstr "Messages from this person are hidden while they are blocking you."
 msgid "Messages from this person are hidden while you are blocking them."
 msgstr "Messages from this person are hidden while you are blocking them."
 
+#: src/screens/Messages/Settings.tsx:48
+msgid "Messages settings"
+msgstr "Messages settings"
+
+#: src/screens/Messages/Settings.tsx:147
+msgid "Messages Settings"
+msgstr "Messages Settings"
+
 #: src/screens/Settings/AppIconSettings/useAppIconSets.ts:101
 msgctxt "Name of app icon variant"
 msgid "Midnight"
@@ -9135,7 +9200,7 @@ msgstr "Mute thread"
 msgid "Mute words & tags"
 msgstr "Mute words & tags"
 
-#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:201
+#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:215
 msgid "Mute, leave, or remove people anytime. It’s your chat."
 msgstr "Mute, leave, or remove people anytime. It’s your chat."
 
@@ -9194,6 +9259,8 @@ msgstr "My Starter Pack"
 #: src/components/dialogs/lists/CreateOrEditListDialog.tsx:426
 #: src/screens/Profile/Header/EditProfileDialog.tsx:418
 #: src/screens/Profile/Header/EditProfileDialog.tsx:424
+#: src/screens/Signup/StepInfo/index.tsx:203
+#: src/screens/Signup/StepInfo/index.tsx:213
 msgid "Name"
 msgstr "Name"
 
@@ -9242,7 +9309,7 @@ msgctxt "new content pill"
 msgid "New"
 msgstr "New"
 
-#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:165
+#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:179
 msgctxt "nux-description"
 msgid "New"
 msgstr "New"
@@ -9286,8 +9353,8 @@ msgstr "New chat with {0}, {1}, and {memberCount, plural, one {{memberCount} mor
 msgid "New email address"
 msgstr "New email address"
 
-#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:66
-#: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:129
+#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:67
+#: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:146
 msgid "New Feature"
 msgstr "New Feature"
 
@@ -9410,7 +9477,8 @@ msgid "Newest replies first"
 msgstr "Newest replies first"
 
 #: src/lib/interests.ts:75
-#: src/screens/Search/modules/ExploreTrendingTopics.tsx:269
+#: src/screens/Search/Explore.tsx:1113
+#: src/screens/Search/modules/ExploreTrendingTopics.tsx:291
 msgid "News"
 msgstr "News"
 
@@ -9422,8 +9490,8 @@ msgstr "News"
 #: src/screens/Login/ForgotPasswordForm.tsx:143
 #: src/screens/Login/SetNewPasswordForm.tsx:150
 #: src/screens/Login/SetNewPasswordForm.tsx:156
-#: src/screens/Onboarding/StepFinished/index.tsx:331
-#: src/screens/Onboarding/StepFinished/index.tsx:340
+#: src/screens/Onboarding/StepFinished/index.tsx:335
+#: src/screens/Onboarding/StepFinished/index.tsx:345
 #: src/screens/Settings/components/AddAppPasswordDialog.tsx:158
 #: src/screens/Settings/components/AddAppPasswordDialog.tsx:166
 #: src/screens/Signup/BackNextButtons.tsx:68
@@ -9460,7 +9528,7 @@ msgstr "No actions match this filter"
 msgid "No activity yet."
 msgstr "No activity yet."
 
-#: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:42
+#: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:49
 msgid "No ads, no invasive tracking, no engagement traps. QuantZing respects your time and attention."
 msgstr "No ads, no invasive tracking, no engagement traps. QuantZing respects your time and attention."
 
@@ -9514,7 +9582,7 @@ msgstr "No expiry set"
 msgid "No feeds found. Try searching for something else."
 msgstr "No feeds found. Try searching for something else."
 
-#: src/screens/Notifications/components/PageList.tsx:628
+#: src/screens/Notifications/components/PageList.tsx:733
 msgid "No followers to show yet"
 msgstr "No followers to show yet"
 
@@ -9555,7 +9623,7 @@ msgstr "No lists"
 #. placeholder {0}: sanitizeDisplayName( displayNameOrHandle, moderation.ui('displayName'), )
 #. placeholder {0}: sanitizeDisplayName( displayNameOrHandle, moderation.ui('displayName'), )
 #: src/components/ProfileCard.tsx:524
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:325
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:327
 msgid "No longer following {0}"
 msgstr "No longer following {0}"
 
@@ -9576,7 +9644,7 @@ msgstr "No media yet"
 msgid "No messages yet"
 msgstr "No messages yet"
 
-#: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:24
+#: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:31
 msgid "No more doomscrolling junk-filled algorithms. Find feeds that work for you, not against you."
 msgstr "No more doomscrolling junk-filled algorithms. Find feeds that work for you, not against you."
 
@@ -9589,7 +9657,7 @@ msgstr "No more Zings or replies found in recent activity. Older Zings are unava
 msgid "No name"
 msgstr "No name"
 
-#: src/screens/Notifications/components/PageList.tsx:625
+#: src/screens/Notifications/components/PageList.tsx:730
 msgid "No notifications from people you follow yet"
 msgstr "No notifications from people you follow yet"
 
@@ -9601,8 +9669,8 @@ msgstr "No notifications here yet. Click the {bell} bell icon on someone’s pro
 msgid "No notifications here yet. Tap the {bell} bell icon on someone’s profile to keep up with their activity."
 msgstr "No notifications here yet. Tap the {bell} bell icon on someone’s profile to keep up with their activity."
 
-#: src/screens/Notifications/components/PageList.tsx:577
-#: src/screens/Notifications/components/PageList.tsx:622
+#: src/screens/Notifications/components/PageList.tsx:646
+#: src/screens/Notifications/components/PageList.tsx:727
 msgid "No notifications yet"
 msgstr "No notifications yet"
 
@@ -9674,7 +9742,7 @@ msgstr "No recent GIFs yet. Pick one to see it here."
 msgid "No recommendations right now. Check back soon."
 msgstr "No recommendations right now. Check back soon."
 
-#: src/screens/Notifications/components/PageList.tsx:631
+#: src/screens/Notifications/components/PageList.tsx:736
 msgid "No replies to show yet"
 msgstr "No replies to show yet"
 
@@ -9703,7 +9771,7 @@ msgid "No results"
 msgstr "No results"
 
 #. placeholder {0}: interestsDisplayNames[selectedInterest]
-#: src/screens/Search/Explore.tsx:809
+#: src/screens/Search/Explore.tsx:869
 msgid "No results for \"{0}\"."
 msgstr "No results for \"{0}\"."
 
@@ -9728,7 +9796,7 @@ msgstr "No results found for “<0>{query}</0>”."
 msgid "No results found for your query with advanced search filters applied."
 msgstr "No results found for your query with advanced search filters applied."
 
-#: src/screens/Search/Explore.tsx:813
+#: src/screens/Search/Explore.tsx:873
 msgid "No results."
 msgstr "No results."
 
@@ -9849,6 +9917,10 @@ msgstr "Note: This Zing is only visible to logged-in users."
 msgid "Nothing saved yet"
 msgstr "Nothing saved yet"
 
+#: src/screens/Notifications/components/PageList.tsx:705
+msgid "Nothing to see here — yet"
+msgstr "Nothing to see here — yet"
+
 #: src/Navigation.tsx:235
 #: src/screens/ModerationInbox/Notice.tsx:130
 msgid "Notice"
@@ -9941,7 +10013,7 @@ msgstr "On"
 msgid "On QuantZing, this means your posts will only appear in the Discover feed to people who follow you. Other apps can choose to use this preference in their own algorithmic recommendations."
 msgstr "On QuantZing, this means your Zings will only appear in the Discover feed to people who follow you. Other apps can choose to use this preference in their own algorithmic recommendations."
 
-#: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:58
+#: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:80
 msgid "On this screen, you can discover apps, explore what people are making, and keep up with people you follow."
 msgstr "On this screen, you can discover apps, explore what people are making, and keep up with people you follow."
 
@@ -10099,8 +10171,8 @@ msgid "Open advanced search options"
 msgstr "Open advanced search options"
 
 #: src/screens/Onboarding/StepProfile/index.tsx:309
-msgid "Open avatar creator"
-msgstr "Open avatar creator"
+#~ msgid "Open avatar creator"
+#~ msgstr "Open avatar creator"
 
 #: src/components/dms/ChatInvite/Root.tsx:106
 #: src/components/intents/GroupChatJoinDialog.tsx:454
@@ -10287,7 +10359,7 @@ msgstr "Opens a dialog to add a content warning to your Zing"
 msgid "Opens a dialog to choose who can interact with this post"
 msgstr "Opens a dialog to choose who can interact with this Zing"
 
-#: src/screens/Atmosphere/components/AtmosphereNux.tsx:113
+#: src/screens/Atmosphere/components/AtmosphereNux.tsx:104
 msgid "Opens a dialog with more information about the Atmosphere"
 msgstr "Opens a dialog with more information about the Atmosphere"
 
@@ -10370,8 +10442,8 @@ msgid "Opens profile"
 msgstr "Opens profile"
 
 #: src/features/inviteFriends/components/FollowersPromoBanner.tsx:53
-msgid "Opens the find and invite friends settings"
-msgstr "Opens the find and invite friends settings"
+#~ msgid "Opens the find and invite friends settings"
+#~ msgstr "Opens the find and invite friends settings"
 
 #. Accessibility hint announced after the GIF picker button label, describing what activating it will do.
 #: src/view/com/composer/photos/SelectGifBtn.tsx:45
@@ -10558,7 +10630,7 @@ msgstr "Party GIFs"
 #: src/screens/Settings/AccountSettings.tsx:124
 #: src/screens/Settings/AccountSettings.tsx:128
 #: src/screens/Settings/components/DeleteAccountDialog.tsx:292
-#: src/screens/Signup/StepInfo/index.tsx:266
+#: src/screens/Signup/StepInfo/index.tsx:301
 msgid "Password"
 msgstr "Password"
 
@@ -10594,11 +10666,11 @@ msgstr "Pause video"
 msgid "People"
 msgstr "People"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:162
+#: src/screens/Messages/components/InviteLinkDialog.tsx:161
 msgid "People {ownerName} follows can join instantly"
 msgstr "People {ownerName} follows can join instantly"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:167
+#: src/screens/Messages/components/InviteLinkDialog.tsx:166
 msgid "People {ownerName} follows can request to join"
 msgstr "People {ownerName} follows can request to join"
 
@@ -10638,11 +10710,11 @@ msgstr "People I follow"
 #~ msgid "People I follow"
 #~ msgstr "People I follow"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:161
+#: src/screens/Messages/components/InviteLinkDialog.tsx:160
 msgid "People I follow can join instantly"
 msgstr "People I follow can join instantly"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:166
+#: src/screens/Messages/components/InviteLinkDialog.tsx:165
 msgid "People I follow can request to join"
 msgstr "People I follow can request to join"
 
@@ -10705,6 +10777,10 @@ msgstr "Photos: {title}"
 #: src/features/inviteFriends/components/ThemePicker.tsx:39
 msgid "Pick a color theme"
 msgstr "Pick a color theme"
+
+#: src/screens/Onboarding/StepProfile/index.tsx:218
+msgid "Pick a profile picture"
+msgstr "Pick a profile picture"
 
 #: src/view/com/composer/labels/LabelsBtn.tsx:165
 msgid "Pictures meant for adults."
@@ -10798,20 +10874,24 @@ msgstr "Please add any content warning labels that are applicable for the media 
 msgid "Please check your email inbox for further instructions. It may take a minute or two to arrive."
 msgstr "Please check your email inbox for further instructions. It may take a minute or two to arrive."
 
-#: src/screens/Signup/state.ts:312
+#: src/screens/Signup/state.ts:352
 msgid "Please choose your handle."
 msgstr "Please choose your handle."
 
-#: src/screens/Signup/state.ts:304
-#: src/screens/Signup/StepInfo/index.tsx:158
+#: src/screens/Signup/state.ts:344
+#: src/screens/Signup/StepInfo/index.tsx:161
 msgid "Please choose your password."
 msgstr "Please choose your password."
 
 #: src/components/dialogs/EmailDialog/screens/Update.tsx:283
-msgid "Please click on the link in the email we just sent you to verify your new email address. This is an important step to allow you to continue enjoying all the features of Bluesky."
+#~ msgid "Please click on the link in the email we just sent you to verify your new email address. This is an important step to allow you to continue enjoying all the features of Bluesky."
+#~ msgstr "Please click on the link in the email we just sent you to verify your new email address. This is an important step to allow you to continue enjoying all the features of QuantZing."
+
+#: src/components/dialogs/EmailDialog/screens/Update.tsx:283
+msgid "Please click on the link in the email we just sent you to verify your new email address. This is an important step to allow you to continue enjoying all the features of QuantZing."
 msgstr "Please click on the link in the email we just sent you to verify your new email address. This is an important step to allow you to continue enjoying all the features of QuantZing."
 
-#: src/screens/Signup/state.ts:334
+#: src/screens/Signup/state.ts:374
 msgid "Please complete the verification captcha."
 msgstr "Please complete the verification captcha."
 
@@ -10820,7 +10900,7 @@ msgid "Please confirm your email address to upload videos."
 msgstr "Please confirm your email address to upload videos."
 
 #: src/components/ageAssurance/AgeAssuranceInitDialog.tsx:104
-#: src/screens/Signup/StepInfo/index.tsx:148
+#: src/screens/Signup/StepInfo/index.tsx:151
 msgid "Please double-check that you have entered your email address correctly."
 msgstr "Please double-check that you have entered your email address correctly."
 
@@ -10868,17 +10948,17 @@ msgstr "Please enter the code you received and the new password you would like t
 msgid "Please enter the security code we sent to your previous email address."
 msgstr "Please enter the security code we sent to your previous email address."
 
-#: src/screens/Signup/state.ts:322
-#: src/screens/Signup/StepInfo/index.tsx:172
+#: src/screens/Signup/state.ts:362
+#: src/screens/Signup/StepInfo/index.tsx:175
 msgid "Please enter your date of birth."
 msgstr "Please enter your date of birth."
 
-#: src/screens/Signup/state.ts:288
-#: src/screens/Signup/StepInfo/index.tsx:131
+#: src/screens/Signup/state.ts:328
+#: src/screens/Signup/StepInfo/index.tsx:134
 msgid "Please enter your email."
 msgstr "Please enter your email."
 
-#: src/screens/Signup/StepInfo/index.tsx:124
+#: src/screens/Signup/StepInfo/index.tsx:127
 msgid "Please enter your invite code."
 msgstr "Please enter your invite code."
 
@@ -10960,7 +11040,7 @@ msgid "Please write your message below:"
 msgstr "Please write your message below:"
 
 #: src/lib/interests.ts:78
-#: src/screens/Search/modules/ExploreTrendingTopics.tsx:263
+#: src/screens/Search/modules/ExploreTrendingTopics.tsx:285
 msgid "Politics"
 msgstr "Politics"
 
@@ -11098,7 +11178,7 @@ msgstr "Zing interaction settings"
 msgid "Post Interaction Settings"
 msgstr "Zing Interaction Settings"
 
-#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:187
+#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:201
 msgid "Post it to QuantZing or share anywhere."
 msgstr "Zing it to QuantZing or share anywhere."
 
@@ -11107,8 +11187,8 @@ msgstr "Zing it to QuantZing or share anywhere."
 msgid "Post language selection"
 msgstr "Zing language selection"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:394
-#: src/screens/Messages/components/InviteLinkDialog.tsx:410
+#: src/screens/Messages/components/InviteLinkDialog.tsx:420
+#: src/screens/Messages/components/InviteLinkDialog.tsx:436
 msgid "Post link"
 msgstr "Zing link"
 
@@ -11415,6 +11495,7 @@ msgstr "Quanty"
 
 #: src/components/dialogs/ServerInput.tsx:144
 #: src/components/dialogs/ServerInput.tsx:146
+#: src/screens/CustomFeed/components/CustomFeedHeader.tsx:557
 msgid "QuantZing"
 msgstr "QuantZing"
 
@@ -11440,6 +11521,7 @@ msgid "QuantZing helps friends find each other by creating an encoded digital fi
 msgstr "QuantZing helps friends find each other by creating an encoded digital fingerprint, called a \"hash\", and then looking for matching hashes."
 
 #: src/components/dialogs/ServerInput.tsx:214
+#: src/screens/Login/components/HostingProviderDialog.tsx:236
 msgid "QuantZing is an open network where you can choose your hosting provider. If you're a developer, you can host your own server."
 msgstr "QuantZing is an open network where you can choose your hosting provider. If you're a developer, you can host your own server."
 
@@ -11451,13 +11533,17 @@ msgstr "QuantZing is an open network where you can choose your own provider. If 
 msgid "QuantZing is more fun with friends"
 msgstr "QuantZing is more fun with friends"
 
-#: src/components/dialogs/nuxs/FindContactsAnnouncement.tsx:108
+#: src/components/dialogs/nuxs/FindContactsAnnouncement.tsx:121
 msgid "QuantZing is more fun with friends! Import your contacts to see who’s already here."
 msgstr "QuantZing is more fun with friends! Import your contacts to see who’s already here."
 
 #: src/components/contacts/screens/ViewMatches.tsx:323
 msgid "QuantZing is more fun with friends. Do you want to invite some of yours? <0/>"
 msgstr "QuantZing is more fun with friends. Do you want to invite some of yours? <0/>"
+
+#: src/screens/Atmosphere/components/AtmosphereNux.tsx:97
+msgid "QuantZing is part of an open ecosystem of hundreds of apps and integrations. Your account unlocks them all."
+msgstr "QuantZing is part of an open ecosystem of hundreds of apps and integrations. Your account unlocks them all."
 
 #: src/features/inviteFriends/InviteScannerScreen.tsx:109
 msgid "QuantZing needs camera access to scan QR codes from other profiles."
@@ -11471,11 +11557,15 @@ msgstr "QuantZing stores your contacts as encoded data. Removing your contacts w
 msgid "QuantZing Terms of Service"
 msgstr "QuantZing Terms of Service"
 
+#: src/components/StarterPack/ProfileStarterPacks.tsx:338
+msgid "QuantZing will choose a set of recommended accounts from people in your network."
+msgstr "QuantZing will choose a set of recommended accounts from people in your network."
+
 #: src/screens/Settings/components/PwiOptOut.tsx:102
 msgid "QuantZing will not show your account to logged-out users and will ask other apps to do the same. Other apps may not honor this request. It doesn't make your account private."
 msgstr "QuantZing will not show your account to logged-out users and will ask other apps to do the same. Other apps may not honor this request. It doesn't make your account private."
 
-#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:137
+#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:170
 msgid "QuantZing will proactively verify notable and authentic accounts."
 msgstr "QuantZing will proactively verify notable and authentic accounts."
 
@@ -11528,11 +11618,11 @@ msgstr "Rate limit exceeded. Please try again later."
 msgid "Re-attach quote"
 msgstr "Re-attach quote"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:432
+#: src/screens/Messages/components/InviteLinkDialog.tsx:458
 msgid "Re-enable invite link"
 msgstr "Re-enable invite link"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:439
+#: src/screens/Messages/components/InviteLinkDialog.tsx:465
 msgid "Re-enable link"
 msgstr "Re-enable link"
 
@@ -11559,8 +11649,8 @@ msgctxt "english-only-resource"
 msgid "Read about how to use advanced search filters"
 msgstr "Read about how to use advanced search filters"
 
-#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:163
-#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:174
+#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:196
+#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:207
 msgid "Read blog post"
 msgstr "Read blog post"
 
@@ -12427,7 +12517,7 @@ msgstr "Restored Zing"
 msgid "Resync contacts"
 msgstr "Resync contacts"
 
-#: src/screens/Login/LoginForm.tsx:342
+#: src/screens/Login/LoginForm.tsx:343
 msgid "Retries signing in"
 msgstr "Retries signing in"
 
@@ -12446,8 +12536,8 @@ msgstr "Retries the last action, which errored out"
 #: src/components/Post/Embed/VideoEmbed/VideoEmbedInner/VideoFallback.tsx:56
 #: src/components/Post/Embed/VideoEmbed/VideoEmbedInner/VideoFallback.tsx:59
 #: src/components/StarterPack/ProfileStarterPacks.tsx:371
-#: src/screens/Login/LoginForm.tsx:341
-#: src/screens/Login/LoginForm.tsx:348
+#: src/screens/Login/LoginForm.tsx:342
+#: src/screens/Login/LoginForm.tsx:349
 #: src/screens/Messages/ChatList.tsx:452
 #: src/screens/Messages/components/MessageListError.tsx:24
 #: src/screens/Messages/Inbox.tsx:211
@@ -12713,9 +12803,8 @@ msgstr "Scroll to top"
 #: src/components/forms/SearchInput.tsx:61
 #: src/screens/Search/components/AdvancedSearchDialog/index.tsx:218
 #: src/screens/Search/components/AdvancedSearchDialog/index.tsx:224
-#: src/screens/Search/Shell.tsx:573
-#: src/screens/Search/Shell.tsx:636
-#: src/screens/Search/Shell.tsx:778
+#: src/screens/Search/Shell.tsx:569
+#: src/screens/Search/Shell.tsx:634
 msgid "Search"
 msgstr "Search"
 
@@ -12769,11 +12858,11 @@ msgstr "Search for {q}"
 msgid "Search for feeds that you want to suggest to others."
 msgstr "Search for feeds that you want to suggest to others."
 
-#: src/screens/Search/Explore.tsx:384
+#: src/screens/Search/Explore.tsx:414
 msgid "Search for more accounts"
 msgstr "Search for more accounts"
 
-#: src/screens/Search/Explore.tsx:463
+#: src/screens/Search/Explore.tsx:493
 msgid "Search for more feeds"
 msgstr "Search for more feeds"
 
@@ -13076,8 +13165,8 @@ msgstr "Select which language to use for the app's user interface."
 msgid "Select which languages you want your subscribed feeds to include. If none are selected, all languages will be shown."
 msgstr "Select which languages you want your subscribed feeds to include. If none are selected, all languages will be shown."
 
-#: src/screens/Signup/StepInfo/index.tsx:308
-#: src/screens/Signup/StepInfo/index.tsx:309
+#: src/screens/Signup/StepInfo/index.tsx:343
+#: src/screens/Signup/StepInfo/index.tsx:344
 msgid "Select your date of birth"
 msgstr "Select your date of birth"
 
@@ -13287,8 +13376,8 @@ msgstr "Sexually Suggestive"
 #: src/components/StarterPack/QrCodeDialog.tsx:192
 #: src/screens/Atmosphere/components/AtmosphereCardMenu.tsx:184
 #: src/screens/Hashtag.tsx:126
-#: src/screens/Messages/components/InviteLinkDialog.tsx:414
-#: src/screens/Messages/components/InviteLinkDialog.tsx:425
+#: src/screens/Messages/components/InviteLinkDialog.tsx:440
+#: src/screens/Messages/components/InviteLinkDialog.tsx:451
 #: src/screens/StarterPack/StarterPackScreen.tsx:437
 #: src/screens/Topic.tsx:91
 msgid "Share"
@@ -13364,8 +13453,8 @@ msgstr "Share QR code"
 msgid "Share this feed"
 msgstr "Share this feed"
 
-#: src/screens/Search/Shell.tsx:589
-#: src/screens/Search/Shell.tsx:658
+#: src/screens/Search/Shell.tsx:585
+#: src/screens/Search/Shell.tsx:656
 msgid "Share this search"
 msgstr "Share this search"
 
@@ -13374,7 +13463,11 @@ msgid "Share this Starter Pack"
 msgstr "Share this Starter Pack"
 
 #: src/components/StarterPack/ShareDialog.tsx:87
-msgid "Share this Starter Pack and help people join your community on Bluesky."
+#~ msgid "Share this Starter Pack and help people join your community on Bluesky."
+#~ msgstr "Share this Starter Pack and help people join your community on QuantZing."
+
+#: src/components/StarterPack/ShareDialog.tsx:87
+msgid "Share this Starter Pack and help people join your community on QuantZing."
 msgstr "Share this Starter Pack and help people join your community on QuantZing."
 
 #: src/components/ShareDialog/ShareRow.tsx:277
@@ -13607,8 +13700,8 @@ msgstr "Shows the content"
 #: src/components/dialogs/Signin.tsx:100
 #: src/components/WelcomeModal.tsx:202
 #: src/components/WelcomeModal.tsx:213
-#: src/screens/Login/LoginForm.tsx:366
-#: src/screens/Login/LoginForm.tsx:379
+#: src/screens/Login/LoginForm.tsx:368
+#: src/screens/Login/LoginForm.tsx:381
 #: src/screens/Messages/JoinRequest.tsx:294
 #: src/screens/Messages/JoinRequest.tsx:300
 #: src/view/com/auth/NativeSplashScreen.tsx:183
@@ -13713,8 +13806,8 @@ msgstr "Sizes: 100×80, 220×160, 140×240, 180×120, and a wide card of {wideCa
 #: src/components/contacts/screens/VerifyNumber.tsx:208
 #: src/screens/Onboarding/StepFindContactsIntro/index.tsx:103
 #: src/screens/Onboarding/StepFindContactsIntro/index.tsx:107
-#: src/screens/Onboarding/StepFinished/index.tsx:296
-#: src/screens/Onboarding/StepFinished/index.tsx:318
+#: src/screens/Onboarding/StepFinished/index.tsx:299
+#: src/screens/Onboarding/StepFinished/index.tsx:322
 #: src/screens/Onboarding/StepSuggestedAccounts/index.tsx:285
 #: src/screens/Onboarding/StepSuggestedStarterpacks/index.tsx:120
 #: src/screens/StarterPack/Wizard/index.tsx:205
@@ -13730,8 +13823,13 @@ msgstr "Skip contact sharing and continue to the app"
 msgid "Skip empty posts?"
 msgstr "Skip empty Zings?"
 
-#: src/screens/Onboarding/StepFinished/index.tsx:289
-#: src/screens/Onboarding/StepFinished/index.tsx:315
+#: src/screens/Onboarding/StepProfile/index.tsx:282
+#: src/screens/Onboarding/StepProfile/index.tsx:289
+msgid "Skip for now"
+msgstr "Skip for now"
+
+#: src/screens/Onboarding/StepFinished/index.tsx:291
+#: src/screens/Onboarding/StepFinished/index.tsx:318
 msgid "Skip introduction and start using your account"
 msgstr "Skip introduction and start using your account"
 
@@ -13940,7 +14038,8 @@ msgid "Spam or other inauthentic behavior or deception"
 msgstr "Spam or other inauthentic behavior or deception"
 
 #: src/lib/interests.ts:81
-#: src/screens/Search/modules/ExploreTrendingTopics.tsx:261
+#: src/screens/Search/Explore.tsx:1114
+#: src/screens/Search/modules/ExploreTrendingTopics.tsx:283
 msgid "Sports"
 msgstr "Sports"
 
@@ -13957,8 +14056,8 @@ msgstr "Square frame"
 msgid "Start a conversation, and it will appear here."
 msgstr "Start a conversation, and it will appear here."
 
-#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:124
-#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:129
+#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:113
+#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:118
 msgid "Start a group chat"
 msgstr "Start a group chat"
 
@@ -14179,7 +14278,7 @@ msgstr "Successfully verified"
 msgid "Suggested"
 msgstr "Suggested"
 
-#: src/screens/Search/Explore.tsx:380
+#: src/screens/Search/Explore.tsx:410
 msgid "Suggested accounts"
 msgstr "Suggested accounts"
 
@@ -14313,7 +14412,7 @@ msgstr "Tag Quanty to draft or fact-check this Zing"
 msgid "Tags only"
 msgstr "Tags only"
 
-#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:178
+#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:192
 msgid "Take the conversation private."
 msgstr "Take the conversation private."
 
@@ -14349,7 +14448,7 @@ msgstr "Tap for more information"
 msgid "Tap here to update your approximate location via GPS."
 msgstr "Tap here to update your approximate location via GPS."
 
-#: src/screens/Signup/StepInfo/index.tsx:335
+#: src/screens/Signup/StepInfo/index.tsx:370
 msgid "Tap here to update your location with GPS."
 msgstr "Tap here to update your location with GPS."
 
@@ -14531,7 +14630,7 @@ msgstr "That doesn’t look like a link. Try something like yoursite.com."
 msgid "That Starter Pack could not be found."
 msgstr "That Starter Pack could not be found."
 
-#: src/screens/Signup/StepHandle/index.tsx:98
+#: src/screens/Signup/StepHandle/index.tsx:99
 msgid "That username is already taken"
 msgstr "That username is already taken"
 
@@ -14544,8 +14643,8 @@ msgid "That's everything!"
 msgstr "That's everything!"
 
 #: src/components/moderation/BlockDialog.tsx:152
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:212
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:487
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:214
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:494
 msgid "The account will be able to interact with you after unblocking."
 msgstr "The account will be able to interact with you after unblocking."
 
@@ -14575,7 +14674,7 @@ msgstr "The appeal window has closed."
 #~ msgid "The Atmosphere is an open network of connected apps. Bluesky is one of them, so you’re already part of it!"
 #~ msgstr "The Atmosphere is an open network of connected apps. QuantZing is one of them, so you’re already part of it!"
 
-#: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:36
+#: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:58
 msgid "The Atmosphere is an open network of connected apps. QuantZing is one of them, so you’re already part of it!"
 msgstr "The Atmosphere is an open network of connected apps. QuantZing is one of them, so you’re already part of it!"
 
@@ -14721,7 +14820,7 @@ msgstr "Theme"
 msgid "There is a limit to how often you can change your birthdate. You may need to wait a day or two before updating it again."
 msgstr "There is a limit to how often you can change your birthdate. You may need to wait a day or two before updating it again."
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:518
+#: src/screens/Messages/components/InviteLinkDialog.tsx:544
 msgid "There is no invite link for this group chat."
 msgstr "There is no invite link for this group chat."
 
@@ -14754,12 +14853,12 @@ msgstr "There was an issue contacting the server"
 msgid "There was an issue contacting the server, please check your internet connection and try again."
 msgstr "There was an issue contacting the server, please check your internet connection and try again."
 
-#: src/screens/Notifications/components/PageList.tsx:351
+#: src/screens/Notifications/components/PageList.tsx:420
 msgid "There was an issue fetching notifications. Tap here to try again."
 msgstr "There was an issue fetching notifications. Tap here to try again."
 
 #: src/features/followingV2/home/PostFeed.tsx:1116
-#: src/screens/Search/Explore.tsx:1038
+#: src/screens/Search/Explore.tsx:1098
 #: src/view/com/posts/PostFeed.tsx:883
 msgid "There was an issue fetching posts. Tap here to try again."
 msgstr "There was an issue fetching Zings. Tap here to try again."
@@ -14800,10 +14899,10 @@ msgstr "There was an issue updating your feeds, please check your internet conne
 #: src/screens/Messages/ConversationSettings/MemberMenu.tsx:127
 #: src/screens/PostThread/components/ThreadItemAnchorFollowButton.tsx:122
 #: src/screens/PostThread/components/ThreadItemAnchorFollowButton.tsx:135
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:99
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:306
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:336
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:352
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:101
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:308
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:338
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:354
 #: src/view/com/profile/ProfileMenu.tsx:151
 #: src/view/com/profile/ProfileMenu.tsx:164
 #: src/view/com/profile/ProfileMenu.tsx:183
@@ -14843,7 +14942,7 @@ msgstr "There was an unexpected issue in the application. Please let us know if 
 msgid "There's been a rush of new users to QuantZing! We'll activate your account as soon as we can."
 msgstr "There's been a rush of new users to QuantZing! We'll activate your account as soon as we can."
 
-#: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:50
+#: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:72
 msgid "These apps are built on the AT Protocol, a shared technology that lets them work together. Instead of keeping your identity, connections, and content locked inside one platform, the Atmosphere gives you choice in where and how you connect."
 msgstr "These apps are built on the AT Protocol, a shared technology that lets them work together. Instead of keeping your identity, connections, and content locked inside one platform, the Atmosphere gives you choice in where and how you connect."
 
@@ -14949,7 +15048,11 @@ msgid "This author has chosen to make their posts visible only to people who are
 msgstr "This author has chosen to make their Zings visible only to people who are signed in."
 
 #: src/screens/Profile/components/GermButton.tsx:284
-msgid "This button lets others open the Germ DM app to send you a message. You can manage its visibility from the Germ DM app, or you can disconnect your Bluesky account from Germ DM altogether by clicking the button below."
+#~ msgid "This button lets others open the Germ DM app to send you a message. You can manage its visibility from the Germ DM app, or you can disconnect your Bluesky account from Germ DM altogether by clicking the button below."
+#~ msgstr "This button lets others open the Germ DM app to send you a message. You can manage its visibility from the Germ DM app, or you can disconnect your QuantZing account from Germ DM altogether by clicking the button below."
+
+#: src/screens/Profile/components/GermButton.tsx:284
+msgid "This button lets others open the Germ DM app to send you a message. You can manage its visibility from the Germ DM app, or you can disconnect your QuantZing account from Germ DM altogether by clicking the button below."
 msgstr "This button lets others open the Germ DM app to send you a message. You can manage its visibility from the Germ DM app, or you can disconnect your QuantZing account from Germ DM altogether by clicking the button below."
 
 #: src/screens/Search/components/SearchHistory.tsx:148
@@ -15084,7 +15187,7 @@ msgstr "This group is locked by a moderation action on the owner"
 msgid "This handle is reserved. Please try a different one."
 msgstr "This handle is reserved. Please try a different one."
 
-#: src/screens/Onboarding/StepProfile/index.tsx:141
+#: src/screens/Onboarding/StepProfile/index.tsx:129
 msgid "This image could not be used. Try a different format like .jpg or .png."
 msgstr "This image could not be used. Try a different format like .jpg or .png."
 
@@ -15142,13 +15245,21 @@ msgstr "This link can’t be added. It goes to a site that’s blocked on QuantZ
 msgid "This link is taking you to the following website:"
 msgstr "This link is taking you to the following website:"
 
+#: src/screens/List/ListHiddenScreen.tsx:154
+#~ msgid "This list – created by <0>{0}</0> – contains possible violations of Bluesky's community guidelines in its name or description."
+#~ msgstr "This list – created by <0>{0}</0> – contains possible violations of QuantZing's community guidelines in its name or description."
+
 #. placeholder {0}: sanitizeHandle(list.creator.handle, '@')
 #: src/screens/List/ListHiddenScreen.tsx:154
-msgid "This list – created by <0>{0}</0> – contains possible violations of Bluesky's community guidelines in its name or description."
+msgid "This list – created by <0>{0}</0> – contains possible violations of QuantZing's community guidelines in its name or description."
 msgstr "This list – created by <0>{0}</0> – contains possible violations of QuantZing's community guidelines in its name or description."
 
 #: src/screens/List/ListHiddenScreen.tsx:149
-msgid "This list – created by you – contains possible violations of Bluesky's community guidelines in its name or description."
+#~ msgid "This list – created by you – contains possible violations of Bluesky's community guidelines in its name or description."
+#~ msgstr "This list – created by you – contains possible violations of QuantZing's community guidelines in its name or description."
+
+#: src/screens/List/ListHiddenScreen.tsx:149
+msgid "This list – created by you – contains possible violations of QuantZing's community guidelines in its name or description."
 msgstr "This list – created by you – contains possible violations of QuantZing's community guidelines in its name or description."
 
 #: src/screens/ProfileList/AboutSection.tsx:100
@@ -15407,7 +15518,7 @@ msgstr "To log out, <0>click here</0>. Or if you’d prefer, you can <1>delete y
 msgid "Today"
 msgstr "Today"
 
-#: src/screens/Notifications/components/PageList.tsx:537
+#: src/screens/Notifications/components/PageList.tsx:606
 msgctxt "Notifications section header"
 msgid "Today"
 msgstr "Today"
@@ -15502,7 +15613,9 @@ msgstr "Tree view"
 #. Header of the small Trending Topics home screen widget, next to the QuantZing logo. Keep it short.
 #: src/components/interstitials/FeedTrendingTopics.tsx:99
 #: src/features/trendingWidget/Sync.native.tsx:41
-#: src/screens/Search/modules/ExploreTrendingTopics.tsx:91
+#: src/screens/Search/Explore.tsx:1112
+#: src/screens/Search/Explore.tsx:1246
+#: src/screens/Search/modules/ExploreTrendingTopics.tsx:116
 msgid "Trending"
 msgstr "Trending"
 
@@ -15520,7 +15633,7 @@ msgid "Trending on QuantZing"
 msgstr "Trending on QuantZing"
 
 #: src/components/interstitials/FeedTrendingTopics.tsx:126
-#: src/screens/Search/modules/ExploreTrendingTopics.tsx:94
+#: src/screens/Search/modules/ExploreTrendingTopics.tsx:119
 #: src/view/shell/desktop/SidebarTrendingTopics.tsx:87
 msgid "Trending options"
 msgstr "Trending options"
@@ -15541,7 +15654,7 @@ msgstr "Trending videos"
 msgid "Trolling"
 msgstr "Trolling"
 
-#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:143
+#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:176
 msgid "Trust emerges from relationships, communities, and shared context, so we’re also enabling <0>trusted verifiers</0>: organizations that can directly issue verification."
 msgstr "Trust emerges from relationships, communities, and shared context, so we’re also enabling <0>trusted verifiers</0>: organizations that can directly issue verification."
 
@@ -15572,8 +15685,8 @@ msgstr "Try again in a moment."
 msgid "Try Google Translate"
 msgstr "Try Google Translate"
 
-#: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:165
-#: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:171
+#: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:182
+#: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:188
 msgid "Try it"
 msgstr "Try it"
 
@@ -15665,15 +15778,15 @@ msgstr "Unavailable feed information"
 #: src/components/moderation/BlockDialog.tsx:216
 #: src/components/moderation/BlockDialog.tsx:220
 #: src/screens/Messages/ConversationSettings/MemberMenu.tsx:227
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:218
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:417
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:492
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:220
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:421
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:499
 #: src/screens/ProfileList/components/Header.tsx:171
 #: src/screens/ProfileList/components/Header.tsx:178
 msgid "Unblock"
 msgstr "Unblock"
 
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:421
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:426
 msgctxt "action"
 msgid "Unblock"
 msgstr "Unblock"
@@ -15693,8 +15806,8 @@ msgstr "Unblock account"
 msgid "Unblock account?"
 msgstr "Unblock account?"
 
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:210
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:485
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:212
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:492
 msgid "Unblock Account?"
 msgstr "Unblock Account?"
 
@@ -15745,7 +15858,7 @@ msgid "Undo repost"
 msgstr "Undo rezing"
 
 #. placeholder {0}: profile.handle
-#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:448
+#: src/screens/Profile/Header/ProfileHeaderStandard.tsx:454
 msgid "Unfollow {0}"
 msgstr "Unfollow {0}"
 
@@ -15930,7 +16043,7 @@ msgstr "Unsupported video type: {mimeType}"
 msgid "Until"
 msgstr "Until"
 
-#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:192
+#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:206
 msgid "Up to 50 people"
 msgstr "Up to 50 people"
 
@@ -15955,9 +16068,9 @@ msgstr "Update email"
 msgid "Update in Lists"
 msgstr "Update in Lists"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:237
-#: src/screens/Messages/components/InviteLinkDialog.tsx:273
-#: src/screens/Messages/components/InviteLinkDialog.tsx:301
+#: src/screens/Messages/components/InviteLinkDialog.tsx:263
+#: src/screens/Messages/components/InviteLinkDialog.tsx:299
+#: src/screens/Messages/components/InviteLinkDialog.tsx:327
 msgid "Update invite link"
 msgstr "Update invite link"
 
@@ -15991,9 +16104,19 @@ msgctxt "toast"
 msgid "Updating reply visibility failed"
 msgstr "Updating reply visibility failed"
 
+#: src/screens/Onboarding/StepProfile/index.tsx:282
+#: src/screens/Onboarding/StepProfile/index.tsx:287
+msgid "Upload a different photo"
+msgstr "Upload a different photo"
+
+#: src/screens/Onboarding/StepProfile/index.tsx:270
+#: src/screens/Onboarding/StepProfile/index.tsx:274
+msgid "Upload a photo"
+msgstr "Upload a photo"
+
 #: src/screens/Onboarding/StepProfile/index.tsx:313
-msgid "Upload a photo instead"
-msgstr "Upload a photo instead"
+#~ msgid "Upload a photo instead"
+#~ msgstr "Upload a photo instead"
 
 #: src/screens/Settings/components/ChangeHandleDialog.tsx:485
 msgid "Upload a text file to:"
@@ -16131,19 +16254,19 @@ msgctxt "toast"
 msgid "User list updated"
 msgstr "User list updated"
 
-#: src/screens/Signup/StepHandle/index.tsx:283
+#: src/screens/Signup/StepHandle/index.tsx:284
 msgid "Username cannot be longer than {MAX_SERVICE_HANDLE_LENGTH, plural, other {# characters}}"
 msgstr "Username cannot be longer than {MAX_SERVICE_HANDLE_LENGTH, plural, other {# characters}}"
 
-#: src/screens/Signup/StepHandle/index.tsx:267
+#: src/screens/Signup/StepHandle/index.tsx:268
 msgid "Username cannot begin or end with a hyphen"
 msgstr "Username cannot begin or end with a hyphen"
 
-#: src/screens/Signup/StepHandle/index.tsx:216
+#: src/screens/Signup/StepHandle/index.tsx:217
 msgid "Username is available"
 msgstr "Username is available"
 
-#: src/screens/Signup/StepHandle/index.tsx:271
+#: src/screens/Signup/StepHandle/index.tsx:272
 msgid "Username must only contain letters (a-z), numbers, and hyphens"
 msgstr "Username must only contain letters (a-z), numbers, and hyphens"
 
@@ -16307,7 +16430,7 @@ msgstr "Video from {0}: {text}"
 msgid "Video from {0}. Tap to toggle controls"
 msgstr "Video from {0}. Tap to toggle controls"
 
-#: src/screens/Search/modules/ExploreTrendingTopics.tsx:265
+#: src/screens/Search/modules/ExploreTrendingTopics.tsx:287
 msgid "Video Games"
 msgstr "Video Games"
 
@@ -16635,6 +16758,10 @@ msgstr "Violence"
 msgid "Violent or threatening content"
 msgstr "Violent or threatening content"
 
+#: src/screens/Search/Explore.tsx:1247
+msgid "Viral"
+msgstr "Viral"
+
 #. placeholder {0}: view.title
 #. placeholder {1}: provider.name
 #: src/components/Post/Embed/AtCard/index.tsx:61
@@ -16855,7 +16982,7 @@ msgstr "We're having network issues, try again"
 msgid "We’re having network issues, try again"
 msgstr "We’re having network issues, try again"
 
-#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:98
+#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:113
 msgid "We’re introducing a new layer of verification on QuantZing — an easy-to-see checkmark."
 msgstr "We’re introducing a new layer of verification on QuantZing — an easy-to-see checkmark."
 
@@ -16951,7 +17078,7 @@ msgstr "Website"
 msgid "Welcome back!"
 msgstr "Welcome back!"
 
-#: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:64
+#: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:86
 msgid "Welcome to the social internet 😀"
 msgstr "Welcome to the social internet 😀"
 
@@ -16968,7 +17095,7 @@ msgid "What do you want to call your Starter Pack?"
 msgstr "What do you want to call your Starter Pack?"
 
 #: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:21
-#: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:33
+#: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:55
 msgid "What is the Atmosphere?"
 msgstr "What is the Atmosphere?"
 
@@ -16985,7 +17112,7 @@ msgstr "what’s up"
 msgid "What's up?"
 msgstr "What's zinging?"
 
-#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:151
+#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:184
 msgid "When you tap on a check, you’ll see which organizations have granted verification."
 msgstr "When you tap on a check, you’ll see which organizations have granted verification."
 
@@ -16997,7 +17124,7 @@ msgstr "Which link do you want to report?"
 msgid "Who can interact with this post?"
 msgstr "Who can interact with this Zing?"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:245
+#: src/screens/Messages/components/InviteLinkDialog.tsx:271
 msgid "Who can join this group chat and how"
 msgstr "Who can join this group chat and how"
 
@@ -17006,7 +17133,7 @@ msgstr "Who can join this group chat and how"
 msgid "Who can reply"
 msgstr "Who can reply"
 
-#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:132
+#: src/components/dialogs/nuxs/InitialVerificationAnnouncement.tsx:165
 msgid "Who can verify?"
 msgstr "Who can verify?"
 
@@ -17093,6 +17220,10 @@ msgstr "Wide / narrow"
 #: src/components/Gallery/Storybook.tsx:341
 msgid "Wide card"
 msgstr "Wide card"
+
+#: src/screens/Search/Explore.tsx:1249
+msgid "World"
+msgstr "World"
 
 #: src/components/dms/AfterReportDialog.tsx:51
 msgid "Would you like to block this user and/or delete this conversation?"
@@ -17182,7 +17313,7 @@ msgstr "Yes, reactivate my account"
 msgid "Yesterday"
 msgstr "Yesterday"
 
-#: src/components/verification/VerifierDialog.tsx:61
+#: src/components/verification/VerifierDialog.tsx:59
 msgid "You are a trusted verifier"
 msgstr "You are a trusted verifier"
 
@@ -17212,10 +17343,11 @@ msgid "You are currently blocked from using the Go Live feature. To appeal this 
 msgstr "You are currently blocked from using the Go Live feature. To appeal this moderation decision, please submit the form below."
 
 #: src/components/ageAssurance/AgeAssuranceAccountCard.tsx:125
-msgid "You are currently unable to access Bluesky's Age Assurance flow. Please <0>contact our moderation team</0> if you believe this is an error."
-msgstr "You are currently unable to access QuantZing's Age Assurance flow. Please <0>contact our moderation team</0> if you believe this is an error."
+#~ msgid "You are currently unable to access Bluesky's Age Assurance flow. Please <0>contact our moderation team</0> if you believe this is an error."
+#~ msgstr "You are currently unable to access QuantZing's Age Assurance flow. Please <0>contact our moderation team</0> if you believe this is an error."
 
 #: src/ageAssurance/components/NoAccessScreen.tsx:404
+#: src/components/ageAssurance/AgeAssuranceAccountCard.tsx:125
 msgid "You are currently unable to access QuantZing's Age Assurance flow. Please <0>contact our moderation team</0> if you believe this is an error."
 msgstr "You are currently unable to access QuantZing's Age Assurance flow. Please <0>contact our moderation team</0> if you believe this is an error."
 
@@ -17294,7 +17426,7 @@ msgstr "You can continue ongoing conversations regardless of which setting you c
 #~ msgid "You can now choose to be notified when specific people post. If there’s someone you want timely updates from, go to their profile and find the new bell icon near the follow button."
 #~ msgstr "You can now choose to be notified when specific people Zing. If there’s someone you want timely updates from, go to their profile and find the new bell icon near the follow button."
 
-#: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:154
+#: src/components/dialogs/nuxs/InviteFriendsAnnouncement.tsx:171
 msgid "You can now invite friends with a link or QR code. Share the link anywhere, or let them scan the code to join you on QuantZing."
 msgstr "You can now invite friends with a link or QR code. Share the link anywhere, or let them scan the code to join you on QuantZing."
 
@@ -17349,7 +17481,7 @@ msgstr "You can update this later from your settings."
 #~ msgid "You can use your Bluesky account to explore other Atmosphere apps for blogging, photos, livestreams, and more. You don't have to start over with a new account every time you try something new."
 #~ msgstr "You can use your QuantZing account to explore other Atmosphere apps for blogging, photos, livestreams, and more. You don't have to start over with a new account every time you try something new."
 
-#: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:43
+#: src/screens/Atmosphere/components/AboutAtmosphereDialog.tsx:65
 msgid "You can use your QuantZing account to explore other Atmosphere apps for blogging, photos, livestreams, and more. You don't have to start over with a new account every time you try something new."
 msgstr "You can use your QuantZing account to explore other Atmosphere apps for blogging, photos, livestreams, and more. You don't have to start over with a new account every time you try something new."
 
@@ -17686,7 +17818,7 @@ msgstr "You're all set!"
 msgid "You're all set! However, certain features may still be restricted until you're able to verify you're an adult."
 msgstr "You're all set! However, certain features may still be restricted until you're able to verify you're an adult."
 
-#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:199
+#: src/components/dialogs/nuxs/GroupChatsAnnouncement.tsx:213
 msgid "You’re in control"
 msgstr "You’re in control"
 
@@ -17877,7 +18009,7 @@ msgstr "Your appeal has been submitted and is awaiting review."
 msgid "Your appeal has been submitted. If your appeal succeeds, you will receive an email."
 msgstr "Your appeal has been submitted. If your appeal succeeds, you will receive an email."
 
-#: src/screens/Signup/StepInfo/index.tsx:291
+#: src/screens/Signup/StepInfo/index.tsx:326
 msgid "Your birth date"
 msgstr "Your birth date"
 
@@ -17931,13 +18063,17 @@ msgstr "Your email"
 
 #: src/screens/Login/ForgotPasswordForm.tsx:50
 #: src/screens/Settings/components/ChangePasswordDialog.tsx:82
-#: src/screens/Signup/state.ts:296
-#: src/screens/Signup/StepInfo/index.tsx:138
+#: src/screens/Signup/state.ts:336
+#: src/screens/Signup/StepInfo/index.tsx:141
 msgid "Your email appears to be invalid."
 msgstr "Your email appears to be invalid."
 
 #: src/components/dialogs/EmailDialog/screens/VerificationReminder.tsx:62
-msgid "Your email has not yet been verified. Please verify your email in order to enjoy all the features of Bluesky."
+#~ msgid "Your email has not yet been verified. Please verify your email in order to enjoy all the features of Bluesky."
+#~ msgstr "Your email has not yet been verified. Please verify your email in order to enjoy all the features of QuantZing."
+
+#: src/components/dialogs/EmailDialog/screens/VerificationReminder.tsx:62
+msgid "Your email has not yet been verified. Please verify your email in order to enjoy all the features of QuantZing."
 msgstr "Your email has not yet been verified. Please verify your email in order to enjoy all the features of QuantZing."
 
 #: src/state/shell/progress-guide.tsx:214
@@ -17958,7 +18094,11 @@ msgid "Your full handle will be <0>@{0}</0>"
 msgstr "Your full handle will be <0>@{0}</0>"
 
 #: src/screens/Login/components/HostingProviderDialog.tsx:182
-msgid "Your hosting provider can’t be detected from an email address, so the default Bluesky service will be used. Enter your username instead, or set your provider manually."
+#~ msgid "Your hosting provider can’t be detected from an email address, so the default Bluesky service will be used. Enter your username instead, or set your provider manually."
+#~ msgstr "Your hosting provider can’t be detected from an email address, so the default QuantZing service will be used. Enter your username instead, or set your provider manually."
+
+#: src/screens/Login/components/HostingProviderDialog.tsx:182
+msgid "Your hosting provider can’t be detected from an email address, so the default QuantZing service will be used. Enter your username instead, or set your provider manually."
 msgstr "Your hosting provider can’t be detected from an email address, so the default QuantZing service will be used. Enter your username instead, or set your provider manually."
 
 #: src/view/com/composer/state/video.ts:470
@@ -17986,7 +18126,7 @@ msgstr "Your interests have been updated!"
 msgid "Your interests help us find what you like!"
 msgstr "Your interests help us find what you like!"
 
-#: src/screens/Signup/StepInfo/index.tsx:365
+#: src/screens/Signup/StepInfo/index.tsx:401
 msgid "Your location has been updated."
 msgstr "Your location has been updated."
 
@@ -17994,7 +18134,11 @@ msgstr "Your location has been updated."
 msgid "Your muted words"
 msgstr "Your muted words"
 
-#: src/screens/Messages/components/InviteLinkDialog.tsx:209
+#: src/screens/Signup/StepInfo/index.tsx:214
+msgid "Your name"
+msgstr "Your name"
+
+#: src/screens/Messages/components/InviteLinkDialog.tsx:235
 msgid "Your name, avatar, the name of the group chat, and the number of members will be visible to everyone."
 msgstr "Your name, avatar, the name of the group chat, and the number of members will be visible to everyone."
 
@@ -18002,7 +18146,7 @@ msgstr "Your name, avatar, the name of the group chat, and the number of members
 msgid "Your note:"
 msgstr "Your note:"
 
-#: src/screens/Signup/StepInfo/index.tsx:165
+#: src/screens/Signup/StepInfo/index.tsx:168
 msgid "Your password must be at least 8 characters long."
 msgstr "Your password must be at least 8 characters long."
 
@@ -18033,10 +18177,10 @@ msgstr "Your preferred language"
 
 #: src/screens/Onboarding/StepFinished/ValuePropositionPager.tsx:111
 #: src/screens/Onboarding/StepFinished/ValuePropositionPager.web.tsx:54
-msgid "Your profile picture"
-msgstr "Your profile picture"
+#~ msgid "Your profile picture"
+#~ msgstr "Your profile picture"
 
-#: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:36
+#: src/screens/Onboarding/StepFinished/ValuePropositionPager.shared.tsx:43
 msgid "Your profile picture surrounded by concentric circles of other users' profile pictures"
 msgstr "Your profile picture surrounded by concentric circles of other users' profile pictures"
 

@@ -1,6 +1,5 @@
 import {useMemo} from 'react'
 import {View} from 'react-native'
-import {Image} from 'expo-image'
 import {LinearGradient} from 'expo-linear-gradient'
 import {msg} from '@lingui/core/macro'
 import {useLingui} from '@lingui/react'
@@ -10,6 +9,7 @@ import {HITSLOP_10} from '#/lib/constants'
 import {Nux, useNux, useSaveNux} from '#/state/queries/nuxs'
 import {atoms as a, useTheme} from '#/alf'
 import {Button} from '#/components/Button'
+import {PersonGroup_Stroke2_Corner2_Rounded as PersonGroupIcon} from '#/components/icons/Person'
 import {TimesLarge_Stroke2_Corner0_Rounded as XIcon} from '#/components/icons/Times'
 import {Text} from '#/components/Typography'
 import {useAnalytics} from '#/analytics'
@@ -52,16 +52,21 @@ export function FindContactsBannerNUX() {
               a.gap_lg,
               a.pl_lg,
             ]}>
-            <Image
-              source={require('../../../assets/images/find_friends_illustration_small.webp')}
-              accessibilityIgnoresInvertColors
+            <View
               style={[
-                {height: 70, aspectRatio: 573 / 286},
-                a.self_end,
-                a.mt_sm,
-              ]}
-              useAppleWebpCodec
-            />
+                a.align_center,
+                a.justify_center,
+                a.rounded_full,
+                {
+                  width: 48,
+                  height: 48,
+                  backgroundColor: 'rgba(29, 155, 240, 0.16)',
+                  borderWidth: 1,
+                  borderColor: 'rgba(29, 155, 240, 0.35)',
+                },
+              ]}>
+              <PersonGroupIcon size="lg" fill={t.palette.primary_500} />
+            </View>
             <View style={[a.flex_1, a.justify_center, a.py_xl, a.pr_5xl]}>
               <Text
                 style={[

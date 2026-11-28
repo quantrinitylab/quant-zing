@@ -4,6 +4,7 @@ import {
   Animated,
   Easing,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -387,6 +388,36 @@ export function QuantyScreen() {
   >('Auto')
   const [isListening, setIsListening] = useState(false)
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
+  const [showVoiceModal, setShowVoiceModal] = useState(false)
+  const [voiceInput, setVoiceInput] = useState('')
+  const voicePulseAnim = useRef(new Animated.Value(1)).current
+
+  useEffect(() => {
+    if (showVoiceModal) {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(voicePulseAnim, {
+            toValue: 1.18,
+            duration: 1000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(voicePulseAnim, {
+            toValue: 1,
+            duration: 1000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]),
+      )
+      loop.start()
+      return () => {
+        loop.stop()
+      }
+    } else {
+      voicePulseAnim.setValue(1)
+    }
+  }, [showVoiceModal, voicePulseAnim])
   const [feedbackMap, setFeedbackMap] = useState<
     Record<string, 'up' | 'down' | undefined>
   >({})
@@ -737,8 +768,7 @@ export function QuantyScreen() {
           const fallbackRes = await askQuanty({
             prompt: cleanPrompt,
             mode: toLegacyQuantyMode(effectiveMode),
-            ownerId:
-              currentAccount?.did || currentAccount?.handle || undefined,
+            ownerId: currentAccount?.did || currentAccount?.handle || undefined,
             postContext: postCtx || undefined,
             history: baseHistory,
             trendingTopics,
@@ -765,9 +795,12 @@ export function QuantyScreen() {
           updateSessionMessages(finalMessages, ensuredThreadId)
         }
       } catch {
-        Toast.show('Quanty could not complete that request. Please try again.', {
-          type: 'error',
-        })
+        Toast.show(
+          'Quanty could not complete that request. Please try again.',
+          {
+            type: 'error',
+          },
+        )
       } finally {
         setIsSending(false)
         isSendingRef.current = false
@@ -925,11 +958,7 @@ export function QuantyScreen() {
       for (let i = assistantIndex - 1; i >= 0; i--) {
         const candidate = messagesRef.current[i]
         if (candidate?.role === 'user' && candidate.content.trim()) {
-          void runQuery(
-            candidate.content,
-            candidate.mode || mode,
-            attachedPost,
-          )
+          void runQuery(candidate.content, candidate.mode || mode, attachedPost)
           return
         }
       }
@@ -963,15 +992,8 @@ export function QuantyScreen() {
   )
 
   const handleToggleSpeak = useCallback(() => {
-    if (isListening) {
-      try {
-        recognitionRef.current?.stop?.()
-      } catch {
-        // ignore
-      }
-      setIsListening(false)
-      return
-    }
+    setShowVoiceModal(true)
+    setVoiceInput(input)
 
     const win =
       IS_WEB && typeof window !== 'undefined'
@@ -984,8 +1006,13 @@ export function QuantyScreen() {
 
     if (SpeechRec) {
       try {
+        if (isListening) {
+          recognitionRef.current?.stop?.()
+          setIsListening(false)
+          return
+        }
         const rec = new SpeechRec()
-        rec.continuous = false
+        rec.continuous = true
         rec.interimResults = true
         rec.lang = 'en-US'
         rec.onstart = () => setIsListening(true)
@@ -994,23 +1021,56 @@ export function QuantyScreen() {
             .map(r => r[0]?.transcript)
             .filter(Boolean)
             .join('')
-          if (transcript) setInput(transcript)
+          if (transcript) {
+            setVoiceInput(transcript)
+            setInput(transcript)
+          }
         }
         rec.onerror = () => setIsListening(false)
         rec.onend = () => setIsListening(false)
         rec.start?.()
         recognitionRef.current = rec
-        Toast.show('Listening... Speak your prompt')
       } catch {
         setIsListening(false)
-        Toast.show('Voice mode ready — speak or type your prompt')
-        inputRef.current?.focus()
       }
     } else {
-      Toast.show('Voice prompt mode active — type or speak your query')
-      inputRef.current?.focus()
+      setIsListening(false)
     }
+  }, [input, isListening])
+
+  const handleCloseVoiceModal = useCallback(() => {
+    if (isListening) {
+      try {
+        recognitionRef.current?.stop?.()
+      } catch {
+        // ignore
+      }
+      setIsListening(false)
+    }
+    setShowVoiceModal(false)
   }, [isListening])
+
+  const handleSendFromVoiceModal = useCallback(() => {
+    const textToSend = voiceInput.trim() || input.trim()
+    if (!textToSend) return
+    handleCloseVoiceModal()
+    const targetMode: QuantyBridgeMode = textToSend.startsWith('/')
+      ? 'control'
+      : mode === 'deepsearch'
+        ? 'deepsearch'
+        : thinkActive
+          ? 'deepsearch'
+          : mode
+    void runQuery(textToSend, targetMode, attachedPost)
+  }, [
+    attachedPost,
+    handleCloseVoiceModal,
+    input,
+    mode,
+    runQuery,
+    thinkActive,
+    voiceInput,
+  ])
 
   const handleOpenPostUri = useCallback(
     (rawUri?: string, fallbackHandle?: string) => {
@@ -1131,8 +1191,7 @@ export function QuantyScreen() {
               web({cursor: 'pointer'}),
             ]}>
             <View style={[a.flex_row, a.align_center, a.gap_xs, a.flex_1]}>
-              <Text
-                style={[a.text_xs, a.font_semi_bold, {color: colors.text}]}>
+              <Text style={[a.text_xs, a.font_semi_bold, {color: colors.text}]}>
                 {hint.title}
               </Text>
               <Text
@@ -1275,7 +1334,9 @@ export function QuantyScreen() {
             }}
             onFocus={() => setComposerFocused(true)}
             onBlur={() => setComposerFocused(false)}
-            placeholder={variant === 'home' ? 'Ask anything' : 'Ask a follow-up'}
+            placeholder={
+              variant === 'home' ? 'Ask anything' : 'Ask a follow-up'
+            }
             placeholderTextColor={colors.muted}
             multiline={true}
             returnKeyType="send"
@@ -1295,7 +1356,9 @@ export function QuantyScreen() {
                   typeof (e as unknown as {preventDefault?: () => void})
                     .preventDefault === 'function'
                 ) {
-                  (e as unknown as {preventDefault: () => void}).preventDefault()
+                  ;(
+                    e as unknown as {preventDefault: () => void}
+                  ).preventDefault()
                 }
                 handleSubmitCurrent()
               }
@@ -1322,12 +1385,7 @@ export function QuantyScreen() {
 
           {/* Bottom Bar Inside Composer Card */}
           <View
-            style={[
-              a.flex_row,
-              a.align_center,
-              a.justify_between,
-              a.gap_xs,
-            ]}>
+            style={[a.flex_row, a.align_center, a.justify_between, a.gap_xs]}>
             <View style={[a.flex_row, a.align_center, {gap: 6}]}>
               {/* DeepSearch Toggle */}
               <Pressable
@@ -1338,7 +1396,9 @@ export function QuantyScreen() {
                 accessibilityState={{selected: isDeepSearch}}
                 onPress={() => {
                   setThinkActive(false)
-                  setMode(prev => (prev === 'deepsearch' ? 'ask' : 'deepsearch'))
+                  setMode(prev =>
+                    prev === 'deepsearch' ? 'ask' : 'deepsearch',
+                  )
                 }}
                 style={[
                   a.flex_row,
@@ -1706,12 +1766,7 @@ export function QuantyScreen() {
 
         {/* Right: Clean + New Chat Icon Button */}
         <View
-          style={[
-            a.flex_row,
-            a.align_center,
-            a.justify_end,
-            {minWidth: 72},
-          ]}>
+          style={[a.flex_row, a.align_center, a.justify_end, {minWidth: 72}]}>
           <Pressable
             testID="quantyNewChatBtn"
             accessibilityRole="button"
@@ -1745,11 +1800,7 @@ export function QuantyScreen() {
           },
         ]}>
         <View
-          style={[
-            a.w_full,
-            a.gap_lg,
-            {maxWidth: 680, alignSelf: 'center'},
-          ]}>
+          style={[a.w_full, a.gap_lg, {maxWidth: 680, alignSelf: 'center'}]}>
           {/* Server-Persisted Chat History Drawer */}
           {showThreadsDrawer && (
             <View
@@ -1771,8 +1822,7 @@ export function QuantyScreen() {
                   a.justify_between,
                   a.pb_2xs,
                 ]}>
-                <Text
-                  style={[a.text_xs, a.font_bold, {color: colors.muted}]}>
+                <Text style={[a.text_xs, a.font_bold, {color: colors.muted}]}>
                   Recent chats
                 </Text>
                 <Pressable
@@ -1810,7 +1860,9 @@ export function QuantyScreen() {
 
               {groupedThreads.totalCount === 0 ? (
                 <Text style={[a.text_xs, a.py_xs, {color: colors.muted}]}>
-                  {historySearch ? 'No matching chats found.' : 'No saved chats yet.'}
+                  {historySearch
+                    ? 'No matching chats found.'
+                    : 'No saved chats yet.'}
                 </Text>
               ) : (
                 [
@@ -1856,7 +1908,11 @@ export function QuantyScreen() {
                               accessibilityLabel={thread.title}
                               accessibilityHint=""
                               onPress={() => void handleSelectThread(thread)}
-                              style={[a.flex_1, a.gap_2xs, web({cursor: 'pointer'})]}>
+                              style={[
+                                a.flex_1,
+                                a.gap_2xs,
+                                web({cursor: 'pointer'}),
+                              ]}>
                               <Text
                                 numberOfLines={1}
                                 style={[
@@ -1868,7 +1924,9 @@ export function QuantyScreen() {
                               </Text>
                               <Text style={[a.text_2xs, {color: colors.muted}]}>
                                 {thread.messageCount}{' '}
-                                {thread.messageCount === 1 ? 'message' : 'messages'}
+                                {thread.messageCount === 1
+                                  ? 'message'
+                                  : 'messages'}
                               </Text>
                             </Pressable>
                             <Pressable
@@ -1988,7 +2046,12 @@ export function QuantyScreen() {
           {isEmpty ? (
             <View style={[a.gap_xl]}>
               {/* Centered Brand Mark & Crisp Title */}
-              <View style={[a.align_center, a.gap_md, {paddingTop: gtMobile ? 16 : 6}]}>
+              <View
+                style={[
+                  a.align_center,
+                  a.gap_md,
+                  {paddingTop: gtMobile ? 16 : 6},
+                ]}>
                 <View
                   style={[
                     a.align_center,
@@ -2615,19 +2678,27 @@ export function QuantyScreen() {
 
                       {/* Contextual Follow-up Suggestion Pills below latest Assistant message */}
                       {msgIdx === messages.length - 1 && !isSending && (
-                        <View style={[a.flex_row, a.flex_wrap, {gap: 6, paddingTop: 4}]}>
+                        <View
+                          style={[
+                            a.flex_row,
+                            a.flex_wrap,
+                            {gap: 6, paddingTop: 4},
+                          ]}>
                           {[
                             {
                               label: 'Make it shorter',
-                              prompt: 'Make the previous response shorter and punchier.',
+                              prompt:
+                                'Make the previous response shorter and punchier.',
                             },
                             {
                               label: 'Explain simply',
-                              prompt: 'Explain the previous response simply so anyone can understand.',
+                              prompt:
+                                'Explain the previous response simply so anyone can understand.',
                             },
                             {
                               label: 'Turn into a Zing thread',
-                              prompt: 'Turn this into an engaging multi-part Zing thread with numbered posts.',
+                              prompt:
+                                'Turn this into an engaging multi-part Zing thread with numbered posts.',
                             },
                           ].map(pill => (
                             <Pressable
@@ -2635,7 +2706,9 @@ export function QuantyScreen() {
                               accessibilityRole="button"
                               accessibilityLabel={pill.label}
                               accessibilityHint=""
-                              onPress={() => void runQuery(pill.prompt, mode, attachedPost)}
+                              onPress={() =>
+                                void runQuery(pill.prompt, mode, attachedPost)
+                              }
                               style={[
                                 a.px_sm,
                                 a.py_2xs,
@@ -2647,7 +2720,12 @@ export function QuantyScreen() {
                                 },
                                 web({cursor: 'pointer'}),
                               ]}>
-                              <Text style={[a.text_xs, a.font_semi_bold, {color: colors.text}]}>
+                              <Text
+                                style={[
+                                  a.text_xs,
+                                  a.font_semi_bold,
+                                  {color: colors.text},
+                                ]}>
                                 {pill.label}
                               </Text>
                             </Pressable>
@@ -2695,11 +2773,7 @@ export function QuantyScreen() {
           <View style={[{maxWidth: 680, width: '100%', alignSelf: 'center'}]}>
             {attachedPost && (
               <View
-                style={[
-                  a.flex_row,
-                  a.flex_wrap,
-                  {gap: 6, paddingBottom: 8},
-                ]}>
+                style={[a.flex_row, a.flex_wrap, {gap: 6, paddingBottom: 8}]}>
                 {[
                   {
                     label: 'Fact-check claims',
@@ -2752,6 +2826,214 @@ export function QuantyScreen() {
           </View>
         </View>
       )}
+
+      {/* Grok Voice Mode Modal with Obsidian #000000 Backdrop and Pulsing #1D9BF0 Voice Orb */}
+      <Modal
+        visible={showVoiceModal}
+        transparent={false}
+        animationType="fade"
+        onRequestClose={handleCloseVoiceModal}>
+        <View
+          testID="quantyVoiceModal"
+          style={[
+            a.flex_1,
+            a.justify_between,
+            a.align_center,
+            {
+              backgroundColor: '#000000',
+              paddingTop: Math.max(insets.top, 24),
+              paddingBottom: Math.max(insets.bottom, 24),
+              paddingHorizontal: 20,
+            },
+          ]}>
+          {/* Top Bar with Status and Dismiss button */}
+          <View
+            style={[
+              a.w_full,
+              a.flex_row,
+              a.align_center,
+              a.justify_between,
+              {maxWidth: 540},
+            ]}>
+            <View style={[a.flex_row, a.align_center, {gap: 8}]}>
+              <SparkleIcon size="sm" fill="#1D9BF0" />
+              <Text
+                style={[
+                  a.text_sm,
+                  a.font_bold,
+                  {color: '#FFFFFF', letterSpacing: -0.2},
+                ]}>
+                Quanty Voice
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close Quanty Voice"
+              accessibilityHint=""
+              onPress={handleCloseVoiceModal}
+              hitSlop={12}
+              style={[
+                a.align_center,
+                a.justify_center,
+                a.rounded_full,
+                {
+                  width: 36,
+                  height: 36,
+                  backgroundColor: '#16181C',
+                },
+                web({cursor: 'pointer'}),
+              ]}>
+              <CloseIcon size="sm" fill="#FFFFFF" />
+            </Pressable>
+          </View>
+
+          {/* Center: Animated/Pulsing #1D9BF0 Voice Orb */}
+          <View style={[a.align_center, a.justify_center, a.gap_xl]}>
+            <View
+              style={[
+                a.align_center,
+                a.justify_center,
+                {width: 220, height: 220},
+              ]}>
+              {/* Outer Glow Wave */}
+              <Animated.View
+                style={[
+                  a.absolute,
+                  a.rounded_full,
+                  {
+                    width: 190,
+                    height: 190,
+                    backgroundColor: 'rgba(29, 155, 240, 0.18)',
+                    transform: [{scale: voicePulseAnim}],
+                  },
+                ]}
+              />
+              {/* Middle Halo */}
+              <Animated.View
+                style={[
+                  a.absolute,
+                  a.rounded_full,
+                  {
+                    width: 150,
+                    height: 150,
+                    backgroundColor: 'rgba(29, 155, 240, 0.35)',
+                    transform: [{scale: voicePulseAnim}],
+                  },
+                ]}
+              />
+              {/* Core Orb */}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                  isListening ? 'Stop listening' : 'Start listening'
+                }
+                accessibilityHint=""
+                onPress={() => {
+                  if (isListening) {
+                    try {
+                      recognitionRef.current?.stop?.()
+                    } catch {
+                      // ignore
+                    }
+                    setIsListening(false)
+                  } else {
+                    handleToggleSpeak()
+                  }
+                }}
+                style={[
+                  a.align_center,
+                  a.justify_center,
+                  a.rounded_full,
+                  {
+                    width: 110,
+                    height: 110,
+                    backgroundColor: '#1D9BF0',
+                  },
+                  web({
+                    cursor: 'pointer',
+                    boxShadow: '0 0 40px rgba(29, 155, 240, 0.75)',
+                  }),
+                ]}>
+                <MicIcon size={40} fill="#FFFFFF" />
+              </Pressable>
+            </View>
+
+            {/* Status text */}
+            <View style={[a.align_center, a.gap_xs]}>
+              <Text
+                style={[
+                  a.text_xl,
+                  a.font_bold,
+                  {color: '#FFFFFF', letterSpacing: -0.3},
+                ]}>
+                {isListening ? 'Listening...' : 'Quanty Voice'}
+              </Text>
+              <Text style={[a.text_sm, {color: '#71767B'}]}>
+                {isListening
+                  ? 'Speak naturally, Quanty is listening'
+                  : 'Tap the orb or type your prompt below'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Bottom Quick Dictate or Type Prompt Box */}
+          <View style={[a.w_full, a.gap_md, {maxWidth: 540}]}>
+            <View
+              style={[
+                a.flex_row,
+                a.align_center,
+                a.gap_sm,
+                {
+                  borderRadius: 24,
+                  backgroundColor: '#16181C',
+                  borderWidth: 1,
+                  borderColor: '#2F3336',
+                  paddingHorizontal: 16,
+                  paddingVertical: 10,
+                },
+              ]}>
+              <TextInput
+                accessibilityLabel="Dictate or type your prompt"
+                accessibilityHint=""
+                value={voiceInput}
+                onChangeText={setVoiceInput}
+                placeholder="Dictate or type your prompt"
+                placeholderTextColor="#71767B"
+                style={[
+                  a.flex_1,
+                  a.text_md,
+                  {
+                    color: '#FFFFFF',
+                    minHeight: 28,
+                  },
+                  web({outlineStyle: 'none'}),
+                ]}
+                returnKeyType="send"
+                onSubmitEditing={handleSendFromVoiceModal}
+              />
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Send to Quanty"
+                accessibilityHint=""
+                disabled={!voiceInput.trim()}
+                onPress={handleSendFromVoiceModal}
+                style={[
+                  a.align_center,
+                  a.justify_center,
+                  a.rounded_full,
+                  {
+                    width: 38,
+                    height: 38,
+                    backgroundColor: voiceInput.trim() ? '#1D9BF0' : '#2F3336',
+                  },
+                  web({cursor: 'pointer'}),
+                ]}>
+                <ArrowUpIcon size="sm" fill="#FFFFFF" />
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Layout.Screen>
   )
 

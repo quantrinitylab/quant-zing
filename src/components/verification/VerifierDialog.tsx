@@ -1,5 +1,4 @@
 import {Text as RNText, View} from 'react-native'
-import {Image} from 'expo-image'
 import {msg} from '@lingui/core/macro'
 import {useLingui} from '@lingui/react'
 import {Trans} from '@lingui/react/macro'
@@ -7,7 +6,7 @@ import {Trans} from '@lingui/react/macro'
 // import {urls} from '#/lib/constants'
 import {getUserDisplayName} from '#/lib/getUserDisplayName'
 import {useSession} from '#/state/session'
-import {atoms as a, useBreakpoints, useTheme, web} from '#/alf'
+import {atoms as a, useBreakpoints, web} from '#/alf'
 import {Button, ButtonText} from '#/components/Button'
 import * as Dialog from '#/components/Dialog'
 import {VerifierCheck} from '#/components/icons/VerifierCheck'
@@ -49,7 +48,6 @@ function Inner({
   profile: bsky.profile.AnyProfileView
   verificationState: FullVerificationState
 }) {
-  const t = useTheme()
   const ax = useAnalytics()
   const {_} = useLingui()
   const {gtMobile} = useBreakpoints()
@@ -74,22 +72,31 @@ function Inner({
             a.w_full,
             a.rounded_md,
             a.overflow_hidden,
-            t.atoms.bg_contrast_25,
-            {minHeight: 100},
+            a.align_center,
+            a.justify_center,
+            a.py_xl,
+            {
+              minHeight: 110,
+              backgroundColor: '#16181C',
+              borderWidth: 1,
+              borderColor: '#2F3336',
+            },
           ]}>
-          <Image
-            accessibilityIgnoresInvertColors
-            source={require('../../../assets/images/initial_verification_announcement_1.png')}
+          <View
             style={[
+              a.align_center,
+              a.justify_center,
+              a.rounded_full,
               {
-                aspectRatio: 353 / 160,
+                width: 56,
+                height: 56,
+                backgroundColor: 'rgba(29, 155, 240, 0.14)',
+                borderWidth: 1,
+                borderColor: 'rgba(29, 155, 240, 0.35)',
               },
-            ]}
-            alt={_(
-              msg`An illustration showing that QuantZing selects trusted verifiers, and trusted verifiers in turn verify individual user accounts.`,
-            )}
-            useAppleWebpCodec
-          />
+            ]}>
+            <VerifierCheck width={28} />
+          </View>
         </View>
 
         <View style={[a.gap_sm]}>

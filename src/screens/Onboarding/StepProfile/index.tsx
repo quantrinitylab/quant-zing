@@ -4,7 +4,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react'
 import {View} from 'react-native'
@@ -15,8 +14,7 @@ import {
   launchImageLibraryAsync,
   UIImagePickerPreferredAssetRepresentationMode,
 } from 'expo-image-picker'
-import {useLingui} from '@lingui/react/macro'
-import {Trans} from '@lingui/react/macro'
+import {useLingui, Trans} from '@lingui/react/macro'
 
 import {IMAGE_SIZE_CONFIG_2K_1MB} from '#/lib/constants'
 import {usePhotoLibraryPermission} from '#/lib/hooks/usePermissions'
@@ -34,15 +32,8 @@ import {
 } from '#/screens/Onboarding/Layout'
 import {useOnboardingInternalState} from '#/screens/Onboarding/state'
 import {AvatarCircle} from '#/screens/Onboarding/StepProfile/AvatarCircle'
-import {AvatarCreatorCircle} from '#/screens/Onboarding/StepProfile/AvatarCreatorCircle'
-import {AvatarCreatorItems} from '#/screens/Onboarding/StepProfile/AvatarCreatorItems'
-import {
-  PlaceholderCanvas,
-  type PlaceholderCanvasRef,
-} from '#/screens/Onboarding/StepProfile/PlaceholderCanvas'
 import {atoms as a, useBreakpoints, useTheme} from '#/alf'
 import {Button, ButtonText} from '#/components/Button'
-import * as Dialog from '#/components/Dialog'
 import {useSheetWrapper} from '#/components/Dialog/sheet-wrapper'
 import {CircleInfo_Stroke2_Corner0_Rounded} from '#/components/icons/CircleInfo'
 import {Text} from '#/components/Typography'
@@ -83,19 +74,15 @@ export function StepProfile() {
   const {requestPhotoAccessIfNeeded} = usePhotoLibraryPermission()
   const requestNotificationsPermission = useRequestNotificationsPermission()
 
-  const creatorControl = Dialog.useDialogControl()
   const [error, setError] = useState('')
 
   const {state, dispatch} = useOnboardingInternalState()
   const [avatar, setAvatar] = useState<Avatar>({
     image: state.profileStepResults?.image,
-    placeholder: state.profileStepResults.creatorState?.emoji || emojiItems.at,
-    backgroundColor:
-      state.profileStepResults.creatorState?.backgroundColor || randomColor,
-    useCreatedAvatar: state.profileStepResults.isCreatedAvatar,
+    placeholder: emojiItems.at,
+    backgroundColor: randomColor,
+    useCreatedAvatar: false,
   })
-
-  const canvasRef = useRef<PlaceholderCanvasRef>(null)
 
   useEffect(() => {
     requestNotificationsPermission('StartOnboarding')
@@ -146,15 +133,8 @@ export function StepProfile() {
     [l, setError, sheetWrapper],
   )
 
-  const onContinue = useCallback(async () => {
-    let imageUri = avatar?.image?.path
-
-    // In the event that view-shot didn't load in time and the user pressed continue, this will just be undefined
-    // and the default avatar will be used. We don't want to block getting through create if this fails for some
-    // reason
-    if (!imageUri || avatar.useCreatedAvatar) {
-      imageUri = await canvasRef.current?.capture()
-    }
+  const onContinue = useCallback(() => {
+    const imageUri = avatar?.image?.path
 
     if (imageUri) {
       dispatch({
@@ -162,26 +142,14 @@ export function StepProfile() {
         image: avatar.image,
         imageUri,
         imageMime: avatar.image?.mime ?? 'image/jpeg',
-        isCreatedAvatar: avatar.useCreatedAvatar,
-        creatorState: {
-          emoji: avatar.placeholder,
-          backgroundColor: avatar.backgroundColor,
-        },
+        isCreatedAvatar: false,
+        creatorState: undefined,
       })
     }
 
     dispatch({type: 'next'})
     ax.metric('onboarding:profile:nextPressed', {})
   }, [ax, avatar, dispatch])
-
-  const onDoneCreating = useCallback(() => {
-    setAvatar(prev => ({
-      ...prev,
-      image: undefined,
-      useCreatedAvatar: true,
-    }))
-    creatorControl.close()
-  }, [creatorControl])
 
   const openLibrary = useCallback(async () => {
     if (!(await requestPhotoAccessIfNeeded())) {
@@ -232,14 +200,6 @@ export function StepProfile() {
     sheetWrapper,
   ])
 
-  const onSecondaryPress = useCallback(() => {
-    if (avatar.useCreatedAvatar) {
-      openLibrary()
-    } else {
-      creatorControl.open()
-    }
-  }, [avatar.useCreatedAvatar, creatorControl, openLibrary])
-
   const value = useMemo(
     () => ({
       avatar,
@@ -254,21 +214,15 @@ export function StepProfile() {
         <View style={[a.gap_sm]}>
           <OnboardingPosition />
           <OnboardingTitleText>
-            <Trans>Give your profile a face</Trans>
+            <Trans>Pick a profile picture</Trans>
           </OnboardingTitleText>
           <OnboardingDescriptionText>
-            <Trans>
-              Help people know you're not a bot by uploading a picture or
-              creating an avatar.
-            </Trans>
+            <Trans>Have a favorite photo? Upload it now.</Trans>
           </OnboardingDescriptionText>
         </View>
         <View
           style={[a.w_full, a.align_center, {paddingTop: gtMobile ? 80 : 60}]}>
-          <AvatarCircle
-            openLibrary={openLibrary}
-            openCreator={creatorControl.open}
-          />
+          <AvatarCircle openLibrary={openLibrary} openCreator={openLibrary} />
 
           {error && (
             <View
@@ -292,76 +246,53 @@ export function StepProfile() {
 
         <OnboardingControls.Portal>
           <View style={[a.gap_md, gtMobile && a.flex_row_reverse]}>
+            {avatar.image ? (
+              <Button
+                testID="onboardingContinue"
+                color="primary"
+                size="large"
+                label={l`Continue to next step`}
+                accessibilityHint=""
+                onPress={onContinue}>
+                <ButtonText>
+                  <Trans>Continue</Trans>
+                </ButtonText>
+              </Button>
+            ) : (
+              <Button
+                testID="onboardingUploadPhoto"
+                color="primary"
+                size="large"
+                label={l`Upload a photo`}
+                accessibilityHint=""
+                onPress={openLibrary}>
+                <ButtonText>
+                  <Trans>Upload a photo</Trans>
+                </ButtonText>
+              </Button>
+            )}
             <Button
-              testID="onboardingContinue"
-              color="primary"
+              testID={
+                avatar.image ? 'onboardingUploadPhoto' : 'onboardingContinue'
+              }
+              color="secondary"
               size="large"
-              label={l`Continue to next step`}
-              onPress={onContinue}>
+              label={
+                avatar.image ? l`Upload a different photo` : l`Skip for now`
+              }
+              accessibilityHint=""
+              onPress={avatar.image ? openLibrary : onContinue}>
               <ButtonText>
-                <Trans>Continue</Trans>
-              </ButtonText>
-            </Button>
-            <Button
-              testID="onboardingAvatarCreator"
-              color="primary_subtle"
-              size="large"
-              label={l`Open avatar creator`}
-              onPress={onSecondaryPress}>
-              <ButtonText>
-                {avatar.useCreatedAvatar ? (
-                  <Trans>Upload a photo instead</Trans>
+                {avatar.image ? (
+                  <Trans>Upload a different photo</Trans>
                 ) : (
-                  <Trans>Create an avatar instead</Trans>
+                  <Trans>Skip for now</Trans>
                 )}
               </ButtonText>
             </Button>
           </View>
         </OnboardingControls.Portal>
       </View>
-      <Dialog.Outer
-        control={creatorControl}
-        nativeOptions={{preventExpansion: true}}>
-        <Dialog.Handle />
-        <Dialog.ScrollableInner
-          label={l`Avatar creator`}
-          style={[
-            {
-              width: 'auto',
-              maxWidth: 410,
-              marginHorizontal: 'auto',
-            },
-          ]}>
-          <View style={[a.align_center, {paddingTop: 20}]}>
-            <AvatarCreatorCircle avatar={avatar} />
-          </View>
-
-          <View style={[a.pt_3xl, a.gap_lg]}>
-            <AvatarCreatorItems
-              type="emojis"
-              avatar={avatar}
-              setAvatar={setAvatar}
-            />
-            <AvatarCreatorItems
-              type="colors"
-              avatar={avatar}
-              setAvatar={setAvatar}
-            />
-          </View>
-          <View style={[a.pt_4xl]}>
-            <Button
-              color="primary"
-              size="large"
-              label={l`Done`}
-              onPress={onDoneCreating}>
-              <ButtonText>
-                <Trans>Done</Trans>
-              </ButtonText>
-            </Button>
-          </View>
-        </Dialog.ScrollableInner>
-      </Dialog.Outer>
-      <PlaceholderCanvas ref={canvasRef} />
     </AvatarContext.Provider>
   )
 }

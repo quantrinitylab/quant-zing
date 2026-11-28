@@ -432,7 +432,7 @@ export function CustomFeedHeader({
             authorDid: info.creatorDid,
             url: toShareUrl(info.route.href),
             title: l({
-              message: `“${info.displayName}” feed by @${info.creatorHandle} on Bluesky`,
+              message: `“${info.displayName}” feed by @${info.creatorHandle} on QuantZing`,
               comment:
                 'Prefilled subject line when sharing a feed to email or Reddit',
             }),
@@ -554,7 +554,7 @@ function DialogInner({
                 numberOfLines={1}
                 onPress={() => control.close()}>
                 {info.creatorHandle === TRENDING_HANDLE
-                  ? l`Bluesky`
+                  ? l`QuantZing`
                   : sanitizeHandle(info.creatorHandle, '@')}
               </InlineLinkText>
             </Trans>

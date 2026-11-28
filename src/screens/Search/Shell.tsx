@@ -7,12 +7,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import {
-  type StyleProp,
-  type TextInput,
-  View,
-  type ViewStyle,
-} from 'react-native'
+import {type TextInput, View} from 'react-native'
 import Animated, {
   Easing,
   FadeInDown,
@@ -31,7 +26,6 @@ import {useQueryClient} from '@tanstack/react-query'
 import {HITSLOP_10, HITSLOP_20} from '#/lib/constants'
 import {useNonReactiveCallback} from '#/lib/hooks/useNonReactiveCallback'
 import {useViewportZoomLock} from '#/lib/hooks/useViewportZoomLock'
-import {MagnifyingGlassIcon} from '#/lib/icons'
 import {
   type CommonNavigatorParams,
   type NavigationProp,
@@ -70,7 +64,6 @@ import {ArrowLeft_Stroke2_Corner0_Rounded as ArrowLeftIcon} from '#/components/i
 import {ArrowShareRight_Stroke2_Corner2_Rounded as ShareIcon} from '#/components/icons/ArrowShareRight'
 import * as Layout from '#/components/Layout'
 import * as Toast from '#/components/Toast'
-import {Text} from '#/components/Typography'
 import {useAnalytics} from '#/analytics'
 import {IS_NATIVE, IS_WEB} from '#/env'
 import {account, useStorage} from '#/storage'
@@ -523,7 +516,11 @@ export function SearchScreenShell({
   )
 
   const onShareSearch = useCallback(() => {
-    const url = new URL(typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://quantzing.quantrinity.in')
+    const url = new URL(
+      typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : 'https://quantzing.quantrinity.in',
+    )
     url.pathname = '/search'
     if (query) url.searchParams.set('q', query)
     for (const [key, value] of Object.entries(definedFilterParams(filters))) {
@@ -587,6 +584,7 @@ export function SearchScreenShell({
                       color="secondary"
                       shape="round"
                       label={l`Share this search`}
+                      accessibilityHint=""
                       onPress={onShareSearch}>
                       <ButtonIcon icon={ShareIcon} />
                     </Button>
@@ -614,6 +612,7 @@ export function SearchScreenShell({
                   {showAutocomplete && (
                     <Button
                       label={l`Cancel search`}
+                      accessibilityHint=""
                       size="small"
                       variant="ghost"
                       color="secondary"
@@ -656,6 +655,7 @@ export function SearchScreenShell({
                       color="secondary"
                       shape="round"
                       label={l`Share this search`}
+                      accessibilityHint=""
                       onPress={onShareSearch}>
                       <ButtonIcon icon={ShareIcon} />
                     </Button>
@@ -742,10 +742,6 @@ let SearchScreenInner = ({
   headerHeight: number
   focusSearchInput: (tab?: TabParam) => void
 }): React.ReactNode => {
-  const t = useTheme()
-  const {hasSession} = useSession()
-  const {gtTablet} = useBreakpoints()
-
   const onPageSelected = (index: number) => {
     setActiveTab(index)
   }
@@ -760,38 +756,8 @@ let SearchScreenInner = ({
       headerHeight={headerHeight}
       onPageSelected={onPageSelected}
     />
-  ) : hasSession ? (
-    <Explore focusSearchInput={focusSearchInput} headerHeight={headerHeight} />
   ) : (
-    <Layout.Center>
-      <View style={a.flex_1}>
-        {gtTablet && (
-          <View
-            style={[
-              a.border_b,
-              t.atoms.border_contrast_low,
-              a.px_lg,
-              a.pt_sm,
-              a.pb_lg,
-            ]}>
-            <Text style={[a.text_2xl, a.font_bold]}>
-              <Trans>Search</Trans>
-            </Text>
-          </View>
-        )}
-
-        <View style={[a.align_center, a.justify_center, a.py_4xl, a.gap_lg]}>
-          <MagnifyingGlassIcon
-            strokeWidth={3}
-            size={60}
-            style={t.atoms.text_contrast_medium as StyleProp<ViewStyle>}
-          />
-          <Text style={[t.atoms.text_contrast_medium, a.text_md]}>
-            Find Zings, people, and feeds on QuantZing
-          </Text>
-        </View>
-      </View>
-    </Layout.Center>
+    <Explore focusSearchInput={focusSearchInput} headerHeight={headerHeight} />
   )
 }
 SearchScreenInner = memo(SearchScreenInner)

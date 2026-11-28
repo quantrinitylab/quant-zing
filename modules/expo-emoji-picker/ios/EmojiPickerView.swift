@@ -16,12 +16,31 @@ class EmojiPickerView: ExpoView, MCEmojiPickerDelegate {
   }
 
   func presentEmojiPicker() {
-    let emojiPicker = MCEmojiPickerViewController()
-    let reactRootVC = reactViewController()
-    emojiPicker.sourceView = self
-    emojiPicker.delegate = self
-    emojiPicker.arrowDirection = preferredArrowDirection()
-    reactRootVC?.present(emojiPicker, animated: true)
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else { return }
+      guard let rootVC = self.findViewController() else { return }
+      var presentingVC = rootVC
+      while let presented = presentingVC.presentedViewController, !presented.isBeingDismissed {
+        presentingVC = presented
+      }
+
+      let emojiPicker = MCEmojiPickerViewController()
+      emojiPicker.sourceView = self
+      emojiPicker.delegate = self
+      emojiPicker.arrowDirection = self.preferredArrowDirection()
+      presentingVC.present(emojiPicker, animated: true)
+    }
+  }
+
+  private func findViewController() -> UIViewController? {
+    var responder: UIResponder? = self.next
+    while let current = responder {
+      if let vc = current as? UIViewController {
+        return vc
+      }
+      responder = current.next
+    }
+    return self.window?.rootViewController
   }
 
   /// If the trigger sits in the bottom third of the screen there isn't enough

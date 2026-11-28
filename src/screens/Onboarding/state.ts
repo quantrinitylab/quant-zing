@@ -79,7 +79,7 @@ export function createInitialOnboardingState(
   }: {
     starterPacksStepEnabled: boolean
     findContactsStepEnabled: boolean
-  } = {starterPacksStepEnabled: true, findContactsStepEnabled: false},
+  } = {starterPacksStepEnabled: false, findContactsStepEnabled: false},
 ): OnboardingState {
   const screens: OnboardingState['screens'] = {
     profile: true,

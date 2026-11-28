@@ -1,8 +1,6 @@
 import {useMemo, useReducer} from 'react'
 import {View} from 'react-native'
-import * as bcp47Match from 'bcp-47-match'
 
-import {useLanguagePrefs} from '#/state/preferences'
 import {
   Layout,
   OnboardingControls,
@@ -32,14 +30,8 @@ export function Onboarding() {
   const t = useTheme()
   const ax = useAnalytics()
 
-  const {contentLanguages} = useLanguagePrefs()
-  const probablySpeaksEnglish = useMemo(() => {
-    if (contentLanguages.length === 0) return true
-    return bcp47Match.basicFilter('en', contentLanguages).length > 0
-  }, [contentLanguages])
-
-  // Starter Packs screen is currently geared towards english-speaking accounts
-  const showSuggestedStarterpacks = ENV !== 'e2e' && probablySpeaksEnglish
+  // Starter Packs screen is currently disabled for X parity
+  const showSuggestedStarterpacks = false
 
   const findContactsEnabled =
     useIsFindContactsFeatureEnabledBasedOnGeolocation()
