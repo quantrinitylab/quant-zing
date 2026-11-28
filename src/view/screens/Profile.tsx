@@ -357,7 +357,7 @@ function ProfileScreenLoaded({
     showVideosTab ? _(msg`Videos`) : undefined,
     showLikesTab ? _(msg`Likes`) : undefined,
     showFeedsTab ? _(msg`Feeds`) : undefined,
-    _(msg`Articles`),
+    _(msg`Highlights`),
     showListsTab && !hasLabeler ? _(msg`Lists`) : undefined,
   ].filter(Boolean) as string[]
 

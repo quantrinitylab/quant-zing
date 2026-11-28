@@ -900,12 +900,12 @@ function MoreMenuItems({
         </Menu.Item>
         <Menu.Item
           testID="leftNavMorePro"
-          label="QuantZing Pro"
+          label="Premium"
           onPress={e => navigateFromMenu(e, '/premium', 'pro')}
           // @ts-expect-error href is web-only -prf
           href="/premium">
           <Menu.ItemIcon icon={VerifiedIcon} />
-          <Menu.ItemText>QuantZing Pro</Menu.ItemText>
+          <Menu.ItemText>Premium</Menu.ItemText>
         </Menu.Item>
       </Menu.Group>
       {(hasSession || showGetApp) && (

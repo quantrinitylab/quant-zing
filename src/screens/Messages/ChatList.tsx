@@ -96,11 +96,11 @@ export function MessagesScreen(props: Props) {
         aa.flags.chatDisabled ? null : (
           <Link
             to="/messages/settings"
-            label={l`Chat settings`}
+            label={l`Messages settings`}
             size="small"
             color="secondary">
             <ButtonText>
-              <Trans>Chat settings</Trans>
+              <Trans>Messages settings</Trans>
             </ButtonText>
           </Link>
         )
@@ -847,7 +847,7 @@ function ChatSettingsMenu({
             </Menu.ItemText>
           </Menu.Item>
           <Menu.Item
-            label={l`Chat settings`}
+            label={l`Messages settings`}
             onPress={() => {
               if (action === 'navigate') {
                 navigation.navigate('MessagesSettings')
@@ -857,7 +857,7 @@ function ChatSettingsMenu({
             }}>
             <Menu.ItemIcon icon={SettingsIcon} />
             <Menu.ItemText>
-              <Trans>Chat settings</Trans>
+              <Trans>Messages settings</Trans>
             </Menu.ItemText>
           </Menu.Item>
         </Menu.Group>

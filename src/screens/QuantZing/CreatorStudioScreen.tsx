@@ -18,11 +18,11 @@ import {atoms as a, useTheme} from '#/alf'
 import {Bookmark_Stroke2_Corner0_Rounded as BookmarkIcon} from '#/components/icons/Bookmark'
 import {Bubble_Stroke2_Corner2_Rounded as ReplyIcon} from '#/components/icons/Bubble'
 import {CircleCheck_Stroke2_Corner0_Rounded as CheckCircleIcon} from '#/components/icons/CircleCheck'
-import {Eye_Stroke2_Corner0_Rounded as EyeIcon} from '#/components/icons/Eye'
 import {Growth_Stroke2_Corner0_Rounded as GrowthIcon} from '#/components/icons/Growth'
 import {Heart2_Filled_Stroke2_Corner0_Rounded as HeartIcon} from '#/components/icons/Heart2'
 import {Repost_Stroke2_Corner2_Rounded as RezingIcon} from '#/components/icons/Repost'
 import {ShieldCheck_Stroke2_Corner0_Rounded as ShieldIcon} from '#/components/icons/Shield'
+import {Trending2_Stroke2_Corner2_Rounded as TrendingIcon} from '#/components/icons/Trending'
 import * as Layout from '#/components/Layout'
 import * as Toast from '#/components/Toast'
 import {Text} from '#/components/Typography'
@@ -113,9 +113,11 @@ export function CreatorStudioScreen() {
         ])
         setAnalytics(analyticsRes)
         setMonetization(monetizationRes)
-      } catch (err: any) {
+      } catch (err: unknown) {
         setErrorMessage(
-          err?.message || 'Unable to load creator analytics right now.',
+          err instanceof Error && err.message
+            ? err.message
+            : 'Unable to load creator analytics right now.',
         )
       } finally {
         setIsLoading(false)
@@ -157,7 +159,10 @@ export function CreatorStudioScreen() {
       if (!accessJwt || isEnrolling) return
       setIsEnrolling(true)
       try {
-        const res = await enrollCreatorMonetization(accessJwt, 'quantpay_wallet')
+        const res = await enrollCreatorMonetization(
+          accessJwt,
+          'quantpay_wallet',
+        )
         if (res?.monetization) {
           setMonetization(res.monetization)
         } else {
@@ -165,9 +170,11 @@ export function CreatorStudioScreen() {
           setMonetization(refreshed)
         }
         Toast.show('Creator monetization status updated', {type: 'success'})
-      } catch (err: any) {
+      } catch (err: unknown) {
         Toast.show(
-          err?.message || 'Could not complete creator enrollment right now',
+          err instanceof Error && err.message
+            ? err.message
+            : 'Could not complete creator enrollment right now',
           {type: 'error'},
         )
       } finally {
@@ -230,10 +237,10 @@ export function CreatorStudioScreen() {
 
   const meetsAllThresholds = Boolean(
     elig &&
-      elig.isPro &&
-      elig.followersCount >= elig.followersRequired &&
-      elig.postsCount >= elig.postsRequired &&
-      elig.impressions30d >= elig.impressionsRequired,
+    elig.isPro &&
+    elig.followersCount >= elig.followersRequired &&
+    elig.postsCount >= elig.postsRequired &&
+    elig.impressions30d >= elig.impressionsRequired,
   )
 
   return (
@@ -257,6 +264,7 @@ export function CreatorStudioScreen() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Refresh creator analytics"
+            accessibilityHint=""
             onPress={() => void loadStudioData(true)}
             style={[
               a.px_sm,
@@ -316,6 +324,7 @@ export function CreatorStudioScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Sign in to Creator Studio"
+              accessibilityHint=""
               onPress={() => requireAuth(() => {})}
               style={[
                 a.px_xl,
@@ -436,7 +445,7 @@ export function CreatorStudioScreen() {
                       label: 'Impressions',
                       value: formatCompact(totals?.impressions ?? 0),
                       sub: `${totals?.postsCount ?? 0} Zings in ${windowDays}d`,
-                      icon: <EyeIcon size="sm" fill={colors.accent} />,
+                      icon: <TrendingIcon size="sm" fill={colors.accent} />,
                     },
                     {
                       label: 'Engagement Rate',
@@ -606,6 +615,7 @@ export function CreatorStudioScreen() {
                             <View
                               key={day.date}
                               accessibilityLabel={`${day.date}: ${val} ${chartMetric}`}
+                              accessibilityHint=""
                               style={[
                                 a.flex_1,
                                 a.align_center,
@@ -674,7 +684,12 @@ export function CreatorStudioScreen() {
                         a.gap_sm,
                       ]}>
                       <View
-                        style={[a.flex_row, a.align_center, a.gap_xs, a.flex_1]}>
+                        style={[
+                          a.flex_row,
+                          a.align_center,
+                          a.gap_xs,
+                          a.flex_1,
+                        ]}>
                         <ShieldIcon size="md" fill={colors.rezing} />
                         <View style={[a.flex_1]}>
                           <Text
@@ -967,6 +982,7 @@ export function CreatorStudioScreen() {
                         key={post.uri}
                         accessibilityRole="button"
                         accessibilityLabel={`Open top Zing #${idx + 1}`}
+                        accessibilityHint=""
                         onPress={() => handleOpenPost(post)}
                         style={[
                           a.p_md,
@@ -1014,36 +1030,31 @@ export function CreatorStudioScreen() {
                             a.gap_md,
                             a.pt_2xs,
                           ]}>
-                          <View
-                            style={[a.flex_row, a.align_center, a.gap_2xs]}>
-                            <EyeIcon size="xs" fill={colors.accent} />
+                          <View style={[a.flex_row, a.align_center, a.gap_2xs]}>
+                            <TrendingIcon size="xs" fill={colors.accent} />
                             <Text style={[a.text_xs, {color: colors.muted}]}>
                               {formatCompact(post.viewCount)}
                             </Text>
                           </View>
-                          <View
-                            style={[a.flex_row, a.align_center, a.gap_2xs]}>
+                          <View style={[a.flex_row, a.align_center, a.gap_2xs]}>
                             <HeartIcon size="xs" fill={colors.like} />
                             <Text style={[a.text_xs, {color: colors.muted}]}>
                               {formatCompact(post.likeCount)}
                             </Text>
                           </View>
-                          <View
-                            style={[a.flex_row, a.align_center, a.gap_2xs]}>
+                          <View style={[a.flex_row, a.align_center, a.gap_2xs]}>
                             <RezingIcon size="xs" fill={colors.rezing} />
                             <Text style={[a.text_xs, {color: colors.muted}]}>
                               {formatCompact(post.repostCount)}
                             </Text>
                           </View>
-                          <View
-                            style={[a.flex_row, a.align_center, a.gap_2xs]}>
+                          <View style={[a.flex_row, a.align_center, a.gap_2xs]}>
                             <ReplyIcon size="xs" fill={colors.accent} />
                             <Text style={[a.text_xs, {color: colors.muted}]}>
                               {formatCompact(post.replyCount)}
                             </Text>
                           </View>
-                          <View
-                            style={[a.flex_row, a.align_center, a.gap_2xs]}>
+                          <View style={[a.flex_row, a.align_center, a.gap_2xs]}>
                             <BookmarkIcon size="xs" fill={colors.muted} />
                             <Text style={[a.text_xs, {color: colors.muted}]}>
                               {formatCompact(post.bookmarkCount)}
