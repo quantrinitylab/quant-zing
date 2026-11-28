@@ -656,7 +656,7 @@ function BaseChatItem({
                     )}
                     <Text
                       emoji
-                      numberOfLines={2}
+                      numberOfLines={1}
                       style={[
                         hasUnread ? a.font_medium : t.atoms.text_contrast_high,
                         isDimStyle && t.atoms.text_contrast_medium,

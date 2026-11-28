@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from 'react'
-import {type TextInput, View} from 'react-native'
+import {Pressable, type TextInput, View} from 'react-native'
 import {Plural, Trans, useLingui} from '@lingui/react/macro'
 import * as EmailValidator from 'email-validator'
 import type tldts from 'tldts'
@@ -23,6 +23,7 @@ import {createStaticClick, SimpleInlineLinkText} from '#/components/Link'
 import {Loader} from '#/components/Loader'
 import {usePreemptivelyCompleteActivePolicyUpdate} from '#/components/PolicyUpdateOverlay/usePreemptivelyCompleteActivePolicyUpdate'
 import * as Toast from '#/components/Toast'
+import {Text} from '#/components/Typography'
 import {MIN_ACCESS_AGE} from '#/ageAssurance/const'
 import {
   isUnderAge,
@@ -103,6 +104,7 @@ export function StepInfo({
   const isDeviceGeolocationGranted = useIsDeviceGeolocationGranted()
 
   const [hasWarnedEmail, setHasWarnedEmail] = useState<boolean>(false)
+  const [showAdvancedPds, setShowAdvancedPds] = useState<boolean>(false)
 
   const tldtsRef = useRef<typeof tldts>(undefined)
   useEffect(() => {
@@ -291,35 +293,11 @@ export function StepInfo({
                   returnKeyType="next"
                   submitBehavior={native('submit')}
                   onSubmitEditing={native(() =>
-                    passwordInputRef.current?.focus(),
+                    birthdateInputRef.current?.focus(),
                   )}
+                  accessibilityHint={l`Enter your email address`}
                 />
               </TextField.Root>
-            </View>
-            <View>
-              <TextField.LabelText>
-                <Trans>Password</Trans>
-              </TextField.LabelText>
-              <PasswordField
-                isInvalid={state.errorField === 'password'}
-                testID="passwordInput"
-                inputRef={passwordInputRef}
-                onChangeText={value => {
-                  dispatch({type: 'setPassword', value})
-                  if (state.errorField === 'password' && value.length >= 8) {
-                    dispatch({type: 'clearError'})
-                  }
-                }}
-                label={l`Choose your password`}
-                value={state.password}
-                autoComplete="new-password"
-                returnKeyType="next"
-                submitBehavior={native('blurAndSubmit')}
-                onSubmitEditing={native(() =>
-                  birthdateInputRef.current?.focus(),
-                )}
-                passwordRules="minlength: 8;"
-              />
             </View>
             <View>
               <DateField.LabelText>
@@ -344,6 +322,64 @@ export function StepInfo({
                 accessibilityHint={l`Select your date of birth`}
                 maximumDate={new Date()}
               />
+            </View>
+            <View>
+              <TextField.LabelText>
+                <Trans>Password</Trans>
+              </TextField.LabelText>
+              <PasswordField
+                isInvalid={state.errorField === 'password'}
+                testID="passwordInput"
+                inputRef={passwordInputRef}
+                onChangeText={value => {
+                  dispatch({type: 'setPassword', value})
+                  if (state.errorField === 'password' && value.length >= 8) {
+                    dispatch({type: 'clearError'})
+                  }
+                }}
+                label={l`Choose your password`}
+                value={state.password}
+                autoComplete="new-password"
+                returnKeyType="done"
+                submitBehavior={native('blurAndSubmit')}
+                onSubmitEditing={native(() => onNextPress())}
+                passwordRules="minlength: 8;"
+              />
+            </View>
+
+            <View style={[a.pt_2xs]}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Advanced custom PDS settings"
+                accessibilityHint=""
+                onPress={() => setShowAdvancedPds(prev => !prev)}
+                style={[a.flex_row, a.align_center, a.gap_xs, a.py_xs]}>
+                <Text style={[a.text_xs, {color: '#71767B'}]}>
+                  {showAdvancedPds
+                    ? '▾ Hide Advanced / Custom PDS'
+                    : '▸ Advanced / Custom PDS'}
+                </Text>
+              </Pressable>
+              {showAdvancedPds && (
+                <View style={[a.pt_xs, a.gap_xs]}>
+                  <TextField.LabelText>
+                    <Trans>Custom PDS URL</Trans>
+                  </TextField.LabelText>
+                  <TextField.Root>
+                    <TextField.Input
+                      label={l`Custom PDS URL`}
+                      accessibilityHint={l`Enter custom PDS URL`}
+                      value={state.serviceUrl}
+                      onChangeText={value => {
+                        dispatch({type: 'setServiceUrl', value: value.trim()})
+                      }}
+                      placeholder="https://quantzing.quantrinity.in"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                  </TextField.Root>
+                </View>
+              )}
             </View>
 
             <View style={[a.gap_sm]}>

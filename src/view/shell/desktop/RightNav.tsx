@@ -2,6 +2,7 @@ import {useEffect, useMemo, useState} from 'react'
 import {View} from 'react-native'
 import {useNavigation} from '@react-navigation/native'
 
+import {useHaptics} from '#/lib/haptics'
 import {
   fetchQuantZingNewsBriefing,
   fetchZingSpaces,
@@ -10,18 +11,26 @@ import {
   type QuantZingSpace,
   stripEmojisAndSymbols,
 } from '#/lib/quantos/client'
-import {useSession} from '#/state/session'
+import {useProfileShadow} from '#/state/cache/profile-shadow'
+import {
+  useProfileFollowMutationQueue,
+  useProfileQuery,
+} from '#/state/queries/profile'
+import {useRequireAuth, useSession} from '#/state/session'
+import {UserAvatar} from '#/view/com/util/UserAvatar'
 import {DesktopFeeds} from '#/view/shell/desktop/Feeds'
 import {DesktopSearch} from '#/view/shell/desktop/Search'
 import {SidebarTrendingTopics} from '#/view/shell/desktop/SidebarTrendingTopics'
 import {SidebarWhoToFollow} from '#/view/shell/desktop/SidebarWhoToFollow'
 import {atoms as a, useLayoutBreakpoints, useTheme, web} from '#/alf'
 import {AppLanguageDropdown} from '#/components/AppLanguageDropdown'
+import {Button, ButtonText} from '#/components/Button'
 import {CENTER_COLUMN_OFFSET} from '#/components/Layout'
 import {InlineLinkText, Link} from '#/components/Link'
 import {ProgressGuideList} from '#/components/ProgressGuide/List'
 import {Text} from '#/components/Typography'
 import {SidebarLiveEventFeedsBanner} from '#/features/liveEvents/components/SidebarLiveEventFeedsBanner'
+import {type app} from '#/lexicons'
 
 function useWebQueryParams() {
   const navigation = useNavigation()
@@ -40,11 +49,102 @@ function useWebQueryParams() {
   return params
 }
 
+function SidebarRelevantPeople({handle}: {handle: string}) {
+  const {data: profile, isLoading} = useProfileQuery({did: handle})
+  if (!handle || isLoading || !profile) return null
+  return <SidebarRelevantPeopleInner rawProfile={profile} />
+}
+
+function SidebarRelevantPeopleInner({
+  rawProfile,
+}: {
+  rawProfile: app.bsky.actor.defs.ProfileViewDetailed
+}) {
+  const t = useTheme()
+  const profile = useProfileShadow(rawProfile)
+  const [queueFollow, queueUnfollow] = useProfileFollowMutationQueue(
+    profile,
+    'ProfileCard',
+  )
+  const requireAuth = useRequireAuth()
+  const haptics = useHaptics()
+  const {currentAccount} = useSession()
+
+  const isMe = currentAccount?.did === profile.did
+  const isFollowing = Boolean(profile.viewer?.following)
+
+  const onPressFollow = () => {
+    haptics.confirm()
+    requireAuth(async () => {
+      if (isFollowing) {
+        await queueUnfollow()
+      } else {
+        await queueFollow()
+      }
+    })
+  }
+
+  return (
+    <View
+      testID="sidebarRelevantPeopleCard"
+      style={[
+        a.w_full,
+        t.atoms.bg_contrast_25,
+        a.rounded_lg,
+        a.border,
+        t.atoms.border_contrast_low,
+        a.p_md,
+        a.gap_sm,
+      ]}>
+      <Text
+        style={[
+          {fontSize: 20, fontWeight: '800', lineHeight: 24},
+          t.atoms.text,
+        ]}>
+        Relevant people
+      </Text>
+      <View style={[a.flex_row, a.align_center, a.gap_sm]}>
+        <UserAvatar size={40} avatar={profile.avatar} type="user" />
+        <View style={[a.flex_1, a.gap_2xs]}>
+          <Text numberOfLines={1} style={[a.text_sm, a.font_bold, t.atoms.text]}>
+            {profile.displayName || profile.handle}
+          </Text>
+          <Text
+            numberOfLines={1}
+            style={[a.text_xs, t.atoms.text_contrast_medium]}>
+            @{profile.handle}
+          </Text>
+        </View>
+        {!isMe && (
+          <Button
+            size="small"
+            color={isFollowing ? 'secondary' : 'primary'}
+            label={isFollowing ? 'Following' : 'Follow'}
+            accessibilityHint=""
+            onPress={onPressFollow}>
+            <ButtonText>
+              {isFollowing ? 'Following' : 'Follow'}
+            </ButtonText>
+          </Button>
+        )}
+      </View>
+      {profile.description ? (
+        <Text
+          numberOfLines={3}
+          style={[a.text_xs, a.leading_snug, t.atoms.text_contrast_medium]}>
+          {profile.description}
+        </Text>
+      ) : null}
+    </View>
+  )
+}
+
 export function DesktopRightNav({routeName}: {routeName: string}) {
   const t = useTheme()
   const colors = useMemo(() => getQuantZingColors(t.name), [t.name])
   const {hasSession} = useSession()
   const isSearchScreen = routeName === 'Search'
+  const isPostThreadScreen = routeName === 'PostThread'
   const isMessagesRelatedScreen = routeName.startsWith('Messages')
   const webqueryParams = useWebQueryParams()
   const searchQuery = webqueryParams?.q
@@ -371,6 +471,10 @@ export function DesktopRightNav({routeName}: {routeName: string}) {
               )
             })}
           </View>
+        )}
+
+        {isPostThreadScreen && !!webqueryParams?.name && (
+          <SidebarRelevantPeople handle={webqueryParams.name} />
         )}
 
         <SidebarWhoToFollow />

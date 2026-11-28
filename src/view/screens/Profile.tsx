@@ -717,7 +717,7 @@ function ProfileScreenLoaded({
           onPress={onPressCompose}
           icon={<EditBigIcon size="lg" fill={t.palette.white} />}
           accessibilityRole="button"
-          accessibilityLabel={_(msg`New post`)}
+          accessibilityLabel={_(msg`New Zing`)}
           accessibilityHint=""
         />
       )}

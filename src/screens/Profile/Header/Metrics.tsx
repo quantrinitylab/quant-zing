@@ -34,23 +34,25 @@ export function ProfileHeaderMetrics({
       style={[a.flex_row, a.align_center, {gap: 10}]}
       pointerEvents="box-none">
       <InlineLinkText
-        testID="profileHeaderFollowersButton"
-        style={[a.flex_row, t.atoms.text]}
-        to={makeProfileLink(profile, 'followers')}
-        label={`${profile.followersCount || 0} ${pluralizedFollowers}`}>
-        <Text style={[a.font_semi_bold, a.text_md]}>{followers} </Text>
-        <Text style={[t.atoms.text_contrast_medium, a.text_md]}>
-          {pluralizedFollowers}
-        </Text>
-      </InlineLinkText>
-      <InlineLinkText
         testID="profileHeaderFollowsButton"
         style={[a.flex_row, t.atoms.text]}
         to={makeProfileLink(profile, 'follows')}
-        label={_(msg`${profile.followsCount || 0} following`)}>
+        label={_(msg`${profile.followsCount || 0} following`)}
+        accessibilityHint="">
         <Text style={[a.font_semi_bold, a.text_md]}>{following} </Text>
         <Text style={[t.atoms.text_contrast_medium, a.text_md]}>
           {pluralizedFollowings}
+        </Text>
+      </InlineLinkText>
+      <InlineLinkText
+        testID="profileHeaderFollowersButton"
+        style={[a.flex_row, t.atoms.text]}
+        to={makeProfileLink(profile, 'followers')}
+        label={`${profile.followersCount || 0} ${pluralizedFollowers}`}
+        accessibilityHint="">
+        <Text style={[a.font_semi_bold, a.text_md]}>{followers} </Text>
+        <Text style={[t.atoms.text_contrast_medium, a.text_md]}>
+          {pluralizedFollowers}
         </Text>
       </InlineLinkText>
       <Text style={[a.font_semi_bold, t.atoms.text, a.text_md]}>

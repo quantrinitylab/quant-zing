@@ -140,7 +140,7 @@ export function PostThread({uri}: {uri: string}) {
       }
     },
   )
-  const onReplyToAnchor = useNonReactiveCallback(() => {
+  const onReplyToAnchor = useNonReactiveCallback((initialText?: string) => {
     if (anchor?.type !== 'threadPost') {
       return
     }
@@ -155,6 +155,7 @@ export function PostThread({uri}: {uri: string}) {
         moderation: anchor.moderation,
         langs: post.record.langs,
       },
+      text: typeof initialText === 'string' ? initialText : undefined,
       onPostSuccess: optimisticOnPostReply,
       logContext: 'PostReply',
     })

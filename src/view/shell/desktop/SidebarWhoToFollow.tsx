@@ -19,7 +19,11 @@ import {type app} from '#/lexicons'
 
 const SUGGESTED_LIMIT = 2
 
-export function SidebarWhoToFollow() {
+export function SidebarWhoToFollow({
+  title = 'You might like',
+}: {
+  title?: string
+} = {}) {
   const t = useTheme()
   const {data, error, isLoading} = useGetSuggestedUsersForDiscoverQuery({
     limit: SUGGESTED_LIMIT,
@@ -50,7 +54,7 @@ export function SidebarWhoToFollow() {
       ]}>
       <View style={[a.px_lg, a.pt_md, a.pb_xs]}>
         <Text style={[a.text_xl, a.font_bold, t.atoms.text]}>
-          Who to follow
+          {title}
         </Text>
       </View>
 
@@ -152,7 +156,7 @@ function SuggestedProfileRow({
     profile.displayName || sanitizeHandle(profile.handle),
   )
     .replace(
-      /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{25A0}-\u{25FF}\u{2B00}-\u{2BFF}\u{FE0E}\u{FE0F}\u{200D}]/gu,
+      /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{25A0}-\u{25FF}\u{2B00}-\u{2BFF}]|[\u{FE0E}\u{FE0F}\u{200D}]/gu,
       '',
     )
     .trim() || sanitizeHandle(profile.handle)

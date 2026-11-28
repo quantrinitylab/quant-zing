@@ -1,4 +1,4 @@
-import {useEffect, useEffectEvent, useRef, useState} from 'react'
+import {useCallback, useEffect, useEffectEvent, useRef, useState} from 'react'
 import {Pressable, View} from 'react-native'
 import {
   useKeyboardHandler,
@@ -23,6 +23,7 @@ import {HITSLOP_10, MAX_DM_GRAPHEME_LENGTH} from '#/lib/constants'
 import {PressableScale} from '#/lib/custom-animations/PressableScale'
 import {useHaptics} from '#/lib/haptics'
 import {useNonReactiveCallback} from '#/lib/hooks/useNonReactiveCallback'
+import {openPicker} from '#/lib/media/picker'
 import {
   type CommonNavigatorParams,
   type NavigationProp,
@@ -33,16 +34,20 @@ import {
   useMessageDraft,
   useSaveMessageDraft,
 } from '#/state/messages/message-drafts'
+import {SelectGifBtn} from '#/view/com/composer/photos/SelectGifBtn'
 import {atoms as a, native, platform, tokens, useTheme, utils} from '#/alf'
+import {Button, ButtonIcon} from '#/components/Button'
 import {Composer, useComposerInternalApiRef} from '#/components/Composer'
 import {useMessageReplies} from '#/components/dms/MessageReplies'
 import * as EmojiPicker from '#/components/EmojiPicker'
 import {GlassView} from '#/components/GlassView'
 import {EmojiArc_Stroke2_Corner0_Rounded as EmojiSmileIcon} from '#/components/icons/Emoji'
+import {Image_Stroke2_Corner2_Rounded as ImageIcon} from '#/components/icons/Image'
 import {PaperPlaneVertical_Filled_Stroke2_Corner1_Rounded as PaperPlaneIcon} from '#/components/icons/PaperPlane'
 import {Loader} from '#/components/Loader'
 import * as Toast from '#/components/Toast'
 import {IS_ANDROID, IS_IOS, IS_LIQUID_GLASS, IS_NATIVE, IS_WEB} from '#/env'
+import {type Gif} from '#/features/gifPicker/types'
 import {type chat} from '#/lexicons'
 import {getMessageComposerHorizontalPadding} from './messageComposerLayout'
 import {type MessageEmbedState} from './MessageInputEmbed'
@@ -200,6 +205,33 @@ export function MessageComposer({
   }
 
   const isFlushingAutocorrectSuggestion = useRef(false)
+  const onPressAttachPhoto = useCallback(async () => {
+    try {
+      const res = await openPicker({
+        mediaTypes: ['images'],
+        selectionLimit: 1,
+      })
+      if (res?.[0]?.path) {
+        Toast.show(l`Photo attached`)
+        const photoUri = res[0].path
+        composerInternalApiRef.current?.insert(photoUri)
+        setText(prev => (prev ? `${prev} ${photoUri}` : photoUri))
+      }
+    } catch {
+      // ignore
+    }
+  }, [l, composerInternalApiRef])
+
+  const onSelectGif = useCallback(
+    (gif: Gif) => {
+      const gifUrl = gif.media_formats?.gif?.url
+      if (gifUrl) {
+        composerInternalApiRef.current?.insert(gifUrl)
+        setText(prev => (prev ? `${prev} ${gifUrl}` : gifUrl))
+      }
+    },
+    [composerInternalApiRef],
+  )
   const handleSubmit = () => {
     if (IS_IOS) {
       // HACKFIX: If there's a pending autocomplete suggestion, iOS will prioritize
@@ -247,8 +279,27 @@ export function MessageComposer({
             void composerInternalApiRef.current?.setAutocompleteAnchor(node),
         )}>
         <GlassContainer
-          style={[a.w_full, a.flex_row, a.gap_sm, a.align_end]}
+          style={[a.w_full, a.flex_row, a.gap_xs, a.align_end]}
           spacing={tokens.space.sm}>
+          <View
+            style={[
+              a.flex_row,
+              a.align_center,
+              a.gap_2xs,
+              {marginBottom: 2},
+            ]}>
+            <Button
+              label={l`Attach photo`}
+              accessibilityHint=""
+              size="small"
+              variant="ghost"
+              color="secondary"
+              shape="round"
+              onPress={() => void onPressAttachPhoto()}>
+              <ButtonIcon icon={ImageIcon} size="md" />
+            </Button>
+            <SelectGifBtn onSelectGif={onSelectGif} />
+          </View>
           <GlassView
             isInteractive
             glassEffectStyle="regular"

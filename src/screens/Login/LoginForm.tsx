@@ -1,5 +1,5 @@
 import {useRef, useState} from 'react'
-import {Keyboard, type TextInput, View} from 'react-native'
+import {Keyboard, Pressable, type TextInput, View} from 'react-native'
 import {LexAuthFactorError} from '@atproto/lex-password-session'
 import {Trans, useLingui} from '@lingui/react/macro'
 
@@ -71,6 +71,7 @@ export const LoginForm = ({
   const [identifier, setIdentifier] = useState(initialHandle || '')
   const [password, setPassword] = useState('')
   const [authFactorToken, setAuthFactorToken] = useState('')
+  const [showAdvancedPds, setShowAdvancedPds] = useState(false)
   const identifierRef = useRef<React.ComponentRef<typeof TextInput>>(null)
   const passwordRef = useRef<React.ComponentRef<typeof TextInput>>(null)
   const hasFocusedOnce = useRef(false)
@@ -273,6 +274,41 @@ export const LoginForm = ({
               <Trans>Forgot password?</Trans>
             </ButtonText>
           </Button>
+        )}
+      </View>
+
+      <View style={[a.pt_xs]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Advanced custom PDS settings"
+          accessibilityHint=""
+          onPress={() => setShowAdvancedPds(prev => !prev)}
+          style={[a.flex_row, a.align_center, a.gap_xs, a.py_xs]}>
+          <Text style={[a.text_xs, t.atoms.text_contrast_medium]}>
+            {showAdvancedPds
+              ? '▾ Hide Advanced / Custom PDS'
+              : '▸ Advanced / Custom PDS'}
+          </Text>
+        </Pressable>
+        {showAdvancedPds && (
+          <View style={[a.pt_xs, a.gap_xs]}>
+            <TextField.LabelText>
+              <Trans>Custom PDS URL</Trans>
+            </TextField.LabelText>
+            <TextField.Root>
+              <TextField.Input
+                label={l`Custom PDS URL`}
+                accessibilityHint={l`Enter custom PDS URL`}
+                value={serviceUrl}
+                onChangeText={v => {
+                  _setServiceUrl?.(v.trim())
+                }}
+                placeholder="https://quantzing.quantrinity.in"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </TextField.Root>
+          </View>
         )}
       </View>
 

@@ -79,6 +79,7 @@ export function StepInterests() {
           ? l`Choose an interest`
           : l`Continue to next step`
       }
+      accessibilityHint=""
       onPress={() => void saveInterests()}>
       <ButtonText style={{pointerEvents: 'none'}}>
         {missingRequiredInterest ? (
@@ -95,7 +96,7 @@ export function StepInterests() {
     <View style={[a.align_start, a.gap_sm]} testID="onboardingInterests">
       <OnboardingPosition />
       <OnboardingTitleText>
-        <Trans>What are your interests?</Trans>
+        <Trans>What do you want to see on QuantZing?</Trans>
       </OnboardingTitleText>
       <OnboardingDescriptionText>
         {interestRequired ? (

@@ -295,7 +295,7 @@ export function ChatList({
   const initialNumToRender = useInitialNumToRender({minItemHeight: 80})
   const [isPTRing, setIsPTRing] = useState(false)
   const [dmSearch, setDmSearch] = useState('')
-  const [dmFilter, setDmFilter] = useState<'all' | 'unread'>('all')
+  const [dmFilter, setDmFilter] = useState<'all' | 'unread' | 'groups'>('all')
   const navigation = useNavigation<NavigationProp>()
   const {data: unreadCounts} = useUnreadCountsQuery()
   const requestCount = unreadCounts?.unreadRequestConvos ?? 0
@@ -327,6 +327,12 @@ export function ChatList({
       let allConvos = data.pages.flatMap(page => page.convos)
       if (dmFilter === 'unread') {
         allConvos = allConvos.filter(convo => convo.unreadCount > 0)
+      } else if (dmFilter === 'groups') {
+        allConvos = allConvos.filter(
+          convo =>
+            convo.members.length > 2 ||
+            Boolean((convo as unknown as {isGroup?: boolean}).isGroup),
+        )
       }
       const q = dmSearch.trim().toLowerCase()
       const filtered = q
@@ -546,6 +552,8 @@ export function ChatList({
               <PressableWithHover
                 testID="dmFilterAll"
                 accessibilityRole="button"
+                accessibilityLabel="All messages"
+                accessibilityHint=""
                 onPress={() => setDmFilter('all')}
                 style={[
                   a.rounded_full,
@@ -575,6 +583,8 @@ export function ChatList({
               <PressableWithHover
                 testID="dmFilterUnread"
                 accessibilityRole="button"
+                accessibilityLabel="Unread messages"
+                accessibilityHint=""
                 onPress={() => setDmFilter('unread')}
                 style={[
                   a.rounded_full,
@@ -602,8 +612,41 @@ export function ChatList({
                 </Text>
               </PressableWithHover>
               <PressableWithHover
+                testID="dmFilterGroups"
+                accessibilityRole="button"
+                accessibilityLabel="Group messages"
+                accessibilityHint=""
+                onPress={() => setDmFilter('groups')}
+                style={[
+                  a.rounded_full,
+                  a.px_md,
+                  {paddingVertical: 5},
+                  dmFilter === 'groups'
+                    ? {backgroundColor: '#1D9BF0'}
+                    : [
+                        t.atoms.bg_contrast_25,
+                        {borderWidth: 1, borderColor: t.palette.contrast_100},
+                      ],
+                ]}
+                hoverStyle={
+                  dmFilter === 'groups' ? undefined : t.atoms.bg_contrast_50
+                }>
+                <Text
+                  style={[
+                    a.text_sm,
+                    a.font_bold,
+                    dmFilter === 'groups'
+                      ? {color: '#FFFFFF'}
+                      : t.atoms.text_contrast_medium,
+                  ]}>
+                  Groups
+                </Text>
+              </PressableWithHover>
+              <PressableWithHover
                 testID="dmFilterRequests"
                 accessibilityRole="button"
+                accessibilityLabel="Message requests"
+                accessibilityHint=""
                 onPress={() => navigation.navigate('MessagesInbox')}
                 style={[
                   a.rounded_full,

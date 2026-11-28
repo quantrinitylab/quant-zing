@@ -774,6 +774,7 @@ function NotificationsHeader({
             <Link
               to={{screen: 'NotificationSettings'}}
               label={l`Notification settings`}
+              accessibilityHint=""
               size="small"
               variant="ghost"
               color="secondary"

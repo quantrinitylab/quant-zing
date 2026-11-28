@@ -438,13 +438,16 @@ const ThreadItemAnchorInner = memo(function ThreadItemAnchorInner({
                   t.atoms.border_contrast_low,
                 ]}>
                 {post.repostCount != null && post.repostCount !== 0 ? (
-                  <Link to={repostsHref} label={l`Reposts of this post`}>
+                  <Link
+                    to={repostsHref}
+                    label={l`Reposts of this post`}
+                    accessibilityHint="">
                     <Text
                       testID="repostCount-expanded"
                       style={[a.text_md, t.atoms.text_contrast_medium]}>
                       <Trans comment="Repost count display, the <0> tags enclose the number of reposts in bold (will never be 0)">
                         <Text
-                          style={[a.text_md, a.font_semi_bold, t.atoms.text]}>
+                          style={[a.text_md, a.font_bold, t.atoms.text]}>
                           {formatPostStatCount(post.repostCount)}
                         </Text>{' '}
                         <Plural
@@ -459,13 +462,16 @@ const ThreadItemAnchorInner = memo(function ThreadItemAnchorInner({
                 {post.quoteCount != null &&
                 post.quoteCount !== 0 &&
                 !post.viewer?.embeddingDisabled ? (
-                  <Link to={quotesHref} label={l`Quotes of this post`}>
+                  <Link
+                    to={quotesHref}
+                    label={l`Quotes of this post`}
+                    accessibilityHint="">
                     <Text
                       testID="quoteCount-expanded"
                       style={[a.text_md, t.atoms.text_contrast_medium]}>
                       <Trans comment="Quote count display, the <0> tags enclose the number of quotes in bold (will never be 0)">
                         <Text
-                          style={[a.text_md, a.font_semi_bold, t.atoms.text]}>
+                          style={[a.text_md, a.font_bold, t.atoms.text]}>
                           {formatPostStatCount(post.quoteCount)}
                         </Text>{' '}
                         <Plural
@@ -483,7 +489,7 @@ const ThreadItemAnchorInner = memo(function ThreadItemAnchorInner({
                     testID="bookmarkCount-expanded"
                     style={[a.text_md, t.atoms.text_contrast_medium]}>
                     <Trans comment="Save count display, the <0> tags enclose the number of saves in bold (will never be 0)">
-                      <Text style={[a.text_md, a.font_semi_bold, t.atoms.text]}>
+                      <Text style={[a.text_md, a.font_bold, t.atoms.text]}>
                         {formatPostStatCount(post.bookmarkCount)}
                       </Text>{' '}
                       <Plural
